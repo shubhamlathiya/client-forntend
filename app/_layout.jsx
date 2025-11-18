@@ -2,6 +2,8 @@ import {Stack} from 'expo-router';
 import 'react-native-reanimated';
 import { LoginTypeProvider } from '../contexts/LoginTypeContext';
 import ReturnReplacementScreen from "./screens/ReturnReplacementScreen";
+import PaymentHistoryScreen from "./screens/PaymentHistoryScreen";
+import TransactionDetailScreen from "./screens/TransactionDetailScreen";
 
 
 export default function RootLayout() {
@@ -33,6 +35,10 @@ export default function RootLayout() {
             <Stack.Screen name="screens/SummaryScreen" options={{headerShown: false}}/>
             <Stack.Screen name="screens/OrderConfirmationScreen" options={{headerShown: false}}/>
             <Stack.Screen name="screens/ReturnReplacementScreen" options={{headerShown: false}}/>
+            <Stack.Screen name="screens/WalletScreen" options={{headerShown: false}}/>
+            <Stack.Screen name="screens/TransactionsScreen" options={{headerShown: false}}/>
+            <Stack.Screen name="screens/PaymentHistoryScreen" options={{headerShown: false}}/>
+            <Stack.Screen name="screens/TransactionDetailScreen" options={{headerShown: false}}/>
 
         </Stack>
         </LoginTypeProvider>

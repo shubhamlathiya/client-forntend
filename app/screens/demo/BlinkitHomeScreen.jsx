@@ -650,7 +650,6 @@ export default function BlinkitHomeScreen() {
                     const defaultAddress = findDefaultAddress(addresses);
                     await saveAddressToStorage(defaultAddress);
                     hasValidAddress = true;
-                    console.log('Successfully loaded addresses from API');
                 }
             } catch (apiError) {
                 console.warn('Could not fetch addresses from API, using stored data:', apiError);

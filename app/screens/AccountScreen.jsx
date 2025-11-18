@@ -227,7 +227,7 @@ export default function AccountScreen() {
                             <Text style={styles.topButtonLabel}>Your orders</Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity style={styles.topButton}>
+                        <TouchableOpacity style={styles.topButton} onPress={()=> router.push("/screens/WalletScreen")}>
                             <Image
                                 source={require("../../assets/icons/money.png")}
                                 style={styles.topButtonIcon}

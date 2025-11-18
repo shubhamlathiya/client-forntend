@@ -3,18 +3,18 @@ import { Platform } from 'react-native';
 // Detect base URL based on platform/runtime
 const getBaseURL = () => {
   if (Platform.OS === 'web') {
-    return 'http://localhost:8000';
+    return 'https://e-commerce-rho-nine-36.vercel.app';
   }
   if (Platform.OS === 'android') {
     // Android emulator loopback
-    return 'http://192.168.0.119:8000';
+    return 'https://e-commerce-rho-nine-36.vercel.app';
   }
   if (Platform.OS === 'ios') {
     // iOS simulator loopback
-    return 'http://127.0.0.1:8000';
+    return 'https://e-commerce-rho-nine-36.vercel.app';
   }
 
-  return 'http://localhost:8000';
+  return 'https://e-commerce-rho-nine-36.vercel.app';
 };
 
 export const API_BASE_URL = getBaseURL();

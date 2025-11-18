@@ -91,7 +91,7 @@ export const getOrders = async (params = {}) => {
 // Get order by id
 export const getOrderById = async (orderId) => {
   const res = await apiClient.get(`/api/orders/${orderId}`);
-  console.log('Get Order By ID Response:', res?.data);
+  // console.log('Get Order By ID Response:', res?.data);
   return res.data;
 };
 

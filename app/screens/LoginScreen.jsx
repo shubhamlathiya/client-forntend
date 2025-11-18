@@ -38,7 +38,6 @@ export default function LoginScreen() {
     };
 
     function handleSignUp() {
-        console.log("Sign Up button clicked");
         router.replace("/screens/SignUpScreen");
     }
 
@@ -69,9 +68,8 @@ export default function LoginScreen() {
                 await mergeGuestCart();
             } catch (_) {
             }
-            Alert.alert('Success', 'Logged in successfully');
             // After login, go to login type selection
-            router.replace("/screens/LoginTypeSelectionScreen");
+            router.replace("/Home");
         } catch (error) {
             const message = error?.response?.data?.message || 'Login failed. Please check your credentials.';
             Alert.alert('Error', message);
@@ -140,7 +138,6 @@ export default function LoginScreen() {
     }
 
     function handleForgotPassword() {
-        console.log("Forgot Password button clicked");
         router.replace("/screens/ForgotPasswordScreen");
     }
 

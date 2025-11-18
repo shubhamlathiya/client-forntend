@@ -12,24 +12,67 @@ import {
     RefreshControl,
     Alert,
     FlatList,
-    Modal
+    Modal,
+    Animated
 } from 'react-native';
 import {useRouter} from "expo-router";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {getCategories, getProducts, getProductsByCategory} from "../../../api/catalogApi";
 import {API_BASE_URL} from "../../../config/apiConfig";
 import {addCartItem} from "../../../api/cartApi";
+import {getAddresses} from "../../../api/addressApi";
 
 const {width, height} = Dimensions.get('window');
 
-// Tab categories data with colors
 const TAB_CATEGORIES = [
-    { id: 'all', name: 'All', icon: require('../../../assets/icons/all.png'), color: '#FFD700', headerColor: '#FFD700' },
-    { id: 'wedding', name: 'Wedding', icon: require('../../../assets/icons/wedding.png'), color: '#FF69B4', headerColor: '#FF69B4' },
-    { id: 'winter', name: 'Winter', icon: require('../../../assets/icons/winter.png'), color: '#87CEEB', headerColor: '#87CEEB' },
-    { id: 'electronics', name: 'Electronics', icon: require('../../../assets/icons/electronics.png'), color: '#32CD32', headerColor: '#32CD32' },
-    { id: 'grocery', name: 'Grocery', icon: require('../../../assets/icons/grocery.png'), color: '#FFA500', headerColor: '#FFA500' },
-    { id: 'fashion', name: 'Fashion', icon: require('../../../assets/icons/fashion.png'), color: '#9370DB', headerColor: '#9370DB' }
+    {
+        id: 'all',
+        name: 'All',
+        icon: require('../../../assets/icons/all.png'),
+        color: '#FF8C00', // Dark Orange
+        headerColor: '#FF8C00',
+        lightColor: '#FFD700' // Light Yellow
+    },
+    {
+        id: 'wedding',
+        name: 'Wedding',
+        icon: require('../../../assets/icons/wedding.png'),
+        color: '#D81B60', // Dark Pink
+        headerColor: '#D81B60',
+        lightColor: '#FF69B4' // Light Pink
+    },
+    {
+        id: 'winter',
+        name: 'Winter',
+        icon: require('../../../assets/icons/winter.png'),
+        color: '#1E88E5', // Dark Blue
+        headerColor: '#1E88E5',
+        lightColor: '#87CEEB' // Light Blue
+    },
+    {
+        id: 'electronics',
+        name: 'Electronics',
+        icon: require('../../../assets/icons/electronics.png'),
+        color: '#43A047', // Dark Green
+        headerColor: '#43A047',
+        lightColor: '#32CD32' // Light Green
+    },
+    {
+        id: 'grocery',
+        name: 'Grocery',
+        icon: require('../../../assets/icons/grocery.png'),
+        color: '#FF6F00', // Dark Orange
+        headerColor: '#FF6F00',
+        lightColor: '#FFA500' // Light Orange
+    },
+    {
+        id: 'fashion',
+        name: 'Fashion',
+        icon: require('../../../assets/icons/fashion.png'),
+        color: '#8E24AA', // Dark Purple
+        headerColor: '#8E24AA',
+        lightColor: '#9370DB' // Light Purple
+    }
 ];
 
 export default function BlinkitHomeScreen() {
@@ -42,7 +85,7 @@ export default function BlinkitHomeScreen() {
     const [loading, setLoading] = useState(false);
     const [selectedVariants, setSelectedVariants] = useState({});
     const [addingToCart, setAddingToCart] = useState({});
-
+    const [groceryCategories , setGroceryCategories] = useState([]);
     const [showCategoryFragment, setShowCategoryFragment] = useState(false);
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [categoryProducts, setCategoryProducts] = useState([]);
@@ -52,6 +95,11 @@ export default function BlinkitHomeScreen() {
     const [activeTab, setActiveTab] = useState('all');
     const [tabProducts, setTabProducts] = useState({});
     const [headerColor, setHeaderColor] = useState('#EC0505'); // Default red color
+
+    // Animation values
+    const [searchFocused, setSearchFocused] = useState(false);
+    const searchAnim = useState(new Animated.Value(0))[0];
+    const placeholderAnim = useState(new Animated.Value(1))[0];
 
     useEffect(() => {
         loadUserData();
@@ -68,64 +116,170 @@ export default function BlinkitHomeScreen() {
         }
     }, [activeTab]);
 
+    // Search bar animation
+    useEffect(() => {
+        Animated.parallel([
+            Animated.timing(searchAnim, {
+                toValue: searchFocused ? 1 : 0,
+                duration: 300,
+                useNativeDriver: false,
+            }),
+            Animated.timing(placeholderAnim, {
+                toValue: searchFocused ? 0 : 1,
+                duration: 200,
+                useNativeDriver: false,
+            })
+        ]).start();
+    }, [searchFocused]);
+
+    const searchBarWidth = searchAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['100%', '90%']
+    });
+
+    const searchBarMargin = searchAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, -40]
+    });
+
+    const placeholderOpacity = placeholderAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, 1]
+    });
+
+    const placeholderScale = placeholderAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0.8, 1]
+    });
+
+    // Load products for specific tab
     // Load products for specific tab
     const loadTabProducts = async (tabId) => {
         try {
             setLoading(true);
             let products = [];
 
-            // Simulate different products for different tabs
-            switch (tabId) {
-                case 'all':
-                    const res = await getProducts({page: 1, limit: 20});
-                    products = res?.data ?? res;
-                    break;
-                case 'wedding':
-                    // Filter wedding related products
-                    const weddingRes = await getProducts({page: 1, limit: 15});
-                    products = (weddingRes?.data ?? weddingRes).filter(p =>
-                        p?.title?.toLowerCase().includes('gift') ||
-                        p?.category?.toLowerCase().includes('gift') ||
-                        p?.name?.toLowerCase().includes('decoration')
+            // Helper function to extract products from API response
+            const extractProducts = (response) => {
+                if (!response) return [];
+
+                // Handle different response structures
+                if (Array.isArray(response)) {
+                    return response;
+                } else if (Array.isArray(response.data)) {
+                    return response.data;
+                } else if (Array.isArray(response.items)) {
+                    return response.items;
+                } else if (response.data && Array.isArray(response.data.items)) {
+                    return response.data.items;
+                } else if (response.success && Array.isArray(response.data?.data)) {
+                    return response.data.data;
+                }
+                return [];
+            };
+
+            // Helper function to filter products
+            const filterProducts = (productsArray, keywords) => {
+                if (!Array.isArray(productsArray)) return [];
+
+                return productsArray.filter(p => {
+                    if (!p) return false;
+
+                    const title = p?.title?.toLowerCase() || '';
+                    const name = p?.name?.toLowerCase() || '';
+                    const category = p?.category?.toLowerCase() || '';
+                    const description = p?.description?.toLowerCase() || '';
+
+                    return keywords.some(keyword =>
+                        title.includes(keyword) ||
+                        name.includes(keyword) ||
+                        category.includes(keyword) ||
+                        description.includes(keyword)
                     );
-                    break;
-                case 'winter':
-                    // Filter winter related products
-                    const winterRes = await getProducts({page: 1, limit: 15});
-                    products = (winterRes?.data ?? winterRes).filter(p =>
-                        p?.title?.toLowerCase().includes('winter') ||
-                        p?.category?.toLowerCase().includes('winter') ||
-                        p?.name?.toLowerCase().includes('wool')
-                    );
-                    break;
-                case 'electronics':
-                    // Filter electronics
-                    const electronicsRes = await getProducts({page: 1, limit: 15});
-                    products = (electronicsRes?.data ?? electronicsRes).filter(p =>
-                        p?.category?.toLowerCase().includes('electronic') ||
-                        p?.title?.toLowerCase().includes('phone') ||
-                        p?.name?.toLowerCase().includes('device')
-                    );
-                    break;
-                default:
-                    const defaultRes = await getProducts({page: 1, limit: 15});
-                    products = defaultRes?.data ?? defaultRes;
+                });
+            };
+
+            try {
+                switch (tabId) {
+                    case 'all':
+                        const res = await getProducts({page: 1, limit: 20});
+                        products = extractProducts(res);
+                        break;
+
+                    case 'wedding':
+                        const weddingRes = await getProducts({page: 1, limit: 15});
+                        const weddingProducts = extractProducts(weddingRes);
+                        products = filterProducts(weddingProducts, [
+                            'gift', 'wedding', 'marriage', 'ring', 'decoration',
+                            'flower', 'bouquet', 'cake', 'card', 'invitation'
+                        ]);
+                        break;
+
+                    case 'winter':
+                        const winterRes = await getProducts({page: 1, limit: 15});
+                        const winterProducts = extractProducts(winterRes);
+                        products = filterProducts(winterProducts, [
+                            'winter', 'cold', 'wool', 'sweater', 'jacket',
+                            'gloves', 'scarf', 'heater', 'blanket', 'thermal'
+                        ]);
+                        break;
+
+                    case 'electronics':
+                        const electronicsRes = await getProducts({page: 1, limit: 15});
+                        const electronicsProducts = extractProducts(electronicsRes);
+                        products = filterProducts(electronicsProducts, [
+                            'electronic', 'phone', 'mobile', 'laptop', 'computer',
+                            'device', 'gadget', 'tech', 'smart', 'wireless'
+                        ]);
+                        break;
+
+                    case 'grocery':
+                        const groceryRes = await getProducts({page: 1, limit: 15});
+                        const groceryProducts = extractProducts(groceryRes);
+                        products = filterProducts(groceryProducts, [
+                            'grocery', 'food', 'vegetable', 'fruit', 'rice',
+                            'atta', 'dal', 'oil', 'spice', 'kitchen'
+                        ]);
+                        break;
+
+                    case 'fashion':
+                        const fashionRes = await getProducts({page: 1, limit: 15});
+                        const fashionProducts = extractProducts(fashionRes);
+                        products = filterProducts(fashionProducts, [
+                            'fashion', 'clothes', 'dress', 'shirt', 'jeans',
+                            'shoes', 'accessory', 'jewelry', 'watch', 'bag'
+                        ]);
+                        break;
+
+                    default:
+                        const defaultRes = await getProducts({page: 1, limit: 15});
+                        products = extractProducts(defaultRes);
+                }
+            } catch (apiError) {
+                console.warn(`API error for ${tabId} tab:`, apiError);
+                // Continue with fallback products
             }
 
-            const formattedProducts = Array.isArray(products) ? products : (products?.items || products?.data?.items || []);
-            const processedProducts = formattedProducts.map(product => {
-                const id = product?._id || product?.id;
+            // If no products found from API, use fallback products
+            if (!Array.isArray(products) || products.length === 0) {
+                console.log(`Using fallback products for ${tabId} tab`);
+                products = generateFallbackProducts(tabId);
+            }
+
+            const processedProducts = products.map(product => {
+                const id = product?._id || product?.id || `fallback-${Math.random()}`;
                 const priceInfo = calculateProductPrice(product);
+
                 return {
                     id,
-                    name: product?.title || product?.name || "Unnamed",
+                    name: product?.title || product?.name || `${tabId} Product ${Math.floor(Math.random() * 100)}`,
                     price: priceInfo.finalPrice,
                     basePrice: priceInfo.basePrice,
                     hasDiscount: priceInfo.hasDiscount,
                     discountPercent: priceInfo.discountPercent,
                     deliveryTime: "16 MINS",
                     image: product?.thumbnail ? {uri: `${API_BASE_URL}${product.thumbnail}`} : require("../../../assets/Rectangle 24904.png"),
-                    variantId: product.variants?.[0]?._id
+                    variantId: product.variants?.[0]?._id || null
                 };
             });
 
@@ -135,17 +289,58 @@ export default function BlinkitHomeScreen() {
             }));
 
         } catch (error) {
-            console.error('Error loading tab products:', error);
-            // Fallback to featured products
+            console.error(`Error loading ${activeTab} tab products:`, error);
+
+            // Use featured products as final fallback
+            const fallbackProducts = generateFallbackProducts(tabId);
             setTabProducts(prev => ({
                 ...prev,
-                [tabId]: featuredProducts
+                [tabId]: fallbackProducts
             }));
+
+            // Show user-friendly error message
+            Alert.alert(
+                'Temporary Issue',
+                `Having trouble loading ${TAB_CATEGORIES.find(tab => tab.id === tabId)?.name} products. Showing available items.`,
+                [{ text: 'OK' }]
+            );
         } finally {
             setLoading(false);
         }
     };
 
+    // Generate fallback products when API fails
+    const generateFallbackProducts = (tabId) => {
+        const tabNames = {
+            'all': 'General',
+            'wedding': 'Wedding',
+            'winter': 'Winter',
+            'electronics': 'Electronics',
+            'grocery': 'Grocery',
+            'fashion': 'Fashion'
+        };
+
+        const baseProducts = [
+            { name: `${tabNames[tabId]} Item 1`, price: 199, originalPrice: 299 },
+            { name: `${tabNames[tabId]} Item 2`, price: 299, originalPrice: 399 },
+            { name: `${tabNames[tabId]} Item 3`, price: 399, originalPrice: 499 },
+            { name: `${tabNames[tabId]} Item 4`, price: 149, originalPrice: 199 },
+            { name: `${tabNames[tabId]} Item 5`, price: 599, originalPrice: 799 },
+            { name: `${tabNames[tabId]} Item 6`, price: 249, originalPrice: 349 }
+        ];
+
+        return baseProducts.map((product, index) => ({
+            id: `fallback-${tabId}-${index}`,
+            name: product.name,
+            price: product.price,
+            basePrice: product.originalPrice,
+            hasDiscount: true,
+            discountPercent: Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100),
+            deliveryTime: "16 MINS",
+            image: require("../../../assets/Rectangle 24904.png"),
+            variantId: null
+        }));
+    };
     const handleTabPress = (tabId) => {
         setActiveTab(tabId);
         if (!tabProducts[tabId]) {
@@ -213,7 +408,6 @@ export default function BlinkitHomeScreen() {
             };
 
             await addCartItem(cartItem);
-            Alert.alert('Success', 'Product added to cart!');
 
         } catch (error) {
             console.error('Add to cart error:', error);
@@ -233,6 +427,15 @@ export default function BlinkitHomeScreen() {
         openCategoryFragment(category);
     };
 
+    const handleCategorySelected = (category) => {
+        router.push({
+            pathname: '/screens/ProductsScreen',
+            params: {
+                selectedCategory: category._id || category.id,
+                categoryName: category.name
+            }
+        });
+    };
     const calculateProductPrice = (product) => {
         const normalize = (val) => val !== undefined && val !== null ? Number(val) : null;
 
@@ -387,10 +590,23 @@ export default function BlinkitHomeScreen() {
             setLoading(true);
             const res = await getCategories();
             if (res?.success && Array.isArray(res?.data?.data)) {
+
                 setCategories(res.data.data);
+                setGroceryCategories(res.data.data);
             } else if (res?.success && Array.isArray(res.data)) {
                 setCategories(res.data);
+                setGroceryCategories(res.data);
             } else {
+                setGroceryCategories( [{
+                    id: 1, name: 'Vegetables & Fruits', image: require('../../../assets/images/vegetables.png'), color: '#D9EBEB'
+                }, {
+                    id: 2, name: 'Atta, Dal & Rice', image: require('../../../assets/images/atta-dal.png'), color: '#D9EBEB'
+                }, {
+                    id: 3, name: 'Oil, Ghee & Masala', image: require('../../../assets/images/oil-masala.png'), color: '#D9EBEB'
+                }, {
+                    id: 4, name: 'Dairy, Bread & Milk', image: require('../../../assets/images/dairy.png'), color: '#D9EBEB'
+                }, {id: 5, name: 'Biscuits & Bakery', image: require('../../../assets/images/dairy.png'), color: '#D9EBEB'},]);
+
                 setCategories([{
                     _id: '1', name: 'Lights, Diyas & Candles', image: require('../../../assets/images/diyas.png'),
                 }, {
@@ -419,30 +635,127 @@ export default function BlinkitHomeScreen() {
 
     const loadUserData = async () => {
         try {
-            const selectedRaw = await AsyncStorage.getItem('selectedAddress');
-            if (selectedRaw) {
-                const selectedAddress = JSON.parse(selectedRaw);
-                const formattedAddress = `${selectedAddress.address || ''}${selectedAddress.landmark ? `, ${selectedAddress.landmark}` : ''}${selectedAddress.city ? `, ${selectedAddress.city}` : ''}`;
-                setUserAddress(formattedAddress || 'Select delivery address');
-            } else {
+            let hasValidAddress = false;
+
+            // Step 1: Try to fetch addresses from API
+            try {
+                const addressesResponse = await getAddresses();
+                console.log('Address API response:', addressesResponse);
+
+                // Extract addresses from response
+                const addresses = extractAddressesFromResponse(addressesResponse);
+
+                if (addresses.length > 0) {
+                    // Find and set default address
+                    const defaultAddress = findDefaultAddress(addresses);
+                    await saveAddressToStorage(defaultAddress);
+                    hasValidAddress = true;
+                    console.log('Successfully loaded addresses from API');
+                }
+            } catch (apiError) {
+                console.warn('Could not fetch addresses from API, using stored data:', apiError);
+            }
+
+            // Step 2: Load address from AsyncStorage (either existing or API-saved)
+            if (!hasValidAddress) {
+                const storedAddress = await loadAddressFromStorage();
+                if (storedAddress) {
+                    setUserAddress(formatAddress(storedAddress));
+                    hasValidAddress = true;
+                }
+            }
+
+            // Step 3: If no address found, set default message
+            if (!hasValidAddress) {
                 setUserAddress('Select delivery address');
             }
 
+            // Step 4: Load user name
+            await loadUserName();
+
+            // Step 5: Set delivery time
+            setRandomDeliveryTime();
+
+        } catch (error) {
+            console.error('Error in loadUserData:', error);
+            setFallbackUserData();
+        }
+    };
+
+// Helper functions
+    const extractAddressesFromResponse = (response) => {
+        if (!response) return [];
+
+        if (Array.isArray(response)) return response;
+        if (Array.isArray(response.data)) return response.data;
+        if (Array.isArray(response.data?.data)) return response.data.data;
+        if (Array.isArray(response.items)) return response.items;
+        if (Array.isArray(response.data?.items)) return response.data.items;
+
+        return [];
+    };
+
+    const findDefaultAddress = (addresses) => {
+        return addresses.find(addr => addr.isDefault === true) ||
+            addresses.find(addr => addr.is_default === true) ||
+            addresses.find(addr => addr.default === true) ||
+            addresses[0];
+    };
+
+    const saveAddressToStorage = async (address) => {
+        if (!address) return;
+
+        try {
+            await AsyncStorage.setItem('selectedAddress', JSON.stringify(address));
+            setUserAddress(formatAddress(address));
+        } catch (error) {
+            console.error('Error saving address to storage:', error);
+        }
+    };
+
+    const loadAddressFromStorage = async () => {
+        try {
+            const selectedRaw = await AsyncStorage.getItem('selectedAddress');
+            return selectedRaw ? JSON.parse(selectedRaw) : null;
+        } catch (error) {
+            console.error('Error loading address from storage:', error);
+            return null;
+        }
+    };
+
+    const formatAddress = (address) => {
+        if (!address) return 'Select delivery address';
+
+        const parts = [
+            address.address,
+            address.landmark,
+            address.city
+        ].filter(part => part && part.trim() !== '');
+
+        return parts.join(', ') || 'Select delivery address';
+    };
+
+    const loadUserName = async () => {
+        try {
             const storedUserName = await AsyncStorage.getItem('userName');
             if (storedUserName) {
                 setUserName(storedUserName);
             }
-
-            const randomTime = Math.floor(Math.random() * 11) + 15;
-            setDeliveryTime(`${randomTime} minutes`);
-
         } catch (error) {
-            console.log('Error loading user data:', error);
-            setUserAddress('Select delivery address');
-            setUserName('Guest User');
+            console.error('Error loading user name:', error);
         }
     };
 
+    const setRandomDeliveryTime = () => {
+        const randomTime = Math.floor(Math.random() * 11) + 15;
+        setDeliveryTime(`${randomTime} minutes`);
+    };
+
+    const setFallbackUserData = () => {
+        setUserAddress('Select delivery address');
+        setUserName('Guest User');
+        setDeliveryTime('20 minutes');
+    };
     async function loadFeaturedProducts() {
         try {
             setLoading(true);
@@ -479,10 +792,6 @@ export default function BlinkitHomeScreen() {
         router.push(`/screens/ProductDetailScreen?id=${product.id}`);
     };
 
-    const handleNotification = () => {
-        router.push("/screens/NotificationScreen");
-    };
-
     const handleAddressPress = () => {
         router.push("/screens/AddressListScreen");
     };
@@ -499,24 +808,12 @@ export default function BlinkitHomeScreen() {
         return address;
     };
 
-    const groceryCategories = [{
-        id: 1, name: 'Vegetables & Fruits', image: require('../../../assets/images/vegetables.png'), color: '#D9EBEB'
-    }, {
-        id: 2, name: 'Atta, Dal & Rice', image: require('../../../assets/images/atta-dal.png'), color: '#D9EBEB'
-    }, {
-        id: 3, name: 'Oil, Ghee & Masala', image: require('../../../assets/images/oil-masala.png'), color: '#D9EBEB'
-    }, {
-        id: 4, name: 'Dairy, Bread & Milk', image: require('../../../assets/images/dairy.png'), color: '#D9EBEB'
-    }, {id: 5, name: 'Biscuits & Bakery', image: require('../../../assets/images/dairy.png'), color: '#D9EBEB'},];
-
-    const bottomNavItems = [{
-        id: 1, name: 'Home', icon: require('../../../assets/icons/home.png'), active: true
-    }, {id: 2, name: 'Shopping', icon: require('../../../assets/icons/shopping-bag.png'), active: false}, {
-        id: 3, name: 'Category', icon: require('../../../assets/icons/bell.png'), active: false
-    }, {id: 4, name: 'Print', icon: require('../../../assets/icons/ticket-discount.png'), active: false},];
-
     const currentTabProducts = tabProducts[activeTab] || featuredProducts;
     const activeTabData = TAB_CATEGORIES.find(tab => tab.id === activeTab);
+
+    function handleNotification() {
+        router.push("/screens/NotificationScreen");
+    }
 
     return (
         <SafeAreaView style={styles.container}>
@@ -529,14 +826,6 @@ export default function BlinkitHomeScreen() {
                     <View style={styles.deliveryInfo}>
                         <Text style={styles.blinkitText}>Blinkit in</Text>
                     </View>
-                    <TouchableOpacity style={styles.profileButton} onPress={handleProfilePress}>
-                        <View style={styles.profileCircle}>
-                            <Image
-                                source={require('../../../assets/icons/user.png')}
-                                style={styles.userIcon}
-                            />
-                        </View>
-                    </TouchableOpacity>
                 </View>
 
                 {/* Delivery Time */}
@@ -557,23 +846,43 @@ export default function BlinkitHomeScreen() {
                     />
                 </TouchableOpacity>
 
-                {/* Search Bar */}
+                {/* Search Bar with Animation */}
                 <View style={styles.searchContainer}>
-                    <View style={styles.searchBar}>
-                        <Image
-                            source={require('../../../assets/icons/search.png')}
-                            style={styles.searchIcon}
-                        />
-                        <Text style={styles.searchPlaceholder}>Search "ice-cream"</Text>
-                        <View style={styles.separator}/>
-                        <Image
-                            source={require('../../../assets/icons/mic.png')}
-                            style={styles.micIcon}
-                        />
-                    </View>
+                    <TouchableOpacity
+                        style={styles.searchBarTouchable}
+                        onPress={() => router.push('/screens/SearchScreen')}
+                    >
+                        <Animated.View style={[
+                            styles.searchBar,
+                            {
+                                width: searchBarWidth,
+                                marginLeft: searchBarMargin
+                            }
+                        ]}>
+                            <Image
+                                source={require('../../../assets/icons/search.png')}
+                                style={styles.searchIcon}
+                            />
+                            <Animated.Text
+                                style={[
+                                    styles.searchPlaceholder,
+                                    {
+                                        opacity: placeholderOpacity,
+                                        transform: [{ scale: placeholderScale }]
+                                    }
+                                ]}
+                            >
+                                Search "ice-cream"
+                            </Animated.Text>
+                            <View style={styles.separator}/>
+                            <Image
+                                source={require('../../../assets/icons/mic.png')}
+                                style={styles.micIcon}
+                            />
+                        </Animated.View>
+                    </TouchableOpacity>
                 </View>
 
-                {/* Tab View */}
                 <View style={styles.tabContainer}>
                     <ScrollView
                         horizontal
@@ -585,23 +894,36 @@ export default function BlinkitHomeScreen() {
                                 key={tab.id}
                                 style={[
                                     styles.tabItem,
-                                    activeTab === tab.id && [styles.activeTabItem, { backgroundColor: tab.color }]
+                                    activeTab === tab.id && [
+                                        styles.activeTabItem,
+                                        { backgroundColor: tab.color }
+                                    ]
                                 ]}
                                 onPress={() => handleTabPress(tab.id)}
                             >
-                                <Image
-                                    source={tab.icon}
-                                    style={[
-                                        styles.tabIcon,
-                                        activeTab === tab.id && styles.activeTabIcon
-                                    ]}
-                                />
+                                {/* First Row - Icon */}
+                                <View style={styles.tabIconContainer}>
+                                    <Image
+                                        source={tab.icon}
+                                        style={[
+                                            styles.tabIcon,
+                                            activeTab === tab.id && styles.activeTabIcon
+                                        ]}
+                                    />
+                                </View>
+
+                                {/* Second Row - Name */}
                                 <Text style={[
                                     styles.tabText,
                                     activeTab === tab.id && styles.activeTabText
-                                ]}>
+                                ]} numberOfLines={1}>
                                     {tab.name}
                                 </Text>
+
+                                {/* Active Tab Indicator */}
+                                {activeTab === tab.id && (
+                                    <View style={[styles.activeTabIndicator, { backgroundColor: '#FFFFFF' }]} />
+                                )}
                             </TouchableOpacity>
                         ))}
                     </ScrollView>
@@ -621,7 +943,6 @@ export default function BlinkitHomeScreen() {
                     />
                 }
             >
-
 
                 {/* Mega Diwali Sale Banner with Integrated Categories */}
                 <View style={[styles.saleBanner, { backgroundColor: headerColor }]}>
@@ -677,7 +998,7 @@ export default function BlinkitHomeScreen() {
                         <Text style={styles.sectionTitle}>
                             {TAB_CATEGORIES.find(tab => tab.id === activeTab)?.name} Products
                         </Text>
-                        <TouchableOpacity style={[styles.seeAllButton, { backgroundColor: activeTabData?.color || '#FFD700' }]}>
+                        <TouchableOpacity style={[styles.seeAllButton]}>
                             <Text style={styles.seeAllButtonText}>See All Products</Text>
                             <Image
                                 source={require('../../../assets/icons/right-arrow.png')}
@@ -702,11 +1023,12 @@ export default function BlinkitHomeScreen() {
                         />
                     )}
                 </View>
+
                 {/* Featured Products */}
                 <View style={styles.productsSection}>
                     <View style={styles.sectionHeaderWithButton}>
                         <Text style={styles.sectionTitle}>Featured Products</Text>
-                        <TouchableOpacity style={[styles.seeAllButton, { backgroundColor: activeTabData?.color || '#FFD700' }]}>
+                        <TouchableOpacity style={[styles.seeAllButton]}>
                             <Text style={styles.seeAllButtonText}>See All</Text>
                             <Image
                                 source={require('../../../assets/icons/right-arrow.png')}
@@ -781,7 +1103,7 @@ export default function BlinkitHomeScreen() {
                 <View style={styles.grocerySection}>
                     <View style={styles.sectionHeaderWithButton}>
                         <Text style={styles.sectionTitle}>Grocery & Kitchen</Text>
-                        <TouchableOpacity style={[styles.seeAllButton, { backgroundColor: activeTabData?.color || '#FFD700' }]}>
+                        <TouchableOpacity style={[styles.seeAllButton]}>
                             <Text style={styles.seeAllButtonText}>See All</Text>
                             <Image
                                 source={require('../../../assets/icons/right-arrow.png')}
@@ -794,46 +1116,33 @@ export default function BlinkitHomeScreen() {
                         showsHorizontalScrollIndicator={false}
                         contentContainerStyle={styles.groceryScroll}
                     >
-                        {groceryCategories.map((category) => (
+                        {groceryCategories.map((category, index) => {
+                            const url = category?.image || category?.icon;
+                            const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../../assets/images/gifts.png");
+
+                            return (
                             <TouchableOpacity
-                                key={category.id}
+                                key={category?._id || `category-${index}`}
                                 style={styles.groceryCard}
-                                onPress={() => handleCategoryPress(category.name)}
+                                onPress={() => handleCategorySelected(category)}
                             >
                                 <View style={[styles.groceryImageContainer, {backgroundColor: category.color}]}>
                                     <Image
-                                        source={category.image}
+                                        source={imageSource}
                                         style={styles.groceryImage}
                                         resizeMode="contain"
                                     />
                                 </View>
                                 <Text style={styles.groceryName}>{category.name}</Text>
                             </TouchableOpacity>
-                        ))}
+                        )})}
                     </ScrollView>
                 </View>
 
                 {/* Add more space at the bottom */}
                 <View style={styles.bottomSpacer}/>
-            </ScrollView>
 
-            {/* Bottom Navigation */}
-            <View style={styles.bottomNav}>
-                <View style={styles.navLine}/>
-                {bottomNavItems.map((item) => (
-                    <TouchableOpacity
-                        key={item.id}
-                        style={styles.navItem}
-                        onPress={() => console.log(`${item.name} pressed`)}
-                    >
-                        <Image
-                            source={item.icon}
-                            style={[styles.navIcon, item.active && styles.activeNavIcon]}
-                        />
-                        {item.active && <View style={[styles.activeIndicator, { backgroundColor: headerColor }]}/>}
-                    </TouchableOpacity>
-                ))}
-            </View>
+            </ScrollView>
 
             {/* Category Fragment Modal */}
             <Modal
@@ -846,7 +1155,7 @@ export default function BlinkitHomeScreen() {
                     <View style={styles.halfScreenModal}>
                         <SafeAreaView style={styles.fragmentContainer}>
                             {/* Fragment Header */}
-                            <View style={[styles.fragmentHeader, { backgroundColor: headerColor }]}>
+                            <View style={[styles.fragmentHeader]}>
                                 <TouchableOpacity onPress={closeCategoryFragment} style={styles.fragmentCloseButton}>
                                     <Image
                                         source={require("../../../assets/icons/deleteIcon.png")}
@@ -926,60 +1235,68 @@ export default function BlinkitHomeScreen() {
                     </View>
                 </View>
             </Modal>
+
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
+    tabContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     container: {
         flex: 1, backgroundColor: '#FFFFFF',
     },
     // Tab View Styles
     tabContainer: {
         paddingHorizontal: 16,
-        paddingTop: 10,
-        paddingBottom: 15,
+        paddingTop: 6,
     },
     tabScrollContent: {
         paddingRight: 16,
     },
     tabItem: {
-        flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#FFFFFF',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 20,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderRadius: 12,
         marginRight: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
-        elevation: 2,
+
     },
     activeTabItem: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 6,
-        elevation: 4,
+    },
+    tabIconContainer: {
+        marginBottom: 4,
     },
     tabIcon: {
-        width: 16,
-        height: 16,
-        marginRight: 6,
+        width: 24,
+        height: 24,
         tintColor: '#666',
     },
     activeTabIcon: {
         tintColor: '#FFFFFF',
     },
     tabText: {
-        fontSize: 12,
+        fontSize: 11,
         fontFamily: 'Poppins-SemiBold',
         color: '#666',
+        textAlign: 'center',
     },
     activeTabText: {
         color: '#FFFFFF',
+        fontFamily: 'Poppins-Bold',
+    },
+    activeTabIndicator: {
+        position: 'absolute',
+        bottom: -8,
+        left: '50%',
+        marginLeft: -15,
+        width: 30,
+        height: 3,
+        borderRadius: 2,
     },
     // Tab Products Section
     tabProductsSection: {
@@ -1093,7 +1410,6 @@ const styles = StyleSheet.create({
         fontFamily: "Poppins-SemiBold",
         color: "#EC0505",
     },
-    // Rest of your existing styles remain the same...
     header: {
         paddingTop: 20,
         paddingBottom: 0,
@@ -1125,8 +1441,8 @@ const styles = StyleSheet.create({
         padding: 4,
     },
     profileCircle: {
-        width: 32,
-        height: 32,
+        width: 40,
+        height: 40,
         borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
@@ -1139,9 +1455,8 @@ const styles = StyleSheet.create({
     },
     addressRow: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         paddingHorizontal: 16,
-        marginBottom: 6,
     },
     homeText: {
         fontFamily: 'Poppins',
@@ -1179,6 +1494,9 @@ const styles = StyleSheet.create({
     searchContainer: {
         paddingHorizontal: 16,
         marginTop: 10,
+    },
+    searchBarTouchable: {
+        width: '100%',
     },
     searchBar: {
         flexDirection: 'row',
@@ -1344,11 +1662,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 10,
-        shadowColor: '#000',
-        shadowOffset: {width: 0, height: 2},
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
     },
     groceryImage: {
         width: 70,
@@ -1444,12 +1757,12 @@ const styles = StyleSheet.create({
     fragmentCloseIcon: {
         width: 20,
         height: 20,
-        tintColor: '#FFFFFF',
+        tintColor: '#000000',
     },
     fragmentHeaderTitle: {
         fontSize: 18,
         fontWeight: '700',
-        color: '#FFFFFF',
+        color: '#000000',
         fontFamily: 'Poppins-Bold',
     },
     fragmentHeaderPlaceholder: {

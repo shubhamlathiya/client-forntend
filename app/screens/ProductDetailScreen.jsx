@@ -225,7 +225,7 @@ export default function ProductDetailScreen() {
                         {product?.mrp ? (
                             <Text style={styles.oldPrice}>${Number(product.mrp).toFixed(2)}</Text>
                         ) : null}
-                        <Text style={styles.price}>${Number(displayPrice).toFixed(2)}</Text>
+                        <Text style={styles.price}>₹{Number(displayPrice).toFixed(2)}</Text>
                         {product?.type === 'variant' && (selectedVariant?.stock !== undefined) ? (
                             <Text style={styles.reviewsText}>Stock: {selectedVariant?.stock}</Text>
                         ) : null}

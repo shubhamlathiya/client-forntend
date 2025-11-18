@@ -42,19 +42,13 @@ export default function HomeScreen() {
     };
 
     function handleNotification() {
-        console.log("Notification button clicked");
         router.replace("/screens/NotificationScreen");
     }
 
     function handleAddressPress() {
-        console.log("Address pressed");
-        router.push("/screens/AddressScreen"); // Navigate to address selection screen
+        router.push("/screens/AddressScreen");
     }
 
-    function handleMenuPress() {
-        console.log("Menu button clicked");
-        // You can add a drawer navigation or menu modal here
-    }
 
     // Function to truncate long addresses
     const truncateAddress = (address, maxLength = 28) => {

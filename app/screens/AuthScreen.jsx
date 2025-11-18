@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { colors } from '../../constants/colors';
 import { fonts } from '../../constants/fonts';
-import { globalStyles } from '../../constants/globalStyles';
 import logo from '../../assets/Logo_green.png';
 import googleIcon from '../../assets/google_logo.png';
 import facebookIcon from '../../assets/facebook.png';

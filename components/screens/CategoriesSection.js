@@ -42,7 +42,7 @@ export default function CategoriesSection() {
     }, []);
 
     function handleCategoriesShowAll() {
-        console.log("Categories Show All button clicked");
+
         router.replace("/screens/CategoriesScreen");
     }
     return (

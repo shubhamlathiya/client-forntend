@@ -150,6 +150,7 @@ export default function MyOrderScreen() {
                 style={styles.orderCard}
                 onPress={() => handleOrderPress(order)}
             >
+                <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
                 {/* Order Header - New Design */}
                 <View style={styles.orderHeader}>
                     {/* Left Side Icon */}

@@ -1,110 +1,156 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  getUserNotifications,
-  markNotificationRead,
-  markAllNotificationsRead,
-} from "../api/notificationsApi";
+import { useState, useEffect } from 'react';
+import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {getUserNotifications, markAllNotificationsAsRead, markNotificationAsRead} from "../api/notificationApi";
 
-const parseUserId = (user) => {
-  if (!user) return null;
-  return user._id || user.id || user.userId || null;
-};
 
-export default function useNotifications(options = {}) {
-  const { userId: propUserId = null, pollIntervalMs = 5000, enabled = true } = options;
-  const [userId, setUserId] = useState(propUserId);
+const useNotifications = () => {
   const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const timerRef = useRef(null);
 
-  const fetchUserId = useCallback(async () => {
-    if (propUserId) return propUserId;
-    const raw = await AsyncStorage.getItem("userData");
-    if (!raw) return null;
+  // Get current user ID from AsyncStorage
+  const getCurrentUserId = async () => {
     try {
-      const parsed = JSON.parse(raw);
-      return parseUserId(parsed);
-    } catch {
+      const userData = await AsyncStorage.getItem('userData');
+      if (userData) {
+        const parsedData = JSON.parse(userData);
+        return parsedData._id || parsedData.id;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting user ID:', error);
       return null;
     }
-  }, [propUserId]);
+  };
 
-  const load = useCallback(async () => {
-    const uid = userId || (await fetchUserId());
-    if (!uid) return;
-    setError(null);
-    setLoading(true);
+  // Fetch notifications from API
+  const fetchNotifications = async (isRefreshing = false) => {
     try {
-      const data = await getUserNotifications(uid);
-      const items = Array.isArray(data) ? data : data?.notifications || [];
-      setNotifications(items);
-    } catch (e) {
-      const message = e?.response?.data?.message || e?.message || "Failed to load notifications";
-      setError(String(message));
+      if (isRefreshing) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+
+      const userId = await getCurrentUserId();
+      if (!userId) {
+        throw new Error('User not found. Please login again.');
+      }
+
+      const response = await getUserNotifications(userId);
+
+      // Handle different response structures
+      let notificationsData = [];
+      if (Array.isArray(response)) {
+        notificationsData = response;
+      } else if (Array.isArray(response.data)) {
+        notificationsData = response.data;
+      } else if (Array.isArray(response.notifications)) {
+        notificationsData = response.notifications;
+      } else if (response.success && Array.isArray(response.data)) {
+        notificationsData = response.data;
+      }
+
+      // Sort by date (newest first)
+      notificationsData.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+      setNotifications(notificationsData);
+    } catch (err) {
+      console.error('Error fetching notifications:', err);
+      setError(err.message || 'Failed to load notifications');
+
+      // Show alert for critical errors
+      if (err.message.includes('User not found')) {
+        Alert.alert('Session Expired', 'Please login again to continue.');
+      }
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [userId, fetchUserId]);
+  };
 
-  const refresh = useCallback(async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }, [load]);
-
-  const markOneAsRead = useCallback(
-    async (id) => {
-      if (!id) return;
-      try {
-        await markNotificationRead(id);
-        setNotifications((prev) => prev.map((n) => (n.id === id || n._id === id ? { ...n, read: true } : n)));
-      } catch {}
-    },
-    []
-  );
-
-  const markAllAsRead = useCallback(async () => {
-    const uid = userId || (await fetchUserId());
-    if (!uid) return;
+  // Mark one notification as read
+  const markOneAsRead = async (notificationId) => {
     try {
-      await markAllNotificationsRead(uid);
-      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    } catch {}
-  }, [userId, fetchUserId]);
+      setNotifications(prev =>
+          prev.map(notification =>
+              notification._id === notificationId || notification.id === notificationId
+                  ? { ...notification, read: true }
+                  : notification
+          )
+      );
 
+      await markNotificationAsRead(notificationId);
+
+      // Refresh to get updated data
+      await fetchNotifications();
+    } catch (err) {
+      console.error('Error marking notification as read:', err);
+      setError('Failed to mark notification as read');
+
+      // Revert optimistic update
+      setNotifications(prev =>
+          prev.map(notification =>
+              notification._id === notificationId || notification.id === notificationId
+                  ? { ...notification, read: false }
+                  : notification
+          )
+      );
+    }
+  };
+
+  // Mark all notifications as read
+  const markAllAsRead = async () => {
+    try {
+      const userId = await getCurrentUserId();
+      if (!userId) {
+        throw new Error('User not found');
+      }
+
+      // Optimistic update
+      setNotifications(prev =>
+          prev.map(notification => ({ ...notification, read: true }))
+      );
+
+      await markAllNotificationsAsRead(userId);
+
+      // Refresh to get updated data
+      await fetchNotifications();
+    } catch (err) {
+      console.error('Error marking all notifications as read:', err);
+      setError('Failed to mark all notifications as read');
+
+      // Revert optimistic update
+      await fetchNotifications();
+    }
+  };
+
+  // Refresh notifications
+  const refresh = () => {
+    fetchNotifications(true);
+  };
+
+  // Calculate unread count
+  const unreadCount = notifications.filter(notification => !notification.read).length;
+
+  // Initial load
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      const uid = await fetchUserId();
-      if (mounted) setUserId(uid);
-      if (enabled) await load();
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [enabled, fetchUserId, load]);
+    fetchNotifications();
+  }, []);
 
+  // Auto-refresh every 30 seconds
   useEffect(() => {
-    if (!enabled) return;
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      load();
-    }, pollIntervalMs);
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      timerRef.current = null;
-    };
-  }, [enabled, pollIntervalMs, load]);
+    const interval = setInterval(() => {
+      fetchNotifications();
+    }, 30000); // 30 seconds
 
-  const unreadCount = useMemo(() => {
-    return notifications.filter((n) => !n.read).length;
-  }, [notifications]);
+    return () => clearInterval(interval);
+  }, []);
 
   return {
-    userId,
     notifications,
     unreadCount,
     loading,
@@ -113,5 +159,8 @@ export default function useNotifications(options = {}) {
     refresh,
     markOneAsRead,
     markAllAsRead,
+    fetchNotifications
   };
-}
+};
+
+export default useNotifications;

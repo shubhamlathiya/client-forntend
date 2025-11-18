@@ -4,8 +4,6 @@ import MyOrderScreen from "../screens/MyOrderScreen";
 
 export default function Account() {
     return (<>
-        {/*<ScrollView contentContainerStyle={{paddingBottom: 100}} showsVerticalScrollIndicator={false}>*/}
-            <AccountScreen/>
-        {/*</ScrollView>*/}
+           <AccountScreen/>
     </>)
 }

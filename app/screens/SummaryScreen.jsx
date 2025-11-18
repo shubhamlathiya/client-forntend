@@ -135,7 +135,6 @@ export default function SummaryScreen() {
 
             if (!address) return showMessage('Please select an address', true);
             if (!summary?.cartId) return showMessage('Order summary not found', true);
-            console.log("shubham",summary._id)
             const orderPayload = {
                 summaryId : summary._id,
                 cartId: summary.cartId,

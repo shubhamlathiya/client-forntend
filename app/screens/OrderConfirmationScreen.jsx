@@ -11,10 +11,13 @@ import {
     ActivityIndicator,
     Modal,
 } from "react-native";
-
+// Assuming these are implemented elsewhere:
 import { getOrderById } from "../../api/ordersApi";
 import { initiatePayment, verifyRazorpayPayment } from "../../api/paymentApi";
 import PaymentWebView from "./PaymentWebView";
+
+// NOTE: Add your AsyncStorage utility here if you don't use a separate file
+// import { fetchUserData } from "../../utils/asyncStorageUtils";
 
 export default function OrderConfirmationScreen() {
     const router = useRouter();
@@ -36,7 +39,6 @@ export default function OrderConfirmationScreen() {
         try {
             const res = await getOrderById(orderId);
             const orderData = res?.data?.data || res?.data || res;
-            console.log("✅ Order Data Loaded Successfully");
             setOrder(orderData);
         } catch (err) {
             console.log("❌ Load Order Error:", err);
@@ -67,13 +69,10 @@ export default function OrderConfirmationScreen() {
             setStartingPayment(true);
             setLastError(null);
 
-            console.log("🔄 Starting payment initialization...");
-
             // 1. Call backend to initiate Razorpay payment
             const res = await initiatePayment(orderId, "razorpay");
             const data = res?.data?.data || res?.data || res;
 
-            console.log("📦 Payment Init Response:", data);
 
             if (!data) {
                 throw new Error("No response from payment server");
@@ -94,16 +93,17 @@ export default function OrderConfirmationScreen() {
 
             // Store payment data for WebView
             const paymentData = {
-                amount: amountNum,
+                amount: amountNum, // This amount is in paise, e.g., 226756
                 orderId: data.orderId,
                 keyId: data.keyId,
-                currency: data.currency || "INR"
+                currency: data.currency || "INR",
+                // Assuming user/billing info is attached to order/user state
+                user: order.user,
+                billingAddress: order.billingAddress,
             };
 
             setPaymentData(paymentData);
             setPaymentInitialized(true);
-
-            console.log("✅ Payment initialized successfully:", paymentData);
 
             // Show confirmation with amount details
             const displayAmount = formatDisplayAmount(amountNum);
@@ -114,7 +114,7 @@ export default function OrderConfirmationScreen() {
                     {
                         text: "Proceed to Pay",
                         onPress: () => {
-                            console.log("🎯 Opening payment modal...");
+
                             setShowPaymentModal(true);
                         }
                     },
@@ -122,7 +122,7 @@ export default function OrderConfirmationScreen() {
                         text: "Cancel",
                         style: "cancel",
                         onPress: () => {
-                            console.log("❌ Payment initialization cancelled");
+
                             setPaymentInitialized(false);
                             setPaymentData(null);
                         }
@@ -141,81 +141,40 @@ export default function OrderConfirmationScreen() {
     };
 
     const handlePaymentSuccess = async (response) => {
-        console.log("✅ Payment Success:", response);
+        // Close modal immediately
+        setShowPaymentModal(false);
 
         try {
             // Verify payment with your backend
-            const verification = await verifyRazorpayPayment({
+            await verifyRazorpayPayment({
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
                 orderId,
             });
 
-            console.log("✅ Payment Verified:", verification);
-
             Alert.alert("Success", "Payment completed successfully!");
 
-            // Update order status
-            setOrder(prev => ({
-                ...prev,
-                payment: {
-                    ...prev.payment,
-                    status: "completed",
-                    razorpayPaymentId: response.razorpay_payment_id
-                },
-            }));
-
             // Reset payment states
-            setShowPaymentModal(false);
             setPaymentData(null);
             setPaymentInitialized(false);
             setLastError(null);
 
             // Reload order to get updated data
             loadOrder();
-
+            router.push("/Order")
         } catch (verificationError) {
             console.error("❌ Payment verification failed:", verificationError);
             const errorMsg = verificationError.response?.data?.message || "Payment verification failed";
             Alert.alert("Verification Failed", errorMsg);
-            setShowPaymentModal(false);
             setPaymentData(null);
             setPaymentInitialized(false);
             setLastError(errorMsg);
         }
     };
 
-    const handlePaymentError = (error) => {
-        console.error("❌ Payment Error:", error);
-
-        let errorMessage = "Something went wrong. Please try again.";
-
-        if (error && error.description) {
-            errorMessage = error.description;
-
-            // Common error messages and their user-friendly versions
-            if (error.description.includes("another method")) {
-                errorMessage = "This payment method is currently unavailable. Please try:\n\n• Using a different card\n• Contacting your bank\n• Trying again in a few minutes";
-            } else if (error.description.includes("failed to initialize")) {
-                errorMessage = "Payment gateway initialization failed. Please check your internet connection and try again.";
-            } else if (error.description.includes("timeout")) {
-                errorMessage = "Payment gateway took too long to respond. Please try again.";
-            }
-        }
-
-        Alert.alert("Payment Failed", errorMessage);
-        setShowPaymentModal(false);
-        setLastError(errorMessage);
-    };
-
-    const handlePaymentClose = () => {
-        console.log("🔒 Payment modal closed by user");
-        setShowPaymentModal(false);
-    };
-
     const startNewPayment = () => {
-        // Reset any existing payment data
+        // Reset any existing payment data to force a new API call
         setPaymentData(null);
         setPaymentInitialized(false);
         setShowPaymentModal(false);
@@ -225,12 +184,46 @@ export default function OrderConfirmationScreen() {
         initializePayment();
     };
 
+    const handlePaymentError = (errorData) => {
+        // 1. Log and set the error for display
+        const errorMessage = errorData.description || "Payment failed. Please try again.";
+        console.error('Payment Error Details:', errorData);
+
+        // Set last error for display in the error card
+        setLastError(errorMessage);
+
+        // 2. Close the WebView modal immediately
+        setShowPaymentModal(false);
+
+        // 3. Provide a specific, actionable message to the user
+        const message = errorData.description === "Please use another method"
+            ? "Payment failed. Please try a different card/method, or your previous session may have expired."
+            : errorData.description || "Payment failed. Please try again.";
+
+        // 4. Prompt the user to retry (which forces new order initialization)
+        Alert.alert("Payment Failed", message, [
+            {
+                text: "Try New Payment",
+                onPress: () => {
+                    startNewPayment(); // Will call initializePayment()
+                }
+            },
+            { text: "Cancel", style: 'cancel' }
+        ]);
+
+        // Reset payment states to force new initialization upon retry
+        setPaymentData(null);
+        setPaymentInitialized(false);
+    };
+
+    const handlePaymentClose = () => {
+        setShowPaymentModal(false);
+    };
+
     const resumePayment = () => {
         if (paymentInitialized && paymentData) {
-            console.log("🔄 Resuming payment...");
             setShowPaymentModal(true);
         } else {
-            console.log("🆕 Starting new payment session...");
             startNewPayment();
         }
     };
@@ -266,7 +259,7 @@ export default function OrderConfirmationScreen() {
         rawAmount = order.payment.paidAmount;
     }
 
-    const displayAmount = rawAmount;
+    const displayAmount = formatDisplayAmount(rawAmount);
     const displayStatus = order?.payment?.status || order?.summary?.status || "pending";
     const paymentCompleted = displayStatus.toLowerCase() === "completed";
 
@@ -310,7 +303,7 @@ export default function OrderConfirmationScreen() {
 
                         <View style={styles.infoRow}>
                             <Text style={styles.label}>Amount</Text>
-                            <Text style={styles.value}>₹{displayAmount}</Text>
+                            <Text style={styles.value}>₹{displayAmount *100}</Text>
                         </View>
 
                         <View style={styles.infoRow}>
@@ -375,7 +368,7 @@ export default function OrderConfirmationScreen() {
                                         </View>
                                     ) : (
                                         <Text style={styles.primaryText}>
-                                            Initialize Payment - ₹{displayAmount}
+                                            Initialize Payment - ₹{displayAmount * 100}
                                         </Text>
                                     )}
                                 </TouchableOpacity>
@@ -451,14 +444,6 @@ const styles = StyleSheet.create({
         backgroundColor: "#F8F9FA"
     },
     scroll: { padding: 20, paddingTop: 10 },
-    infoCard: {
-        backgroundColor: "#E3F2FD",
-        padding: 16,
-        borderRadius: 8,
-        marginBottom: 20,
-        borderLeftWidth: 4,
-        borderLeftColor: "#2196F3"
-    },
     errorCard: {
         backgroundColor: "#FFEAA7",
         padding: 16,
@@ -477,17 +462,6 @@ const styles = StyleSheet.create({
         color: "#E17055",
         fontSize: 14,
         lineHeight: 18
-    },
-    infoTitle: {
-        fontSize: 16,
-        fontWeight: "bold",
-        color: "#1565C0",
-        marginBottom: 4
-    },
-    infoText: {
-        color: "#1565C0",
-        fontSize: 14,
-        lineHeight: 20
     },
     card: {
         backgroundColor: "#FFF",

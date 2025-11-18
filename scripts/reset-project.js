@@ -1,11 +1,5 @@
 #!/usr/bin/env node
 
-/**
- * This script is used to reset the project to a blank state.
- * It deletes or moves the /app, /components, /hooks, /scripts, and /constants directories to /app-example based on user input and creates a new /app directory with an index.jsx and _layout.jsx file.
- * You can remove the `reset-project` script from package.json and safely delete this file after running it.
- */
-
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
@@ -73,17 +67,16 @@ const moveDirectories = async (userInput) => {
     // Create new /app directory
     const newAppDirPath = path.join(root, newAppDir);
     await fs.promises.mkdir(newAppDirPath, { recursive: true });
-    console.log("\n📁 New /app directory created.");
 
     // Create index.jsx
     const indexPath = path.join(newAppDirPath, "index.jsx");
     await fs.promises.writeFile(indexPath, indexContent);
-    console.log("📄 app/index.jsx created.");
+
 
     // Create _layout.jsx
     const layoutPath = path.join(newAppDirPath, "_layout.jsx");
     await fs.promises.writeFile(layoutPath, layoutContent);
-    console.log("📄 app/_layout.jsx created.");
+
 
     console.log("\n✅ Project reset complete. Next steps:");
     console.log(

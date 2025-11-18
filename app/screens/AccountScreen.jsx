@@ -219,7 +219,7 @@ export default function AccountScreen() {
                             { opacity: topButtonRowOpacity }
                         ]}
                     >
-                        <TouchableOpacity style={styles.topButton}>
+                        <TouchableOpacity style={styles.topButton} onPress={() => router.push("/screens/MyOrderScreen")}>
                             <Image
                                 source={require("../../assets/icons/empty-box.png")}
                                 style={styles.topButtonIcon}
@@ -232,7 +232,7 @@ export default function AccountScreen() {
                                 source={require("../../assets/icons/money.png")}
                                 style={styles.topButtonIcon}
                             />
-                            <Text style={styles.topButtonLabel}>Blinkit Money</Text>
+                            <Text style={styles.topButtonLabel}>Money</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity style={styles.topButton}>

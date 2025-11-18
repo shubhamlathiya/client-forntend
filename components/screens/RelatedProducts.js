@@ -36,7 +36,6 @@ export default function RelatedProducts({ categoryId = null, title = "Bestseller
 
     // Calculate product price with discount
     const calculateProductPrice = (product) => {
-        // console.log("Product data:", product);
 
         // Check if product has variants with finalPrice
         if (product?.variants && Array.isArray(product.variants) && product.variants.length > 0) {
@@ -145,10 +144,7 @@ export default function RelatedProducts({ categoryId = null, title = "Bestseller
                 variantId: selectedVariant?._id || selectedVariant?.id || null
             };
 
-            console.log("Cart item being sent:", cartItem);
-
-            const result = await addCartItem(cartItem);
-            console.log("Add to cart response:", result);
+            await addCartItem(cartItem);
 
         } catch (error) {
             console.error('Add to cart error:', error);
@@ -239,9 +235,8 @@ export default function RelatedProducts({ categoryId = null, title = "Bestseller
 
 const styles = StyleSheet.create({
     container: {
-        position: "absolute",
         left: 15,
-        top: 220,
+        right:15,
         width: "100%",
     },
     title: {

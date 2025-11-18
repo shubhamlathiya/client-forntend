@@ -12,7 +12,8 @@ import {
     Image,
     Platform,
     ActivityIndicator,
-    RefreshControl
+    RefreshControl,
+    StatusBar
 } from 'react-native';
 import {getAddresses, deleteAddress, setDefaultAddress} from '../../api/addressApi';
 
@@ -62,13 +63,10 @@ export default function AddressListScreen() {
             // Store the selected address
             await AsyncStorage.setItem('selectedAddress', JSON.stringify(address));
 
-            // showMessage('Address selected successfully');
-
-            // Always go back to previous screen regardless of where user came from
+            // Always go back to previous screen
             if (router.canGoBack()) {
                 router.back();
             } else {
-                // Fallback if no back history
                 router.replace('/Home');
             }
         } catch (error) {
@@ -93,7 +91,7 @@ export default function AddressListScreen() {
     const handleDelete = async (id) => {
         Alert.alert(
             'Delete Address',
-            'Are you sure you want to delete this address? This action cannot be undone.',
+            'Are you sure you want to delete this address?',
             [
                 {text: 'Cancel', style: 'cancel'},
                 {
@@ -125,6 +123,14 @@ export default function AddressListScreen() {
         router.push('/screens/AddAddressScreen');
     };
 
+    const handleBack = () => {
+        if (router.canGoBack()) {
+            router.back();
+        } else {
+            router.replace('/Home');
+        }
+    };
+
     const getAddressTypeIcon = (type) => {
         switch (type) {
             case 'home':
@@ -141,24 +147,17 @@ export default function AddressListScreen() {
             case 'home':
                 return 'Home';
             case 'office':
-                return 'Office';
+                return 'Work';
             default:
                 return 'Other';
-        }
-    };
-
-    const handleBack = () => {
-        if (router.canGoBack()) {
-            router.back();
-        } else {
-            router.replace('/Home');
         }
     };
 
     if (loading) {
         return (
             <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#4CAD73"/>
+                <StatusBar backgroundColor="#EC0505" barStyle="light-content" />
+                <ActivityIndicator size="large" color="#EC0505"/>
                 <Text style={styles.loadingText}>Loading addresses...</Text>
             </View>
         );
@@ -166,166 +165,185 @@ export default function AddressListScreen() {
 
     return (
         <View style={styles.container}>
-            <View style={styles.topBar}>
-                <TouchableOpacity onPress={handleBack}>
-                    <Image
-                        source={require("../../assets/icons/back_icon.png")}
-                        style={styles.iconBox}
-                    />
-                </TouchableOpacity>
-                <Text style={styles.heading}>My Addresses</Text>
+            <StatusBar backgroundColor="#EC0505" barStyle="light-content" />
+
+            {/* Header - Blinkit Style */}
+            <View style={styles.header}>
+                <View style={styles.headerTop}>
+                    <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+                        <Image
+                            source={require("../../assets/icons/back_icon.png")}
+                            style={styles.backIcon}
+                        />
+                    </TouchableOpacity>
+                    <Text style={styles.headerTitle}>Select Delivery Address</Text>
+                    <View style={styles.headerPlaceholder} />
+                </View>
+
+                <View style={styles.deliveryInfo}>
+                    <Text style={styles.deliveryTime}>Delivery in 16 minutes</Text>
+                    <Text style={styles.changeText}>Change</Text>
+                </View>
             </View>
 
             <ScrollView
+                style={styles.scrollView}
                 contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}
                         onRefresh={onRefresh}
-                        colors={['#4CAD73']}
-                        tintColor="#4CAD73"
+                        colors={["#FFE59A", "#FFD56C"]}
+                        tintColor="#EC0505"
                     />
                 }
             >
-                {/* Empty State */}
-                {addresses.length === 0 ? (
-                    <View style={styles.emptyState}>
-                        <Text style={styles.emptyTitle}>No Addresses Yet</Text>
-                        <Text style={styles.emptySubtitle}>
-                            Add your first address to get started with faster checkout
-                        </Text>
-                        <TouchableOpacity style={styles.emptyCta} onPress={handleAddNew}>
-                            <Text style={styles.emptyCtaText}>Add Your First Address</Text>
-                        </TouchableOpacity>
+                {/* Current Location Option */}
+                <TouchableOpacity style={styles.currentLocationCard}>
+                    <View style={styles.locationIconContainer}>
+                        {/*<Image*/}
+                        {/*    source={require('../../assets/icons/gps.png')}*/}
+                        {/*    style={styles.locationIcon}*/}
+                        {/*/>*/}
                     </View>
-                ) : (
-                    <View style={styles.addressList}>
-                        <Text style={styles.sectionTitle}>Saved Addresses ({addresses.length})</Text>
+                    <View style={styles.locationInfo}>
+                        <Text style={styles.locationTitle}>Use current location</Text>
+                        <Text style={styles.locationSubtitle}>Deliver to my current location</Text>
+                    </View>
+                    <Image
+                        source={require('../../assets/icons/right-arrow.png')}
+                        style={styles.arrowIcon}
+                    />
+                </TouchableOpacity>
 
-                        {addresses.map((addr) => {
+                {/* Saved Addresses Section */}
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>SAVED ADDRESSES</Text>
+
+                    {addresses.length === 0 ? (
+                        <View style={styles.emptyState}>
+                            {/*<Image*/}
+                            {/*    source={require('../../assets/icons/location-pin.png')}*/}
+                            {/*    style={styles.emptyIcon}*/}
+                            {/*/>*/}
+                            <Text style={styles.emptyTitle}>No Saved Addresses</Text>
+                            <Text style={styles.emptySubtitle}>
+                                Add your delivery address for faster checkout
+                            </Text>
+                        </View>
+                    ) : (
+                        addresses.map((addr) => {
                             const id = addr?._id || addr?.id;
                             const isDefault = !!addr?.isDefault;
 
                             return (
-                                <View key={String(id)} style={[
-                                    styles.addressCard,
-                                    isDefault && styles.addressCardDefault
-                                ]}>
-                                    {/* Card Header */}
-                                    <TouchableOpacity
-                                        onPress={() => handleSelectAddress(addr)}
-                                        disabled={selectedAddressId === id}
-                                    >
-                                        <View style={styles.cardHeader}>
-                                            <View style={styles.addressType}>
-                                                <Image
-                                                    source={getAddressTypeIcon(addr?.type)}
-                                                    style={styles.typeIcon}
-                                                />
-                                                <Text style={styles.typeLabel}>
-                                                    {getAddressTypeLabel(addr?.type)}
-                                                </Text>
-                                            </View>
-
-                                            <View style={styles.headerBadges}>
-                                                {isDefault && (
-                                                    <View style={styles.defaultBadge}>
-                                                        <Text style={styles.defaultBadgeText}>Default</Text>
-                                                    </View>
-                                                )}
-                                            </View>
-                                        </View>
-
-                                        {/* Address Details */}
-                                        <View style={styles.addressDetails}>
-                                            <Text style={styles.contactName}>{addr?.name}</Text>
-                                            <Text style={styles.contactPhone}>{addr?.phone}</Text>
-
-                                            <Text style={styles.addressText}>
-                                                {addr?.address}
+                                <TouchableOpacity
+                                    key={String(id)}
+                                    style={[
+                                        styles.addressCard,
+                                        isDefault && styles.defaultAddressCard
+                                    ]}
+                                    onPress={() => handleSelectAddress(addr)}
+                                    disabled={selectedAddressId === id}
+                                >
+                                    {/* Address Type Badge */}
+                                    <View style={styles.addressHeader}>
+                                        <View style={styles.addressTypeBadge}>
+                                            <Image
+                                                source={getAddressTypeIcon(addr?.type)}
+                                                style={styles.typeIcon}
+                                            />
+                                            <Text style={styles.typeLabel}>
+                                                {getAddressTypeLabel(addr?.type)}
                                             </Text>
-
-                                            <Text style={styles.addressArea}>
-                                                {[addr?.city, addr?.state, addr?.pincode]
-                                                    .filter(Boolean)
-                                                    .join(', ')}
-                                            </Text>
-
-                                            {addr?.country && (
-                                                <Text style={styles.addressCountry}>{addr?.country}</Text>
-                                            )}
                                         </View>
+                                        {isDefault && (
+                                            <View style={styles.defaultBadge}>
+                                                <Text style={styles.defaultBadgeText}>DEFAULT</Text>
+                                            </View>
+                                        )}
+                                    </View>
 
-                                        {/* Select Button */}
-                                        <View style={styles.selectButtonContainer}>
-                                            <TouchableOpacity
-                                                style={styles.selectButton}
-                                                onPress={() => handleSelectAddress(addr)}
-                                                disabled={selectedAddressId === id}
-                                            >
-                                                <Text style={styles.selectButtonText}>
-                                                    {selectedAddressId === id ? 'Selecting...' : 'Select This Address'}
-                                                </Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    </TouchableOpacity>
+                                    {/* Address Details */}
+                                    <View style={styles.addressDetails}>
+                                        <Text style={styles.contactInfo}>
+                                            {addr?.name} • {addr?.phone}
+                                        </Text>
+                                        <Text style={styles.addressText}>
+                                            {addr?.address}
+                                        </Text>
+                                        <Text style={styles.areaText}>
+                                            {[addr?.landmark, addr?.city, addr?.state, addr?.pincode]
+                                                .filter(Boolean)
+                                                .join(', ')}
+                                        </Text>
+                                    </View>
 
                                     {/* Action Buttons */}
-                                    <View style={styles.actionButtons}>
-                                        <View style={styles.secondaryActions}>
-                                            <TouchableOpacity
-                                                style={styles.iconButton}
-                                                onPress={() => handleEdit(addr)}
-                                            >
-                                                <Image
-                                                    source={require('../../assets/icons/edit.png')}
-                                                    style={styles.icon}
-                                                />
-                                                <Text style={styles.iconButtonText}>Edit</Text>
-                                            </TouchableOpacity>
+                                    <View style={styles.actionRow}>
+                                        <TouchableOpacity
+                                            style={styles.actionButton}
+                                            onPress={() => handleEdit(addr)}
+                                        >
+                                            <Image
+                                                source={require('../../assets/icons/edit.png')}
+                                                style={styles.actionIcon}
+                                            />
+                                            <Text style={styles.actionText}>Edit</Text>
+                                        </TouchableOpacity>
 
-                                            {!isDefault && (
-                                                <TouchableOpacity
-                                                    style={styles.iconButton}
-                                                    onPress={() => handleSetDefault(id)}
-                                                >
-                                                    <Text style={styles.iconButtonText}>Set Default</Text>
-                                                </TouchableOpacity>
-                                            )}
-
+                                        {!isDefault && (
                                             <TouchableOpacity
-                                                style={styles.iconButton}
-                                                onPress={() => handleDelete(id)}
+                                                style={styles.actionButton}
+                                                onPress={() => handleSetDefault(id)}
                                             >
-                                                <Image
-                                                    source={require('../../assets/icons/deleteIcon.png')}
-                                                    style={[styles.icon, styles.deleteIcon]}
-                                                />
-                                                <Text style={[styles.iconButtonText, styles.deleteText]}>
-                                                    Delete
-                                                </Text>
+                                                <Text style={styles.actionText}>Set Default</Text>
                                             </TouchableOpacity>
-                                        </View>
+                                        )}
+
+                                        <TouchableOpacity
+                                            style={styles.actionButton}
+                                            onPress={() => handleDelete(id)}
+                                        >
+                                            <Image
+                                                source={require('../../assets/icons/deleteIcon.png')}
+                                                style={[styles.actionIcon, styles.deleteIcon]}
+                                            />
+                                            <Text style={[styles.actionText, styles.deleteText]}>Delete</Text>
+                                        </TouchableOpacity>
                                     </View>
-                                </View>
+
+                                    {/* Selection Overlay */}
+                                    {selectedAddressId === id && (
+                                        <View style={styles.selectingOverlay}>
+                                            <ActivityIndicator size="small" color="#EC0505" />
+                                            <Text style={styles.selectingText}>Selecting...</Text>
+                                        </View>
+                                    )}
+                                </TouchableOpacity>
                             );
-                        })}
-                    </View>
-                )}
+                        })
+                    )}
+                </View>
+
+                {/* Add Space at Bottom */}
+                <View style={styles.bottomSpacer} />
             </ScrollView>
 
-            {/* Fixed Footer Actions */}
-            {addresses.length > 0 && (
-                <View style={styles.footer}>
-                    <TouchableOpacity
-                        style={styles.addButton}
-                        onPress={handleAddNew}
-                    >
-                        <Text style={styles.addButtonText}>Add New Address</Text>
-                    </TouchableOpacity>
-                </View>
-            )}
+            {/* Fixed Add Address Button - Blinkit Style */}
+            <View style={styles.footer}>
+                <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={handleAddNew}
+                >
+                    {/*<Image*/}
+                    {/*    source={require('../../assets/icons/plus-white.png')}*/}
+                    {/*    style={styles.plusIcon}*/}
+                    {/*/>*/}
+                    <Text style={styles.addButtonText}>ADD NEW ADDRESS</Text>
+                </TouchableOpacity>
+            </View>
         </View>
     );
 }
@@ -333,53 +351,280 @@ export default function AddressListScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F8F9FA',
+        backgroundColor: '#FFFFFF',
     },
-    topBar: {
-        padding: 20,
-        marginTop: 20,
+    // Header Styles
+    header: {
+        backgroundColor: '#f4bc2c',
+        paddingTop: 50,
+        paddingBottom: 15,
+        paddingHorizontal: 16,
+    },
+    headerTop: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 10,
+    },
+    backButton: {
+        padding: 8,
+    },
+    backIcon: {
+        width: 24,
+        height: 24,
+        tintColor: '#FFFFFF',
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#FFFFFF',
+        fontFamily: 'Poppins-Bold',
+    },
+    headerPlaceholder: {
+        width: 40,
+    },
+    deliveryInfo: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    deliveryTime: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#FFFFFF',
+        fontFamily: 'Poppins-SemiBold',
+    },
+    changeText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#FFFFFF',
+        textDecorationLine: 'underline',
+        fontFamily: 'Poppins-SemiBold',
+    },
+    // Scroll View
+    scrollView: {
+        flex: 1,
+    },
+    scrollContent: {
+        paddingHorizontal: 16,
+        paddingTop: 20,
+        paddingBottom: 100,
+    },
+    // Current Location Card
+    currentLocationCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+        borderWidth: 1,
+        borderColor: '#F0F0F0',
+    },
+    locationIconContainer: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#FFE8E8',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+    },
+    locationIcon: {
+        width: 20,
+        height: 20,
+        tintColor: '#f4bc2c',
+    },
+    locationInfo: {
+        flex: 1,
+    },
+    locationTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#1B1B1B',
+        fontFamily: 'Poppins-SemiBold',
+        marginBottom: 2,
+    },
+    locationSubtitle: {
+        fontSize: 12,
+        color: '#666',
+        fontFamily: 'Poppins-Regular',
+    },
+    arrowIcon: {
+        width: 16,
+        height: 16,
+        tintColor: '#666',
+    },
+    // Section Styles
+    section: {
+        marginBottom: 20,
+    },
+    sectionTitle: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#666',
+        marginBottom: 12,
+        fontFamily: 'Poppins-Bold',
+        letterSpacing: 0.5,
+    },
+    // Address Card Styles
+    addressCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+        borderWidth: 1,
+        borderColor: '#F0F0F0',
+        position: 'relative',
+    },
+    defaultAddressCard: {
+        borderColor: '#f4bc2c',
+        borderWidth: 2,
+    },
+    addressHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    addressTypeBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F8F9FA',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6,
+    },
+    typeIcon: {
+        width: 14,
+        height: 14,
+        marginRight: 6,
+        tintColor: '#666',
+    },
+    typeLabel: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#666',
+        fontFamily: 'Poppins-SemiBold',
+        textTransform: 'uppercase',
+    },
+    defaultBadge: {
+        backgroundColor: '#f4bc2c',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 4,
+    },
+    defaultBadgeText: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: '#FFFFFF',
+        fontFamily: 'Poppins-Bold',
+    },
+    addressDetails: {
+        marginBottom: 12,
+    },
+    contactInfo: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#1B1B1B',
+        fontFamily: 'Poppins-SemiBold',
+        marginBottom: 6,
+    },
+    addressText: {
+        fontSize: 14,
+        color: '#333',
+        fontFamily: 'Poppins-Regular',
+        lineHeight: 18,
+        marginBottom: 4,
+    },
+    areaText: {
+        fontSize: 13,
+        color: '#666',
+        fontFamily: 'Poppins-Regular',
+        lineHeight: 16,
+    },
+    // Action Row
+    actionRow: {
         flexDirection: 'row',
         justifyContent: 'flex-start',
         alignItems: 'center',
+        borderTopWidth: 1,
+        borderTopColor: '#F0F0F0',
+        paddingTop: 12,
+        gap: 20,
     },
-    heading: {
-        fontSize: 24,
-        fontWeight: '500',
-        color: '#1B1B1B',
+    actionButton: {
+        flexDirection: 'row',
         alignItems: 'center',
-        marginLeft: 20
+        paddingVertical: 4,
     },
-    iconBox: {
-        width: 32,
-        height: 32,
-        borderRadius: 8,
+    actionIcon: {
+        width: 14,
+        height: 14,
+        marginRight: 6,
+        tintColor: '#f4bc2c',
     },
-    loadingContainer: {
-        flex: 1,
+    deleteIcon: {
+        tintColor: '#f4bc2c',
+    },
+    actionText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#f4bc2c',
+        fontFamily: 'Poppins-SemiBold',
+    },
+    deleteText: {
+        color: '#f4bc2c',
+    },
+    // Selecting Overlay
+    selectingOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        borderRadius: 12,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#F8F9FA',
+        flexDirection: 'row',
+        gap: 8,
     },
-    loadingText: {
-        marginTop: 12,
-        fontSize: 16,
-        color: '#666',
+    selectingText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#f4bc2c',
+        fontFamily: 'Poppins-SemiBold',
     },
-    scrollContent: {
-        flexGrow: 1,
-        paddingHorizontal: 20,
-        paddingBottom: 100,
-    },
+    // Empty State
     emptyState: {
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 80,
+        paddingVertical: 60,
         paddingHorizontal: 40,
     },
+    emptyIcon: {
+        width: 80,
+        height: 80,
+        marginBottom: 16,
+        opacity: 0.5,
+        tintColor: '#666',
+    },
     emptyTitle: {
-        fontSize: 20,
+        fontSize: 18,
         fontWeight: '600',
         color: '#1B1B1B',
+        fontFamily: 'Poppins-SemiBold',
         marginBottom: 8,
         textAlign: 'center',
     },
@@ -387,187 +632,65 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#666',
         textAlign: 'center',
-        marginBottom: 32,
         lineHeight: 20,
+        fontFamily: 'Poppins-Regular',
     },
-    emptyCta: {
-        backgroundColor: '#4CAD73',
-        paddingHorizontal: 24,
-        paddingVertical: 16,
-        borderRadius: 16,
-        shadowColor: '#4CAD73',
-        shadowOffset: {width: 0, height: 4},
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 4,
-    },
-    emptyCtaText: {
-        color: '#FFFFFF',
-        fontSize: 16,
-        fontWeight: '600',
-    },
-    addressList: {
-        paddingTop: 20,
-    },
-    sectionTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#1B1B1B',
-        marginBottom: 16,
-    },
-    addressCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        padding: 20,
-        marginBottom: 16,
-        shadowOffset: {width: 0, height: 2},
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-        elevation: 2,
-    },
-    addressCardDefault: {
-        borderWidth: 2,
-        borderColor: '#4CAD73',
-    },
-    cardHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 16,
-    },
-    addressType: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    typeIcon: {
-        width: 16,
-        height: 16,
-        marginRight: 8,
-        tintColor: '#666',
-    },
-    typeLabel: {
-        fontSize: 14,
-        color: '#666',
-        fontWeight: '500',
-        textTransform: 'capitalize',
-    },
-    headerBadges: {
-        flexDirection: 'row',
-    },
-    defaultBadge: {
-        backgroundColor: 'rgba(76, 173, 115, 0.1)',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 6,
-    },
-    defaultBadgeText: {
-        color: '#4CAD73',
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    addressDetails: {
-        marginBottom: 16,
-    },
-    contactName: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#1B1B1B',
-        marginBottom: 4,
-    },
-    contactPhone: {
-        fontSize: 14,
-        color: '#666',
-        marginBottom: 12,
-    },
-    addressText: {
-        fontSize: 14,
-        color: '#333',
-        lineHeight: 20,
-        marginBottom: 4,
-    },
-    addressArea: {
-        fontSize: 14,
-        color: '#666',
-        lineHeight: 20,
-        marginBottom: 4,
-    },
-    addressCountry: {
-        fontSize: 14,
-        color: '#666',
-    },
-    selectButtonContainer: {
-        marginBottom: 16,
-    },
-    selectButton: {
-        backgroundColor: '#4CAD73',
-        paddingVertical: 12,
-        borderRadius: 12,
-        alignItems: 'center',
+    // Loading State
+    loadingContainer: {
+        flex: 1,
         justifyContent: 'center',
-    },
-    selectButtonText: {
-        color: '#FFFFFF',
-        fontSize: 14,
-        fontWeight: '600',
-    },
-    actionButtons: {
-        gap: 12,
-    },
-    secondaryActions: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
         alignItems: 'center',
+        backgroundColor: '#FFFFFF',
     },
-    iconButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 8,
-        paddingHorizontal: 12,
+    loadingText: {
+        marginTop: 12,
+        fontSize: 16,
+        color: '#666',
+        fontFamily: 'Poppins-Regular',
     },
-    icon: {
-        width: 16,
-        height: 16,
-        marginRight: 6,
-        tintColor: '#4CAD73',
-    },
-    deleteIcon: {
-        tintColor: '#FF3B30',
-    },
-    iconButtonText: {
-        fontSize: 14,
-        color: '#4CAD73',
-        fontWeight: '500',
-    },
-    deleteText: {
-        color: '#FF3B30',
-    },
+    // Footer
     footer: {
         position: 'absolute',
         bottom: 0,
         left: 0,
         right: 0,
         backgroundColor: '#FFFFFF',
-        paddingHorizontal: 20,
+        paddingHorizontal: 16,
         paddingVertical: 16,
         borderTopWidth: 1,
         borderTopColor: '#F0F0F0',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 8,
     },
     addButton: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#4CAD73',
+        backgroundColor: '#f4bc2c',
         paddingVertical: 16,
-        borderRadius: 16,
-        shadowColor: '#4CAD73',
-        shadowOffset: {width: 0, height: 4},
+        borderRadius: 12,
+        shadowColor: '#f4bc2c',
+        shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
         elevation: 4,
     },
+    plusIcon: {
+        width: 18,
+        height: 18,
+        marginRight: 8,
+        tintColor: '#FFFFFF',
+    },
     addButtonText: {
         color: '#FFFFFF',
         fontSize: 16,
-        fontWeight: '600',
+        fontWeight: '700',
+        fontFamily: 'Poppins-Bold',
+    },
+    bottomSpacer: {
+        height: 20,
     },
 });

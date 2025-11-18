@@ -11,23 +11,29 @@ import {
     Text,
     ToastAndroid,
     TouchableOpacity,
-    View
+    View,
+    Modal,
+    FlatList,
+    SafeAreaView
 } from "react-native";
 import { addCartItem, getCartItems, getOrCreateSessionId, removeCartItem, updateCartItem } from '../../api/cartApi';
-import { getProducts } from '../../api/catalogApi';
+import { getProducts, getCategories } from '../../api/catalogApi';
 import { API_BASE_URL } from '../../config/apiConfig';
 
-const { width } = Dimensions.get("window");
-const CARD_WIDTH = (width - 48) / 2;
+const { width, height } = Dimensions.get("window");
 
 export default function ProductsScreen({ selectedCategory, searchQuery }) {
     const router = useRouter();
     const [products, setProducts] = useState([]);
+    const [categories, setCategories] = useState([]);
     const [filteredProducts, setFilteredProducts] = useState([]);
     const [cartItems, setCartItems] = useState([]);
     const [loading, setLoading] = useState(false);
     const [selectedVariants, setSelectedVariants] = useState({});
     const [loginType, setLoginType] = useState('individual');
+    const [activeCategory, setActiveCategory] = useState(null);
+    const [showVariantModal, setShowVariantModal] = useState(false);
+    const [selectedProductForVariant, setSelectedProductForVariant] = useState(null);
 
     useEffect(() => {
         let mounted = true;
@@ -35,8 +41,9 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
         async function load() {
             setLoading(true);
             try {
-                const [productsRes, cartRes] = await Promise.all([
-                    getProducts({ page: 1, limit: 50 }), // Increased limit to get more products for filtering
+                const [productsRes, categoriesRes, cartRes] = await Promise.all([
+                    getProducts({ page: 1, limit: 50 }),
+                    getCategories(),
                     loadCartItems()
                 ]);
 
@@ -45,9 +52,19 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
                     ? payload
                     : (payload?.items || productsRes?.data?.items || productsRes?.items || []);
 
+                // Process categories
+                const categoriesData = categoriesRes?.data ?? categoriesRes;
+                const categoriesList = Array.isArray(categoriesData)
+                    ? categoriesData
+                    : (categoriesData?.data || categoriesData?.items || []);
+
                 if (mounted) {
                     setProducts(items);
-                    setFilteredProducts(items); // Initialize filtered products with all products
+                    setFilteredProducts(items);
+                    setCategories(categoriesList);
+                    if (categoriesList.length > 0) {
+                        setActiveCategory(categoriesList[0]);
+                    }
                 }
             } catch (e) {
                 console.log('Products fetch error:', e?.response?.data || e?.message || e);
@@ -66,11 +83,12 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
     useEffect(() => {
         let filtered = [...products];
 
-        // Filter by category
-        if (selectedCategory) {
+        // Filter by active category
+        if (activeCategory) {
             filtered = filtered.filter(product =>
-                product.categoryIds?.includes(selectedCategory) ||
-                product.categoryId === selectedCategory
+                product.categoryIds?.includes(activeCategory._id) ||
+                product.categoryId === activeCategory._id ||
+                product.category?._id === activeCategory._id
             );
         }
 
@@ -87,7 +105,7 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
         }
 
         setFilteredProducts(filtered);
-    }, [selectedCategory, searchQuery, products]);
+    }, [activeCategory, searchQuery, products]);
 
     // Load cart items
     const loadCartItems = async () => {
@@ -126,7 +144,7 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
         const discount = item?.discount && typeof item.discount.value === 'number' ? Number(item.discount.value) : 0;
         const hasPercent = item?.discount?.type === 'percent' && discount > 0;
         const final = hasPercent ? (base - (base * discount / 100)) : base;
-        return { base, final, hasDiscount: hasPercent };
+        return { base, final, hasDiscount: hasPercent, discountPercent: discount };
     }
 
     function getBusinessPriceInfo(item) {
@@ -135,11 +153,11 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
         const tiers = item?.tierPricing || item?.priceTiers || item?.tiers || [];
         let mainText = '';
         if (typeof negotiated === 'number' && negotiated > 0) {
-            mainText = `$${Number(negotiated).toFixed(2)} (Negotiated)`;
+            mainText = `₹${Number(negotiated).toFixed(2)} (Negotiated)`;
         } else if (priceRange && (priceRange.min || priceRange.max)) {
             const min = Number(priceRange.min ?? 0).toFixed(2);
             const max = Number(priceRange.max ?? min).toFixed(2);
-            mainText = `$${min} - $${max}`;
+            mainText = `₹${min} - ₹${max}`;
         }
         let tierText = '';
         if (Array.isArray(tiers) && tiers.length > 0) {
@@ -148,7 +166,7 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
             const maxQty = t0.maxQty ?? t0.max ?? null;
             const price = t0.negotiatedPrice ?? t0.price ?? t0.unitPrice ?? null;
             const qtyPart = maxQty ? `${minQty}-${maxQty}` : `≥${minQty}`;
-            if (price != null) tierText = `Tier: ${qtyPart} @ $${Number(price).toFixed(2)}`;
+            if (price != null) tierText = `Tier: ${qtyPart} @ ₹${Number(price).toFixed(2)}`;
         }
         return { mainText, tierText };
     }
@@ -171,11 +189,11 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
         return item ? item.quantity : 0;
     };
 
-    async function handleAddToCart(item) {
+    async function handleAddToCart(item, variant = null) {
         try {
             const productId = getProductId(item);
             const variants = Array.isArray(item?.variants) ? item.variants : [];
-            const selectedVariantId = selectedVariants[String(productId)] || null;
+            const selectedVariantId = variant ? String(variant._id || variant.id) : selectedVariants[String(productId)];
             const defaultVariant = variants.find(v => (v?.stock ?? 1) > 0) || variants[0] || null;
             const effectiveVariantId = selectedVariantId || (defaultVariant ? String(defaultVariant?._id || defaultVariant?.id || defaultVariant?.variantId) : null);
             const sessionId = await getOrCreateSessionId();
@@ -191,6 +209,12 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
                 ToastAndroid.show('Added to cart', ToastAndroid.SHORT);
             } else {
                 Alert.alert('', 'Added to cart');
+            }
+
+            // Close variant modal if open
+            if (variant) {
+                setShowVariantModal(false);
+                setSelectedProductForVariant(null);
             }
         } catch (e) {
             console.log('Add to cart error:', e);
@@ -217,153 +241,521 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
         }
     }
 
-    return (
-        <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-            {/* Results Count */}
-            <View style={styles.resultsInfo}>
-                <Text style={styles.resultsText}>
-                    {filteredProducts.length} {filteredProducts.length === 1 ? 'product' : 'products'} found
-                    {selectedCategory && ' in this category'}
-                    {searchQuery && ` for "${searchQuery}"`}
-                </Text>
-            </View>
+    const handleVariantSelect = (product) => {
+        setSelectedProductForVariant(product);
+        setShowVariantModal(true);
+    };
 
-            {/* Product Grid */}
-            <View style={styles.grid}>
-                {loading ? (
-                    <Text style={styles.loadingText}>Loading products…</Text>
-                ) : (filteredProducts.length === 0 ? (
-                    <View style={styles.emptyState}>
-                        <Text style={styles.emptyText}>No products found</Text>
-                        <Text style={styles.emptySubtext}>
-                            {selectedCategory || searchQuery
-                                ? 'Try changing your filters or search term'
-                                : 'No products available at the moment'}
-                        </Text>
+    const closeVariantModal = () => {
+        setShowVariantModal(false);
+        setSelectedProductForVariant(null);
+    };
+
+    const renderProductItem = ({ item }) => {
+        const productId = getProductId(item);
+        const productPrice = computeProductPrice(item);
+        const variants = Array.isArray(item?.variants) ? item.variants : [];
+        const showDiscount = productPrice.hasDiscount;
+        const defaultVariant = variants.find(v => (v?.stock ?? 1) > 0) || variants[0] || null;
+        const selectedVariantId = selectedVariants[String(productId)];
+        const selectedVariantObj = variants.find(v => String(v?._id || v?.id) === String(selectedVariantId)) || defaultVariant;
+        const displayFinalPrice = selectedVariantObj
+            ? computeVariantPrice(selectedVariantObj, item).final
+            : productPrice.final;
+        const isOutOfStock = selectedVariantObj ? (selectedVariantObj?.stock === 0) : (item?.stock === 0);
+        const isBusiness = String(loginType || '').toLowerCase() === 'business';
+        const bizInfo = isBusiness ? getBusinessPriceInfo(item) : null;
+        const cartQuantity = getCartQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id);
+        const hasMultipleVariants = variants.length > 1;
+
+        return (
+            <View style={styles.productCard}>
+                <TouchableOpacity onPress={() => handleProductClick(productId)}>
+                    <View style={styles.imageContainer}>
+                        <Image
+                            style={styles.image}
+                            source={item?.thumbnail ? { uri: `${API_BASE_URL}${item.thumbnail}` } : require("../../assets/icons/fruit.png")}
+                        />
                     </View>
-                ) : filteredProducts.map((item, index) => {
-                    const productId = getProductId(item);
-                    const selectedVariantId = selectedVariants[String(productId)] || null;
-                    const productPrice = computeProductPrice(item);
-                    const images = Array.isArray(item?.images) ? item.images : [];
-                    const variants = Array.isArray(item?.variants) ? item.variants : [];
-                    const showDiscount = productPrice.hasDiscount;
-                    const defaultVariant = variants.find(v => (v?.stock ?? 1) > 0) || variants[0] || null;
-                    const effectiveVariantId = selectedVariantId || (defaultVariant ? String(defaultVariant?._id || defaultVariant?.id || defaultVariant?.variantId) : null);
-                    const selectedVariantObj = variants.find(v => String(v?._id || v?.id || v?.variantId) === String(effectiveVariantId)) || null;
-                    const displayFinalPrice = effectiveVariantId
-                        ? computeVariantPrice(selectedVariantObj || {}, item).final
-                        : productPrice.final;
-                    const isOutOfStock = effectiveVariantId ? (selectedVariantObj?.stock === 0) : (item?.stock === 0);
-                    const isBusiness = String(loginType || '').toLowerCase() === 'business';
-                    const bizInfo = isBusiness ? getBusinessPriceInfo(item) : null;
-                    const cartQuantity = getCartQuantity(productId, effectiveVariantId);
 
-                    return (
-                        <View key={index} style={[styles.card, { width: CARD_WIDTH }]}>
-                            <TouchableOpacity onPress={() => handleProductClick(productId)}>
-                                <View style={styles.imageContainer}>
-                                    <Image style={styles.image}
-                                           source={item?.thumbnail ? { uri: `${API_BASE_URL}${item.thumbnail}` } : require("../../assets/icons/fruit.png")} />
-                                </View>
+                    <View style={styles.content}>
+                        <Text style={styles.name} numberOfLines={2}>
+                            {item?.title || item?.name}
+                        </Text>
 
-                                <View style={styles.content}>
-                                    <Text style={styles.name}>
-                                        {item?.title || item?.name}
-                                        {item?.brandId?.name ? ` · ${item.brandId.name}` : ''}
-                                    </Text>
-                                    {variants.length > 0 && selectedVariantObj ? (
-                                        <Text style={styles.tierText}>
-                                            {Array.isArray(selectedVariantObj?.attributes) && selectedVariantObj.attributes.length
-                                                ? selectedVariantObj.attributes.map(a => a?.value || a?.name || '').filter(Boolean).join(' / ')
-                                                : (selectedVariantObj?.sku ? String(selectedVariantObj.sku) : 'Default Variant')}
-                                        </Text>
-                                    ) : null}
-                                    {((String(loginType || '').toLowerCase() === 'business' && (bizInfo?.mainText || displayFinalPrice != null)) ||
-                                        (String(loginType || '').toLowerCase() !== 'business' && displayFinalPrice != null)) && (
-                                        <View style={styles.priceRow}>
-                                            {String(loginType || '').toLowerCase() === 'business' ? (
-                                                <>
-                                                    {bizInfo?.mainText ? (
-                                                        <Text style={styles.newPrice}>{bizInfo.mainText}</Text>
-                                                    ) : (
-                                                        <Text
-                                                            style={styles.newPrice}>${Number(displayFinalPrice || 0).toFixed(2)}</Text>
-                                                    )}
-                                                </>
-                                            ) : (
-                                                <>
-                                                    {showDiscount && (
-                                                        <Text
-                                                            style={styles.oldPrice}>${Number(productPrice.base).toFixed(2)}</Text>
-                                                    )}
-                                                    <Text
-                                                        style={styles.newPrice}>${Number(displayFinalPrice || 0).toFixed(2)}</Text>
-                                                </>
-                                            )}
-                                        </View>
-                                    )}
-                                    {variants.length > 0 && selectedVariantObj ? (
-                                        <Text style={styles.tierText}>Stock: {selectedVariantObj?.stock ?? '-'}</Text>
-                                    ) : null}
-                                    {String(loginType || '').toLowerCase() === 'business' && bizInfo?.tierText ? (
-                                        <Text style={styles.tierText}>{bizInfo.tierText}</Text>
-                                    ) : null}
+                        {selectedVariantObj && (
+                            <Text style={styles.variantText} numberOfLines={1}>
+                                {Array.isArray(selectedVariantObj?.attributes) && selectedVariantObj.attributes.length
+                                    ? selectedVariantObj.attributes.map(a => a?.value || a?.name || '').filter(Boolean).join(' / ')
+                                    : (selectedVariantObj?.name || selectedVariantObj?.sku || 'Default')}
+                            </Text>
+                        )}
 
-                                    {cartQuantity > 0 ? (
-                                        <View style={styles.quantityControl}>
-                                            <TouchableOpacity
-                                                style={styles.quantityButton}
-                                                onPress={() => handleUpdateQuantity(productId, effectiveVariantId, cartQuantity - 1)}
-                                            >
-                                                <View style={styles.minusButton}>
-                                                    <Text style={styles.minusText}>-</Text>
-                                                </View>
-                                            </TouchableOpacity>
-
-                                            <Text style={styles.quantityText}>{cartQuantity}</Text>
-
-                                            <TouchableOpacity
-                                                style={styles.quantityButton}
-                                                onPress={() => handleUpdateQuantity(productId, effectiveVariantId, cartQuantity + 1)}
-                                                disabled={isOutOfStock}
-                                            >
-                                                <View
-                                                    style={[styles.plusButton, isOutOfStock && styles.disabledButton]}>
-                                                    <Text
-                                                        style={[styles.plusText, isOutOfStock && styles.disabledText]}>+</Text>
-                                                </View>
-                                            </TouchableOpacity>
-                                        </View>
+                        <View style={styles.priceRow}>
+                            {isBusiness ? (
+                                <>
+                                    {bizInfo?.mainText ? (
+                                        <Text style={styles.newPrice}>{bizInfo.mainText}</Text>
                                     ) : (
-                                        <TouchableOpacity
-                                            style={[styles.cartButton, isOutOfStock && styles.disabledButton]}
-                                            onPress={() => handleAddToCart(item)}
-                                            disabled={isOutOfStock}
-                                        >
-                                            <Image
-                                                style={[styles.cartIcon, isOutOfStock && styles.disabledIcon]}
-                                                source={require("../../assets/icons/plus.png")}
-                                            />
-                                        </TouchableOpacity>
+                                        <Text style={styles.newPrice}>₹{Number(displayFinalPrice || 0).toFixed(2)}</Text>
                                     )}
-                                </View>
+                                </>
+                            ) : (
+                                <>
+                                    {showDiscount && (
+                                        <Text style={styles.oldPrice}>₹{Number(productPrice.base).toFixed(2)}</Text>
+                                    )}
+                                    <Text style={styles.newPrice}>₹{Number(displayFinalPrice || 0).toFixed(2)}</Text>
+                                    {showDiscount && (
+                                        <Text style={styles.discountPercent}>{productPrice.discountPercent}% OFF</Text>
+                                    )}
+                                </>
+                            )}
+                        </View>
+
+                        {selectedVariantObj && (
+                            <Text style={styles.stockText}>
+                                Stock: {selectedVariantObj?.stock ?? 'Available'}
+                            </Text>
+                        )}
+                    </View>
+                </TouchableOpacity>
+
+                <View style={styles.actionContainer}>
+                    {cartQuantity > 0 ? (
+                        <View style={styles.quantityControl}>
+                            <TouchableOpacity
+                                style={styles.quantityButton}
+                                onPress={() => handleUpdateQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id, cartQuantity - 1)}
+                            >
+                                <Text style={styles.quantityMinus}>-</Text>
+                            </TouchableOpacity>
+
+                            <Text style={styles.quantityText}>{cartQuantity}</Text>
+
+                            <TouchableOpacity
+                                style={styles.quantityButton}
+                                onPress={() => handleUpdateQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id, cartQuantity + 1)}
+                                disabled={isOutOfStock}
+                            >
+                                <Text style={[styles.quantityPlus, isOutOfStock && styles.disabledText]}>+</Text>
                             </TouchableOpacity>
                         </View>
-                    );
-                }))}
+                    ) : (
+                        <TouchableOpacity
+                            style={[styles.addButton, hasMultipleVariants && styles.variantButton, isOutOfStock && styles.disabledButton]}
+                            onPress={() => hasMultipleVariants ? handleVariantSelect(item) : handleAddToCart(item)}
+                            disabled={isOutOfStock}
+                        >
+                            <Text style={[styles.addButtonText, isOutOfStock && styles.disabledText]}>
+                                {hasMultipleVariants ? 'Options' : 'ADD'}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
             </View>
-        </ScrollView>
+        );
+    };
+
+    const renderVariantItem = ({ item: variant }) => {
+        const priceInfo = computeVariantPrice(variant, selectedProductForVariant);
+        const isOutOfStock = variant?.stock === 0;
+        const cartQuantity = getCartQuantity(getProductId(selectedProductForVariant), variant._id || variant.id);
+
+        return (
+            <View style={[styles.variantCard, isOutOfStock && styles.disabledVariant]}>
+                <View style={styles.variantInfo}>
+                    <Text style={styles.variantName}>
+                        {Array.isArray(variant?.attributes) && variant.attributes.length
+                            ? variant.attributes.map(a => a?.value || a?.name || '').filter(Boolean).join(' / ')
+                            : (variant?.name || variant?.sku || 'Variant')}
+                    </Text>
+                    <Text style={styles.variantPrice}>₹{priceInfo.final}</Text>
+                    <Text style={styles.variantStock}>
+                        {isOutOfStock ? 'Out of Stock' : `Stock: ${variant?.stock ?? 'Available'}`}
+                    </Text>
+                </View>
+
+                {cartQuantity > 0 ? (
+                    <View style={styles.variantQuantityControl}>
+                        <TouchableOpacity
+                            style={styles.variantQuantityButton}
+                            onPress={() => handleUpdateQuantity(getProductId(selectedProductForVariant), variant._id || variant.id, cartQuantity - 1)}
+                        >
+                            <Text style={styles.variantQuantityText}>-</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.variantQuantity}>{cartQuantity}</Text>
+                        <TouchableOpacity
+                            style={styles.variantQuantityButton}
+                            onPress={() => handleUpdateQuantity(getProductId(selectedProductForVariant), variant._id || variant.id, cartQuantity + 1)}
+                            disabled={isOutOfStock}
+                        >
+                            <Text style={[styles.variantQuantityText, isOutOfStock && styles.disabledText]}>+</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : (
+                    <TouchableOpacity
+                        style={[styles.variantAddButton, isOutOfStock && styles.disabledButton]}
+                        onPress={() => handleAddToCart(selectedProductForVariant, variant)}
+                        disabled={isOutOfStock}
+                    >
+                        <Text style={[styles.variantAddText, isOutOfStock && styles.disabledText]}>
+                            ADD
+                        </Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+        );
+    };
+
+    return (
+        <View style={styles.container}>
+            {/* Two Column Layout */}
+            <View style={styles.twoColumnLayout}>
+                {/* Left Column - Categories */}
+                <View style={styles.leftColumn}>
+                    <ScrollView
+                        style={styles.categoriesList}
+                        showsVerticalScrollIndicator={false}
+                    >
+                        {categories.map((category) => {
+                            const url = category?.image || category?.icon;
+                            const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../assets/images/gifts.png");
+
+                            return (
+                                <TouchableOpacity
+                                    key={category._id || category.id}
+                                    style={[
+                                        styles.categoryItem,
+                                        activeCategory?._id === category._id && styles.activeCategoryItem
+                                    ]}
+                                    onPress={() => setActiveCategory(category)}
+                                >
+                                    <View style={styles.categoryContent}>
+                                        <Image
+                                            source={imageSource}
+                                            style={styles.categoryImage}
+                                            resizeMode="cover"
+                                        />
+                                        <Text
+                                            style={[
+                                                styles.categoryName,
+                                                activeCategory?._id === category._id && styles.activeCategoryName
+                                            ]}
+                                            numberOfLines={2}
+                                        >
+                                            {category.name}
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </ScrollView>
+                </View>
+
+                {/* Right Column - Products */}
+                <View style={styles.rightColumn}>
+                    <View style={styles.resultsInfo}>
+                        <Text style={styles.resultsText}>
+                            {filteredProducts.length} {filteredProducts.length === 1 ? 'product' : 'products'} found
+                            {activeCategory && ` in ${activeCategory.name}`}
+                            {searchQuery && ` for "${searchQuery}"`}
+                        </Text>
+                    </View>
+
+                    {loading ? (
+                        <View style={styles.loadingContainer}>
+                            <Text style={styles.loadingText}>Loading products…</Text>
+                        </View>
+                    ) : filteredProducts.length === 0 ? (
+                        <View style={styles.emptyState}>
+                            <Text style={styles.emptyText}>No products found</Text>
+                            <Text style={styles.emptySubtext}>
+                                {activeCategory || searchQuery
+                                    ? 'Try changing your filters or search term'
+                                    : 'No products available at the moment'}
+                            </Text>
+                        </View>
+                    ) : (
+                        <FlatList
+                            data={filteredProducts}
+                            renderItem={renderProductItem}
+                            keyExtractor={(item) => getProductId(item)}
+                            numColumns={2}
+                            showsVerticalScrollIndicator={false}
+                            contentContainerStyle={styles.productsGrid}
+                        />
+                    )}
+                </View>
+            </View>
+
+            {/* Variant Selection Modal */}
+            <Modal
+                visible={showVariantModal}
+                animationType="slide"
+                transparent={true}
+                onRequestClose={closeVariantModal}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContainer}>
+                        <SafeAreaView style={styles.modalContent}>
+                            {/* Modal Header */}
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>
+                                    Select Variant
+                                </Text>
+                                <TouchableOpacity onPress={closeVariantModal} style={styles.closeButton}>
+                                    <Image
+                                        source={require("../../assets/icons/deleteIcon.png")}
+                                        style={styles.closeIcon}
+                                    />
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* Product Info */}
+                            {selectedProductForVariant && (
+                                <View style={styles.productHeader}>
+                                    <Image
+                                        source={selectedProductForVariant?.thumbnail ?
+                                            { uri: `${API_BASE_URL}${selectedProductForVariant.thumbnail}` } :
+                                            require("../../assets/icons/fruit.png")}
+                                        style={styles.productHeaderImage}
+                                    />
+                                    <View style={styles.productHeaderInfo}>
+                                        <Text style={styles.productHeaderName} numberOfLines={2}>
+                                            {selectedProductForVariant?.title || selectedProductForVariant?.name}
+                                        </Text>
+                                        <Text style={styles.productHeaderPrice}>
+                                            Starts from ₹{computeProductPrice(selectedProductForVariant).final}
+                                        </Text>
+                                    </View>
+                                </View>
+                            )}
+
+                            {/* Variants List */}
+                            <FlatList
+                                data={selectedProductForVariant?.variants || []}
+                                renderItem={renderVariantItem}
+                                keyExtractor={(variant) => variant._id || variant.id || Math.random().toString()}
+                                style={styles.variantsList}
+                                contentContainerStyle={styles.variantsContent}
+                            />
+                        </SafeAreaView>
+                    </View>
+                </View>
+            </Modal>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { marginTop: 30 , padding:20 },
+    container: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+    },
+    twoColumnLayout: {
+        flex: 1,
+        flexDirection: 'row',
+    },
+    // Left Column Styles
+    leftColumn: {
+        width: '30%',
+        backgroundColor: '#F8F9FA',
+        borderRightWidth: 1,
+        borderRightColor: '#E8E8E8',
+    },
+    categoriesList: {
+        flex: 1,
+    },
+    categoryItem: {
+        paddingVertical: 16,
+        paddingHorizontal: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E8E8E8',
+        backgroundColor: '#FFFFFF',
+    },
+    activeCategoryItem: {
+        backgroundColor: '#FFF5F5',
+        borderLeftWidth: 4,
+        borderLeftColor: '#EC0505',
+    },
+    categoryContent: {
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    categoryImage: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        marginBottom: 8,
+        backgroundColor: '#F5F5F5',
+    },
+    categoryName: {
+        fontSize: 11,
+        color: '#666',
+        textAlign: 'center',
+        fontFamily: 'Poppins-Regular',
+        lineHeight: 14,
+    },
+    activeCategoryName: {
+        color: '#EC0505',
+        fontWeight: '600',
+        fontFamily: 'Poppins-SemiBold',
+    },
+    // Right Column Styles
+    rightColumn: {
+        flex: 1,
+        padding: 16,
+    },
     resultsInfo: {
         marginBottom: 16,
-        paddingHorizontal: 4,
     },
     resultsText: {
+        fontFamily: 'Poppins',
+        fontSize: 14,
+        color: '#838383',
+    },
+    productsGrid: {
+        paddingBottom: 20,
+    },
+    productCard: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        margin: 6,
+        padding: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+        borderWidth: 1,
+        borderColor: '#F0F0F0',
+    },
+    imageContainer: {
+        height: 100,
+        borderRadius: 8,
+        overflow: 'hidden',
+        marginBottom: 8,
+        backgroundColor: '#F8F9FA',
+    },
+    image: {
+        width: '100%',
+        height: '100%',
+    },
+    content: {
+        marginBottom: 12,
+    },
+    name: {
+        fontFamily: 'Poppins',
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#1B1B1B',
+        marginBottom: 4,
+        lineHeight: 18,
+    },
+    variantText: {
+        fontSize: 12,
+        color: '#666',
+        fontFamily: 'Poppins',
+        marginBottom: 6,
+    },
+    priceRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginBottom: 4,
+    },
+    oldPrice: {
+        fontSize: 12,
+        color: '#838383',
+        textDecorationLine: 'line-through',
+        fontFamily: 'Poppins',
+    },
+    newPrice: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#1B1B1B',
+        fontFamily: 'Poppins-Bold',
+    },
+    discountPercent: {
+        fontSize: 12,
+        color: '#EC0505',
+        backgroundColor: '#FFE8E8',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        fontFamily: 'Poppins-SemiBold',
+    },
+    stockText: {
+        fontSize: 11,
+        color: '#666',
+        fontFamily: 'Poppins',
+    },
+    actionContainer: {
+        marginTop: 'auto',
+    },
+    quantityControl: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#F8F8F8',
+        borderRadius: 20,
+        paddingHorizontal: 8,
+        paddingVertical: 6,
+    },
+    quantityButton: {
+        padding: 4,
+    },
+    quantityMinus: {
+        fontSize: 16,
+        color: '#666',
+        fontWeight: 'bold',
+        width: 20,
+        textAlign: 'center',
+    },
+    quantityPlus: {
+        fontSize: 16,
+        color: '#FFFFFF',
+        fontWeight: 'bold',
+        width: 20,
+        textAlign: 'center',
+    },
+    quantityText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#1B1B1B',
+        marginHorizontal: 12,
+        minWidth: 20,
+        textAlign: 'center',
+    },
+    addButton: {
+        backgroundColor: '#EC0505',
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    variantButton: {
+        backgroundColor: '#FFA500',
+    },
+    addButtonText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '600',
+        fontFamily: 'Poppins-SemiBold',
+    },
+    disabledButton: {
+        backgroundColor: '#CCCCCC',
+    },
+    disabledText: {
+        color: '#999999',
+    },
+    loadingContainer: {
+        alignItems: 'center',
+        paddingVertical: 40,
+    },
+    loadingText: {
         fontFamily: 'Poppins',
         fontSize: 14,
         color: '#838383',
@@ -384,125 +776,134 @@ const styles = StyleSheet.create({
         color: '#838383',
         textAlign: 'center',
     },
-    // ... rest of the styles remain the same as your original file
-    categories: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        marginBottom: 24,
+    // Modal Styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'flex-end',
     },
-    categoryItem: { alignItems: "center" },
-    categoryText: {
-        fontFamily: "Poppins",
-        fontSize: 14,
-        color: "#1B1B1B",
+    modalContainer: {
+        height: height * 0.8,
+        backgroundColor: '#FFFFFF',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        overflow: 'hidden',
     },
-    activeText: { color: "#4CAD73", fontWeight: "500" },
-    activeLine: {
-        width: 40,
-        height: 4,
-        backgroundColor: "#4CAD73",
-        borderRadius: 5,
-        marginTop: 4,
+    modalContent: {
+        flex: 1,
     },
-    grid: {
-        flexDirection: "row",
-        flexWrap: "wrap",
-        justifyContent: "space-between",
-        rowGap: 16,
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F0F0F0',
     },
-    loadingText: { fontFamily: 'Poppins', fontSize: 14, color: '#838383' },
-    card: {
-        backgroundColor: "#fff",
-        borderRadius: 12,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 4,
-        overflow: "hidden",
+    modalTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#000000',
+        fontFamily: 'Poppins-Bold',
     },
-    imageContainer: {
-        height: 120,
-        backgroundColor: "#C4C4C4",
-        borderTopLeftRadius: 12,
-        borderTopRightRadius: 12,
-        overflow: "hidden",
+    closeButton: {
+        padding: 8,
     },
-    image: { width: "100%", height: "100%" },
-    content: {
-        paddingHorizontal: 12,
-        paddingVertical: 12,
-        gap: 4,
-        position: 'relative',
+    closeIcon: {
+        width: 20,
+        height: 20,
+        tintColor: '#000000',
     },
-    name: {
-        fontFamily: "Poppins",
-        fontSize: 14,
-        fontWeight: "500",
-        color: "#000",
+    productHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F0F0F0',
     },
-    priceRow: {
-        flexDirection: "row",
-        alignItems: "flex-end",
-        gap: 4,
+    productHeaderImage: {
+        width: 60,
+        height: 60,
+        borderRadius: 8,
+        marginRight: 12,
     },
-    oldPrice: {
-        fontSize: 12,
-        color: "#838383",
-        textDecorationLine: "line-through",
+    productHeaderInfo: {
+        flex: 1,
     },
-    newPrice: {
+    productHeaderName: {
         fontSize: 16,
-        fontWeight: "500",
-        color: "#4CAD73",
+        fontWeight: '600',
+        color: '#1B1B1B',
+        fontFamily: 'Poppins-SemiBold',
+        marginBottom: 4,
     },
-    tierText: {
-        fontSize: 12,
-        color: "#838383",
-        marginTop: 2,
-        fontFamily: 'Poppins'
+    productHeaderPrice: {
+        fontSize: 14,
+        color: '#EC0505',
+        fontFamily: 'Poppins-SemiBold',
     },
-    quantityControl: {
+    variantsList: {
+        flex: 1,
+    },
+    variantsContent: {
+        padding: 16,
+    },
+    variantCard: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: '#F0F0F0',
+    },
+    disabledVariant: {
+        opacity: 0.6,
+    },
+    variantInfo: {
+        flex: 1,
+    },
+    variantName: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#1B1B1B',
+        fontFamily: 'Poppins-SemiBold',
+        marginBottom: 4,
+    },
+    variantPrice: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#EC0505',
+        fontFamily: 'Poppins-Bold',
+        marginBottom: 4,
+    },
+    variantStock: {
+        fontSize: 12,
+        color: '#666',
+        fontFamily: 'Poppins',
+    },
+    variantQuantityControl: {
+        flexDirection: 'row',
+        alignItems: 'center',
         backgroundColor: '#F8F8F8',
         borderRadius: 20,
         paddingHorizontal: 8,
-        paddingVertical: 4,
-        marginTop: 8,
-        alignSelf: 'flex-start',
+        paddingVertical: 6,
     },
-    quantityButton: {
+    variantQuantityButton: {
         padding: 4,
     },
-    minusButton: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: '#E8E8E8',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    plusButton: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: '#4CAD73',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    minusText: {
+    variantQuantityText: {
         fontSize: 16,
         color: '#666',
         fontWeight: 'bold',
+        width: 20,
+        textAlign: 'center',
     },
-    plusText: {
-        fontSize: 16,
-        color: '#FFFFFF',
-        fontWeight: 'bold',
-    },
-    quantityText: {
+    variantQuantity: {
         fontSize: 14,
         fontWeight: '600',
         color: '#1B1B1B',
@@ -510,28 +911,16 @@ const styles = StyleSheet.create({
         minWidth: 20,
         textAlign: 'center',
     },
-    disabledButton: {
-        backgroundColor: '#CCCCCC',
-        opacity: 0.6,
-    },
-    disabledText: {
-        color: '#999999',
-    },
-    disabledIcon: {
-        opacity: 0.5,
-    },
-    cartButton: {
-        position: "absolute",
-        right: 12,
-        bottom: 12,
-        width: 32,
-        height: 32,
-        justifyContent: "center",
-        alignItems: "center",
+    variantAddButton: {
+        backgroundColor: '#EC0505',
+        paddingVertical: 8,
+        paddingHorizontal: 16,
         borderRadius: 8,
     },
-    cartIcon: {
-        width: 32,
-        height: 32,
+    variantAddText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '600',
+        fontFamily: 'Poppins-SemiBold',
     },
 });

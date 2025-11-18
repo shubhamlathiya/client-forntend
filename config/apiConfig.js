@@ -29,4 +29,3 @@ export const AUTH_ENDPOINTS = {
   forgotPassword: '/api/auth/forgot-password',
   resetPassword: '/api/auth/reset-password',
 };
-

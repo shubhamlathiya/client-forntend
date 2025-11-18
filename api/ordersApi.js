@@ -1,0 +1,212 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
+import apiClient from '../utils/apiClient';
+import { getCart, getOrCreateSessionId } from "./cartApi";
+
+const getOrderIdentity = async () => {
+  try {
+    const token = await SecureStore.getItemAsync('accessToken');
+    const sessionId = await AsyncStorage.getItem('sessionId');
+    return { isAuthenticated: !!token, sessionId };
+  } catch (_) {
+    const sessionId = await AsyncStorage.getItem('sessionId');
+    return { isAuthenticated: false, sessionId };
+  }
+};
+
+const getIdentity = async () => {
+  try {
+    const token = await SecureStore.getItemAsync('accessToken');
+    const sessionId = await getOrCreateSessionId();
+    return { isAuthenticated: !!token, sessionId };
+  } catch (_) {
+    const sessionId = await getOrCreateSessionId();
+    return { isAuthenticated: false, sessionId };
+  }
+};
+
+// Generate order summary from current cart and selected address
+export const generateOrderSummary = async (addressId = null , cartId = null) => {
+  const { sessionId } = await getOrderIdentity();
+
+  if (!sessionId) {
+    throw new Error('Session ID is required');
+  }
+
+  const body = {
+    sessionId,
+    cartId,
+    ...(addressId ? { addressId } : {})
+  };
+
+  const res = await apiClient.post('/api/orders/summary', body);
+  console.log('Order Summary Response:', res?.data);
+  return res.data;
+};
+
+// Create final order
+export const createOrder = async (payload = {}) => {
+  const { sessionId } = await getOrderIdentity();
+
+  if (!sessionId) {
+    throw new Error('Session ID is required');
+  }
+
+  // Get cart ID from storage or payload
+  let cartId = payload.cartId;
+  if (!cartId) {
+    const cartResponse = await getCart();
+    cartId = cartResponse.data?._id;
+  }
+
+  if (!cartId) {
+    throw new Error('Cart ID is required');
+  }
+
+  const body = {
+    sessionId,
+    cartId,
+    ...payload
+  };
+
+  const res = await apiClient.post('/api/orders', body);
+  console.log('Create Order Response:', res?.data);
+  return res.data;
+};
+
+// Get all orders for the current user
+export const getOrders = async (params = {}) => {
+  const { status, page = 1, limit = 10 } = params;
+  const queryParams = new URLSearchParams();
+
+  if (status) queryParams.append('status', status);
+  queryParams.append('page', page.toString());
+  queryParams.append('limit', limit.toString());
+
+  const res = await apiClient.get(`/api/orders?${queryParams.toString()}`);
+  // console.log('Get Orders Response:', res?.data);
+  return res.data;
+};
+
+// Get order by id
+export const getOrderById = async (orderId) => {
+  const res = await apiClient.get(`/api/orders/${orderId}`);
+  console.log('Get Order By ID Response:', res?.data);
+  return res.data;
+};
+
+// Request a return
+export const requestReturn = async ({ orderId, items, reason, resolution = 'refund' }) => {
+  const body = {
+    orderId,
+    items,
+    reason,
+    resolution
+  };
+  const res = await apiClient.post('/api/orders/return', body);
+  console.log('Request Return Response:', res?.data);
+  return res.data;
+};
+
+// Request a replacement
+export const requestReplacement = async ({ orderId, items, reason, images = [] }) => {
+  const body = {
+    orderId,
+    items,
+    reason,
+    ...(Array.isArray(images) && images.length ? { images } : {})
+  };
+  const res = await apiClient.post('/api/orders/replacement', body);
+  console.log('Request Replacement Response:', res?.data);
+  return res.data;
+};
+
+// Admin APIs
+export const adminGetAllOrders = async (params = {}) => {
+  const { status, userId, page = 1, limit = 20 } = params;
+  const queryParams = new URLSearchParams();
+
+  if (status) queryParams.append('status', status);
+  if (userId) queryParams.append('userId', userId);
+  queryParams.append('page', page.toString());
+  queryParams.append('limit', limit.toString());
+
+  const res = await apiClient.get(`/api/orders/admin/all?${queryParams.toString()}`);
+  console.log('Admin Get All Orders Response:', res?.data);
+  return res.data;
+};
+
+export const adminUpdateOrderStatus = async (orderId, status, comment = '') => {
+  const body = {
+    status,
+    ...(comment && { comment })
+  };
+  const res = await apiClient.put(`/api/orders/admin/${orderId}/status`, body);
+  console.log('Admin Update Order Status Response:', res?.data);
+  return res.data;
+};
+
+export const adminProcessOrderAction = async (type, requestId, payload = {}) => {
+  const res = await apiClient.put(`/api/orders/admin/${type}/${requestId}`, payload);
+  console.log('Admin Process Order Action Response:', res?.data);
+  return res.data;
+};
+
+// Additional utility functions
+export const validateCoupon = async (couponCode) => {
+  try {
+    const { sessionId } = await getIdentity();
+
+    if (!sessionId) {
+      throw new Error('Session ID is required');
+    }
+
+    const body = {
+      couponCode: couponCode.trim(),
+      sessionId
+    };
+
+    const response = await apiClient.post('/api/cart/validate-coupon', body);
+
+    return {
+      success: true,
+      data: response.data,
+      isValid: true
+    };
+
+  } catch (error) {
+    console.error('Validate coupon error:', error);
+
+    return {
+      success: false,
+      error: error.response?.data?.message || error.message,
+      isValid: false,
+      data: null
+    };
+  }
+};
+
+// Get order summary by ID
+export const getOrderSummary = async (cartId) => {
+  if (!cartId) {
+    throw new Error('Cart ID is required');
+  }
+
+  // This would typically be a GET request to fetch existing summary
+  // For now, we'll generate a new one
+  return await generateOrderSummary();
+};
+
+// Send invoice email
+export const sendOrderInvoice = async (orderId) => {
+  const res = await apiClient.post(`/api/orders/${orderId}/invoice`);
+  console.log('Send Invoice Response:', res?.data);
+  return res.data;
+};
+
+// Create admin order directly
+export const adminCreateOrder = async (orderData) => {
+  const res = await apiClient.post('/api/orders/admin/create', orderData);
+  console.log('Admin Create Order Response:', res?.data);
+  return res.data;
+};

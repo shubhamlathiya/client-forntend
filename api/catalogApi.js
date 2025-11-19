@@ -26,6 +26,7 @@ export const getProducts = async ({ page = 1, limit = 20, categoryId = undefined
 
 export const getProductsByCategory = async (categoryId) => {
   try {
+    console.log("shubhamn",categoryId);
     const response = await apiClient.get(`/api/catalog/products?category=${categoryId}`);
     return response.data;
   } catch (error) {

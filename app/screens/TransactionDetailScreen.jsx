@@ -79,14 +79,25 @@ const TransactionDetailScreen = () => {
 
     const formatDate = (dateString) => {
         const date = new Date(dateString);
-        return date.toLocaleDateString('en-IN', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
+        const day = date.toLocaleDateString('en-IN', {
+            weekday: 'long'
         });
+        const datePart = date.toLocaleDateString('en-IN', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric'
+        });
+        const timePart = date.toLocaleTimeString('en-IN', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        });
+
+        return {
+            day,
+            date: datePart,
+            time: timePart
+        };
     };
 
     if (loading) {
@@ -116,6 +127,8 @@ const TransactionDetailScreen = () => {
             </SafeAreaView>
         );
     }
+
+    const formattedDate = formatDate(transaction.createdAt);
 
     return (
         <SafeAreaView style={styles.container}>
@@ -167,7 +180,11 @@ const TransactionDetailScreen = () => {
 
                     <View style={styles.detailRow}>
                         <Text style={styles.detailLabel}>Date & Time</Text>
-                        <Text style={styles.detailValue}>{formatDate(transaction.createdAt)}</Text>
+                        <View style={styles.dateTimeContainer}>
+                            <Text style={styles.dateText}>{formattedDate.day}</Text>
+                            <Text style={styles.dateText}>{formattedDate.date}</Text>
+                            <Text style={styles.timeText}>{formattedDate.time}</Text>
+                        </View>
                     </View>
 
                     <View style={styles.detailRow}>
@@ -377,8 +394,8 @@ const styles = StyleSheet.create({
     detailRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingVertical: 8,
+        alignItems: 'flex-start',
+        paddingVertical: 12,
         borderBottomWidth: 1,
         borderBottomColor: '#F3F4F6',
     },
@@ -386,12 +403,35 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#6B7280',
         fontFamily: 'Poppins-Regular',
+        flex: 1,
     },
     detailValue: {
         fontSize: 14,
         fontWeight: '500',
         color: '#1F2937',
         fontFamily: 'Poppins-Medium',
+        flex: 1,
+        textAlign: 'right',
+    },
+    dateTimeContainer: {
+        flex: 1,
+        alignItems: 'flex-end',
+    },
+    dateText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: '#1F2937',
+        fontFamily: 'Poppins-Medium',
+        textAlign: 'right',
+        lineHeight: 20,
+    },
+    timeText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: '#10B981',
+        fontFamily: 'Poppins-Medium',
+        textAlign: 'right',
+        lineHeight: 20,
     },
     orderCard: {
         backgroundColor: '#FFFFFF',

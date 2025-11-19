@@ -4,6 +4,7 @@ import { LoginTypeProvider } from '../contexts/LoginTypeContext';
 import ReturnReplacementScreen from "./screens/ReturnReplacementScreen";
 import PaymentHistoryScreen from "./screens/PaymentHistoryScreen";
 import TransactionDetailScreen from "./screens/TransactionDetailScreen";
+import ProductsScreen from "./screens/ProductsScreen";
 
 
 export default function RootLayout() {
@@ -39,6 +40,7 @@ export default function RootLayout() {
             <Stack.Screen name="screens/TransactionsScreen" options={{headerShown: false}}/>
             <Stack.Screen name="screens/PaymentHistoryScreen" options={{headerShown: false}}/>
             <Stack.Screen name="screens/TransactionDetailScreen" options={{headerShown: false}}/>
+            <Stack.Screen name="screens/ProductsScreen" options={{headerShown: false}}/>
 
         </Stack>
         </LoginTypeProvider>

@@ -430,10 +430,30 @@ export default function AccountScreen() {
                             style={styles.arrowIcon}
                         />
                     </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={styles.menuItem}
+                        onPress={() => router.push("/screens/LoginTypeSelectionScreen")}
+                    >
+                        <View style={styles.leftRow}>
+                            {/*<Image*/}
+                            {/*    source={require("../../assets/icons/switch-provider.png")}*/}
+                            {/*    style={styles.menuIcon}*/}
+                            {/*/>*/}
+                            <Text style={[styles.menuLabel, { color: "#3A7AFE" }]}>
+                                Switch provider
+                            </Text>
+                        </View>
+                        <Image
+                            source={require("../../assets/icons/right-arrow.png")}
+                            style={styles.arrowIcon}
+                        />
+                    </TouchableOpacity>
                 </View>
 
                 <View style={{height: Platform.OS === "ios" ? 120 : 80}}/>
             </Animated.ScrollView>
+
         </View>
     );
 }

@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import {useLocalSearchParams, useRouter} from "expo-router";
+import {useEffect, useState} from "react";
 import {
     Alert,
     Dimensions,
@@ -16,14 +16,15 @@ import {
     FlatList,
     SafeAreaView
 } from "react-native";
-import { addCartItem, getCartItems, getOrCreateSessionId, removeCartItem, updateCartItem } from '../../api/cartApi';
-import { getProducts, getCategories } from '../../api/catalogApi';
-import { API_BASE_URL } from '../../config/apiConfig';
+import {addCartItem, getCart, getOrCreateSessionId, removeCartItem, updateCartItem} from '../../api/cartApi';
+import {getProducts, getCategories} from '../../api/catalogApi';
+import {API_BASE_URL} from '../../config/apiConfig';
 
-const { width, height } = Dimensions.get("window");
+const {width, height} = Dimensions.get("window");
 
-export default function ProductsScreen({ selectedCategory, searchQuery }) {
+export default function ProductsScreen() {
     const router = useRouter();
+    const {selectedCategory, searchQuery} = useLocalSearchParams();
     const [products, setProducts] = useState([]);
     const [categories, setCategories] = useState([]);
     const [filteredProducts, setFilteredProducts] = useState([]);
@@ -39,61 +40,108 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
         let mounted = true;
 
         async function load() {
-            setLoading(true);
             try {
-                const [productsRes, categoriesRes, cartRes] = await Promise.all([
-                    getProducts({ page: 1, limit: 50 }),
+                setLoading(true);
+
+                // Ensure selectedCategory is a clean ID
+                const categoryId =
+                    typeof selectedCategory === "string"
+                        ? selectedCategory
+                        : selectedCategory?._id ||
+                        selectedCategory?.id ||
+                        null;
+
+
+                const requests = [
+                    getProducts({categoryId}),
                     getCategories(),
                     loadCartItems()
-                ]);
+                ];
 
-                const payload = productsRes?.data ?? productsRes;
-                const items = Array.isArray(payload)
-                    ? payload
-                    : (payload?.items || productsRes?.data?.items || productsRes?.items || []);
+                const [productsRes, categoriesRes, cartRes] = await Promise.all(requests);
+                let items = [];
 
-                // Process categories
-                const categoriesData = categoriesRes?.data ?? categoriesRes;
-                const categoriesList = Array.isArray(categoriesData)
-                    ? categoriesData
-                    : (categoriesData?.data || categoriesData?.items || []);
+                if (productsRes?.success) {
+                    if (productsRes.data?.data?.items) {
+                        items = productsRes.data.data.items;
+                    } else if (productsRes.data?.items) {
+                        items = productsRes.data.items;
+                    } else if (Array.isArray(productsRes.data)) {
+                        items = productsRes.data;
+                    }
+                } else if (Array.isArray(productsRes)) {
+                    items = productsRes;
+                }
+
+                let categoriesList = [];
+
+                if (categoriesRes?.success) {
+                    if (categoriesRes.data?.data) {
+                        categoriesList = categoriesRes.data.data;
+                    } else if (Array.isArray(categoriesRes.data)) {
+                        categoriesList = categoriesRes.data;
+                    } else if (categoriesRes.data?.items) {
+                        categoriesList = categoriesRes.data.items;
+                    }
+                } else if (Array.isArray(categoriesRes)) {
+                    categoriesList = categoriesRes;
+                }
 
                 if (mounted) {
                     setProducts(items);
                     setFilteredProducts(items);
                     setCategories(categoriesList);
+
                     if (categoriesList.length > 0) {
                         setActiveCategory(categoriesList[0]);
                     }
+
                 }
             } catch (e) {
-                console.log('Products fetch error:', e?.response?.data || e?.message || e);
+                if (mounted) {
+                    setProducts([]);
+                    setFilteredProducts([]);
+                    setCategories([]);
+                }
             } finally {
-                setLoading(false);
+                if (mounted) {
+                    setLoading(false);
+                }
             }
         }
 
         load();
+
         return () => {
             mounted = false;
         };
-    }, []);
+    }, [selectedCategory]);
 
     // Filter products when category or search query changes
     useEffect(() => {
+
         let filtered = [...products];
 
         // Filter by active category
         if (activeCategory) {
-            filtered = filtered.filter(product =>
-                product.categoryIds?.includes(activeCategory._id) ||
-                product.categoryId === activeCategory._id ||
-                product.category?._id === activeCategory._id
-            );
+            const previousCount = filtered.length;
+            filtered = filtered.filter(product => {
+                const matchesCategory =
+                    product.categoryIds?.includes(activeCategory._id) ||
+                    product.categoryId === activeCategory._id ||
+                    product.category?._id === activeCategory._id ||
+                    (Array.isArray(product.categoryIds) &&
+                        product.categoryIds.some(cat =>
+                            cat?._id === activeCategory._id || cat === activeCategory._id
+                        ));
+
+                return matchesCategory;
+            });
         }
 
         // Filter by search query
         if (searchQuery) {
+            const previousCount = filtered.length;
             const query = searchQuery.toLowerCase();
             filtered = filtered.filter(product =>
                 product.title?.toLowerCase().includes(query) ||
@@ -110,14 +158,23 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
     // Load cart items
     const loadCartItems = async () => {
         try {
-            const sessionId = await getOrCreateSessionId();
-            if (sessionId) {
-                const cartData = await getCartItems(sessionId);
-                setCartItems(cartData?.items || []);
-                return cartData;
+            const cartData = await getCart();
+
+            let items = [];
+            if (cartData?.success) {
+                if (cartData.data?.items) {
+                    items = cartData.data.items;
+                } else if (Array.isArray(cartData.data)) {
+                    items = cartData.data;
+                }
+            } else if (Array.isArray(cartData)) {
+                items = cartData;
             }
+
+           setCartItems(items);
+            return cartData;
         } catch (error) {
-            console.log('Error loading cart:', error);
+            setCartItems([]);
         }
     };
 
@@ -126,31 +183,63 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
         (async () => {
             try {
                 const lt = await AsyncStorage.getItem('loginType');
-                if (lt) setLoginType(lt);
-            } catch (_) { }
+               if (lt) {
+                    setLoginType(lt);
+                }
+            } catch (error) {
+                console.log('❌ Error loading login type:', error);
+            }
         })();
     }, []);
 
     function handleProductClick(id) {
-        router.replace({ pathname: "/screens/ProductDetailScreen", params: { id: String(id) } });
+        router.replace({pathname: "/screens/ProductDetailScreen", params: {id: String(id)}});
     }
 
     function getProductId(item) {
-        return item?.id || item?._id || item?.productId;
+        const id = item?.id || item?._id || item?.productId;
+        return id;
     }
 
     function computeProductPrice(item) {
-        const base = Number(item?.basePrice ?? item?.price ?? 0);
-        const discount = item?.discount && typeof item.discount.value === 'number' ? Number(item.discount.value) : 0;
-        const hasPercent = item?.discount?.type === 'percent' && discount > 0;
-        const final = hasPercent ? (base - (base * discount / 100)) : base;
-        return { base, final, hasDiscount: hasPercent, discountPercent: discount };
+        // Check if product has variants with pricing
+        const variants = Array.isArray(item?.variants) ? item.variants : [];
+        const firstVariant = variants[0];
+
+        let base = 0;
+        let final = 0;
+        let hasDiscount = false;
+        let discountPercent = 0;
+
+        // Priority: Variant pricing -> Product pricing
+        if (firstVariant) {
+            base = Number(firstVariant?.basePrice ?? firstVariant?.price ?? 0);
+            final = Number(firstVariant?.finalPrice ?? firstVariant?.price ?? base);
+        } else {
+            base = Number(item?.basePrice ?? item?.price ?? 0);
+            final = Number(item?.finalPrice ?? item?.price ?? base);
+        }
+
+        // Calculate discount if applicable
+        if (item?.discount?.type === 'percent' && item.discount.value > 0) {
+            discountPercent = Number(item.discount.value);
+            final = base - (base * discountPercent / 100);
+            hasDiscount = true;
+        } else if (base > final) {
+            discountPercent = Math.round(((base - final) / base) * 100);
+            hasDiscount = discountPercent > 0;
+        }
+
+
+
+        return {base, final, hasDiscount, discountPercent};
     }
 
     function getBusinessPriceInfo(item) {
         const priceRange = item?.priceRange;
         const negotiated = item?.negotiatedPrice ?? item?.businessPrice;
         const tiers = item?.tierPricing || item?.priceTiers || item?.tiers || [];
+
         let mainText = '';
         if (typeof negotiated === 'number' && negotiated > 0) {
             mainText = `₹${Number(negotiated).toFixed(2)} (Negotiated)`;
@@ -158,7 +247,12 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
             const min = Number(priceRange.min ?? 0).toFixed(2);
             const max = Number(priceRange.max ?? min).toFixed(2);
             mainText = `₹${min} - ₹${max}`;
+        } else {
+            // Fallback to regular pricing
+            const priceInfo = computeProductPrice(item);
+            mainText = `₹${priceInfo.final.toFixed(2)}`;
         }
+
         let tierText = '';
         if (Array.isArray(tiers) && tiers.length > 0) {
             const t0 = tiers[0] || {};
@@ -168,17 +262,27 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
             const qtyPart = maxQty ? `${minQty}-${maxQty}` : `≥${minQty}`;
             if (price != null) tierText = `Tier: ${qtyPart} @ ₹${Number(price).toFixed(2)}`;
         }
-        return { mainText, tierText };
+
+        return {mainText, tierText};
     }
 
     function computeVariantPrice(variant, product) {
-        const vFinal = variant?.finalPrice;
-        const vBase = variant?.basePrice;
-        const base = Number(vBase ?? vFinal ?? product?.basePrice ?? 0);
-        const discount = product?.discount && typeof product.discount.value === 'number' ? Number(product.discount.value) : 0;
-        const hasPercent = product?.discount?.type === 'percent' && discount > 0 && vFinal == null;
-        const final = hasPercent ? (base - (base * discount / 100)) : Number(vFinal ?? base);
-        return { base: Number(base), final: Number(final), hasDiscount: hasPercent };
+        let base = Number(variant?.basePrice ?? variant?.price ?? 0);
+        let final = Number(variant?.finalPrice ?? variant?.price ?? base);
+        let hasDiscount = false;
+
+        // Apply product-level discount to variant if no variant-specific pricing
+        if (product?.discount?.type === 'percent' && product.discount.value > 0 &&
+            (!variant?.finalPrice && !variant?.basePrice)) {
+            const discountPercent = Number(product.discount.value);
+            final = base - (base * discountPercent / 100);
+            hasDiscount = true;
+        } else if (base > final) {
+            hasDiscount = true;
+        }
+
+
+        return {base: Number(base), final: Number(final), hasDiscount};
     }
 
     const getCartQuantity = (productId, variantId = null) => {
@@ -186,7 +290,8 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
             cartItem.productId === String(productId) &&
             cartItem.variantId === (variantId ? String(variantId) : null)
         );
-        return item ? item.quantity : 0;
+        const quantity = item ? item.quantity : 0;
+        return quantity;
     };
 
     async function handleAddToCart(item, variant = null) {
@@ -196,15 +301,16 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
             const selectedVariantId = variant ? String(variant._id || variant.id) : selectedVariants[String(productId)];
             const defaultVariant = variants.find(v => (v?.stock ?? 1) > 0) || variants[0] || null;
             const effectiveVariantId = selectedVariantId || (defaultVariant ? String(defaultVariant?._id || defaultVariant?.id || defaultVariant?.variantId) : null);
-            const sessionId = await getOrCreateSessionId();
+
             const payload = {
                 productId: String(productId),
                 quantity: 1,
                 variantId: effectiveVariantId ? String(effectiveVariantId) : null,
-                ...(sessionId ? { sessionId: String(sessionId) } : {}),
             };
+
             await addCartItem(payload);
             await loadCartItems();
+
             if (Platform.OS === 'android') {
                 ToastAndroid.show('Added to cart', ToastAndroid.SHORT);
             } else {
@@ -215,9 +321,9 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
             if (variant) {
                 setShowVariantModal(false);
                 setSelectedProductForVariant(null);
-            }
+             }
         } catch (e) {
-            console.log('Add to cart error:', e);
+            Alert.alert('Error', 'Failed to add item to cart');
         }
     }
 
@@ -226,32 +332,33 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
             const sessionId = await getOrCreateSessionId();
 
             if (newQuantity === 0) {
-                await removeCartItem(productId, variantId, sessionId);
+                await removeCartItem(productId, variantId);
                 await loadCartItems();
                 if (Platform.OS === 'android') {
                     ToastAndroid.show('Removed from cart', ToastAndroid.SHORT);
                 }
             } else {
-                await updateCartItem(productId, { quantity: newQuantity, variantId }, { sessionId });
+               await updateCartItem(productId, newQuantity);
                 await loadCartItems();
             }
-        } catch (error) {
-            console.log('Update quantity error:', error);
-            Alert.alert('Error', 'Failed to update quantity');
+
+       } catch (error) {
+           Alert.alert('Error', 'Failed to update quantity');
         }
     }
 
     const handleVariantSelect = (product) => {
+
         setSelectedProductForVariant(product);
         setShowVariantModal(true);
     };
 
     const closeVariantModal = () => {
-        setShowVariantModal(false);
+       setShowVariantModal(false);
         setSelectedProductForVariant(null);
     };
 
-    const renderProductItem = ({ item }) => {
+    const renderProductItem = ({item}) => {
         const productId = getProductId(item);
         const productPrice = computeProductPrice(item);
         const variants = Array.isArray(item?.variants) ? item.variants : [];
@@ -259,9 +366,12 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
         const defaultVariant = variants.find(v => (v?.stock ?? 1) > 0) || variants[0] || null;
         const selectedVariantId = selectedVariants[String(productId)];
         const selectedVariantObj = variants.find(v => String(v?._id || v?.id) === String(selectedVariantId)) || defaultVariant;
+
+        // Use variant price if available, otherwise use product price
         const displayFinalPrice = selectedVariantObj
             ? computeVariantPrice(selectedVariantObj, item).final
             : productPrice.final;
+
         const isOutOfStock = selectedVariantObj ? (selectedVariantObj?.stock === 0) : (item?.stock === 0);
         const isBusiness = String(loginType || '').toLowerCase() === 'business';
         const bizInfo = isBusiness ? getBusinessPriceInfo(item) : null;
@@ -274,7 +384,8 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
                     <View style={styles.imageContainer}>
                         <Image
                             style={styles.image}
-                            source={item?.thumbnail ? { uri: `${API_BASE_URL}${item.thumbnail}` } : require("../../assets/icons/fruit.png")}
+                            source={item?.thumbnail ? {uri: `${API_BASE_URL}${item.thumbnail}`} : require("../../assets/icons/fruit.png")}
+                            defaultSource={require("../../assets/icons/fruit.png")}
                         />
                     </View>
 
@@ -297,27 +408,27 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
                                     {bizInfo?.mainText ? (
                                         <Text style={styles.newPrice}>{bizInfo.mainText}</Text>
                                     ) : (
-                                        <Text style={styles.newPrice}>₹{Number(displayFinalPrice || 0).toFixed(2)}</Text>
+                                        <Text
+                                            style={styles.newPrice}>₹{Number(displayFinalPrice || 0).toFixed(2)}</Text>
                                     )}
                                 </>
                             ) : (
                                 <>
-                                    {showDiscount && (
-                                        <Text style={styles.oldPrice}>₹{Number(productPrice.base).toFixed(2)}</Text>
-                                    )}
-                                    <Text style={styles.newPrice}>₹{Number(displayFinalPrice || 0).toFixed(2)}</Text>
-                                    {showDiscount && (
-                                        <Text style={styles.discountPercent}>{productPrice.discountPercent}% OFF</Text>
+                                    {showDiscount ? (
+                                        <Text style={styles.priceContainer}>
+                                            <Text style={styles.oldPrice}>₹{Number(productPrice.base).toFixed(2)}</Text>
+                                            {'\n'}
+                                            <Text style={styles.newPrice}>₹{Number(displayFinalPrice || 0).toFixed(2)}</Text>
+                                            {'\n'}
+                                            <Text style={styles.discountPercent}>{productPrice.discountPercent}% OFF</Text>
+                                        </Text>
+                                    ) : (
+                                        <Text style={styles.newPrice}>₹{Number(displayFinalPrice || 0).toFixed(2)}</Text>
                                     )}
                                 </>
                             )}
                         </View>
 
-                        {selectedVariantObj && (
-                            <Text style={styles.stockText}>
-                                Stock: {selectedVariantObj?.stock ?? 'Available'}
-                            </Text>
-                        )}
                     </View>
                 </TouchableOpacity>
 
@@ -357,7 +468,7 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
         );
     };
 
-    const renderVariantItem = ({ item: variant }) => {
+    const renderVariantItem = ({item: variant}) => {
         const priceInfo = computeVariantPrice(variant, selectedProductForVariant);
         const isOutOfStock = variant?.stock === 0;
         const cartQuantity = getCartQuantity(getProductId(selectedProductForVariant), variant._id || variant.id);
@@ -370,7 +481,7 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
                             ? variant.attributes.map(a => a?.value || a?.name || '').filter(Boolean).join(' / ')
                             : (variant?.name || variant?.sku || 'Variant')}
                     </Text>
-                    <Text style={styles.variantPrice}>₹{priceInfo.final}</Text>
+                    <Text style={styles.variantPrice}>₹{priceInfo.final.toFixed(2)}</Text>
                     <Text style={styles.variantStock}>
                         {isOutOfStock ? 'Out of Stock' : `Stock: ${variant?.stock ?? 'Available'}`}
                     </Text>
@@ -436,6 +547,7 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
                                             source={imageSource}
                                             style={styles.categoryImage}
                                             resizeMode="cover"
+                                            defaultSource={require("../../assets/images/gifts.png")}
                                         />
                                         <Text
                                             style={[
@@ -455,13 +567,6 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
 
                 {/* Right Column - Products */}
                 <View style={styles.rightColumn}>
-                    <View style={styles.resultsInfo}>
-                        <Text style={styles.resultsText}>
-                            {filteredProducts.length} {filteredProducts.length === 1 ? 'product' : 'products'} found
-                            {activeCategory && ` in ${activeCategory.name}`}
-                            {searchQuery && ` for "${searchQuery}"`}
-                        </Text>
-                    </View>
 
                     {loading ? (
                         <View style={styles.loadingContainer}>
@@ -517,16 +622,18 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
                                 <View style={styles.productHeader}>
                                     <Image
                                         source={selectedProductForVariant?.thumbnail ?
-                                            { uri: `${API_BASE_URL}${selectedProductForVariant.thumbnail}` } :
+                                            {uri: `${API_BASE_URL}${selectedProductForVariant.thumbnail}`} :
                                             require("../../assets/icons/fruit.png")}
                                         style={styles.productHeaderImage}
+                                        defaultSource={require("../../assets/icons/fruit.png")}
                                     />
                                     <View style={styles.productHeaderInfo}>
                                         <Text style={styles.productHeaderName} numberOfLines={2}>
                                             {selectedProductForVariant?.title || selectedProductForVariant?.name}
                                         </Text>
                                         <Text style={styles.productHeaderPrice}>
-                                            Starts from ₹{computeProductPrice(selectedProductForVariant).final}
+                                            Starts from
+                                            ₹{computeProductPrice(selectedProductForVariant).final.toFixed(2)}
                                         </Text>
                                     </View>
                                 </View>
@@ -548,8 +655,10 @@ export default function ProductsScreen({ selectedCategory, searchQuery }) {
     );
 }
 
+// Styles remain the same as in your original code
 const styles = StyleSheet.create({
     container: {
+        marginTop:20,
         flex: 1,
         backgroundColor: '#FFFFFF',
     },
@@ -577,7 +686,7 @@ const styles = StyleSheet.create({
     activeCategoryItem: {
         backgroundColor: '#FFF5F5',
         borderLeftWidth: 4,
-        borderLeftColor: '#EC0505',
+        borderLeftColor: '#4CAD73',
     },
     categoryContent: {
         alignItems: 'center',
@@ -605,15 +714,6 @@ const styles = StyleSheet.create({
     // Right Column Styles
     rightColumn: {
         flex: 1,
-        padding: 16,
-    },
-    resultsInfo: {
-        marginBottom: 16,
-    },
-    resultsText: {
-        fontFamily: 'Poppins',
-        fontSize: 14,
-        color: '#838383',
     },
     productsGrid: {
         paddingBottom: 20,
@@ -622,15 +722,8 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#FFFFFF',
         borderRadius: 12,
-        margin: 6,
-        padding: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
-        borderWidth: 1,
-        borderColor: '#F0F0F0',
+        margin: 4,
+        padding: 4,
     },
     imageContainer: {
         height: 100,
@@ -716,7 +809,7 @@ const styles = StyleSheet.create({
     },
     quantityPlus: {
         fontSize: 16,
-        color: '#FFFFFF',
+        color: '#171717',
         fontWeight: 'bold',
         width: 20,
         textAlign: 'center',
@@ -730,7 +823,7 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     addButton: {
-        backgroundColor: '#EC0505',
+        backgroundColor: '#4CAD73',
         paddingVertical: 8,
         paddingHorizontal: 16,
         borderRadius: 8,
@@ -840,7 +933,7 @@ const styles = StyleSheet.create({
     },
     productHeaderPrice: {
         fontSize: 14,
-        color: '#EC0505',
+        color: '#4CAD73',
         fontFamily: 'Poppins-SemiBold',
     },
     variantsList: {
@@ -876,7 +969,7 @@ const styles = StyleSheet.create({
     variantPrice: {
         fontSize: 16,
         fontWeight: '700',
-        color: '#EC0505',
+        color: '#4CAD73',
         fontFamily: 'Poppins-Bold',
         marginBottom: 4,
     },
@@ -912,7 +1005,7 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     variantAddButton: {
-        backgroundColor: '#EC0505',
+        backgroundColor: '#4CAD73',
         paddingVertical: 8,
         paddingHorizontal: 16,
         borderRadius: 8,

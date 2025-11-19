@@ -1,5 +1,5 @@
 // screens/WalletScreen.js
-import React, { useState, useEffect } from 'react';
+import React, {useState, useEffect} from 'react';
 import {
     View,
     Text,
@@ -11,7 +11,7 @@ import {
     ActivityIndicator,
     SafeAreaView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import {Ionicons} from '@expo/vector-icons';
 import apiClient from "../../utils/apiClient";
 import {useRouter} from "expo-router";
 
@@ -68,13 +68,13 @@ const WalletScreen = () => {
     const getTransactionIcon = (type) => {
         switch (type) {
             case 'credit':
-                return { name: 'arrow-down-circle', color: '#4CAF50' };
+                return {name: 'arrow-down-circle', color: '#4CAF50'};
             case 'debit':
-                return { name: 'arrow-up-circle', color: '#F44336' };
+                return {name: 'arrow-up-circle', color: '#F44336'};
             case 'refund':
-                return { name: 'refresh-circle', color: '#FF9800' };
+                return {name: 'refresh-circle', color: '#FF9800'};
             default:
-                return { name: 'card', color: '#2196F3' };
+                return {name: 'card', color: '#2196F3'};
         }
     };
 
@@ -95,7 +95,7 @@ const WalletScreen = () => {
         return (
             <SafeAreaView style={styles.container}>
                 <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#10B981" />
+                    <ActivityIndicator size="large" color="#10B981"/>
                     <Text style={styles.loadingText}>Loading wallet...</Text>
                 </View>
             </SafeAreaView>
@@ -108,17 +108,17 @@ const WalletScreen = () => {
             <View style={styles.header}>
                 <TouchableOpacity
                     style={styles.backButton}
-                    onPress={() => navigation.goBack()}
+                    onPress={() => router.back()}
                 >
-                    <Ionicons name="arrow-back" size={24} color="#333" />
+                    <Ionicons name="arrow-back" size={24} color="#333"/>
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>My Wallet</Text>
-                <View style={styles.placeholder} />
+                <View style={styles.placeholder}/>
             </View>
 
             <ScrollView
                 refreshControl={
-                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh}/>
                 }
                 showsVerticalScrollIndicator={false}
             >
@@ -126,7 +126,7 @@ const WalletScreen = () => {
                 <View style={styles.balanceCard}>
                     <View style={styles.balanceHeader}>
                         <Text style={styles.balanceLabel}>Current Balance</Text>
-                        <Ionicons name="wallet" size={24} color="#10B981" />
+                        <Ionicons name="wallet" size={24} color="#10B981"/>
                     </View>
                     <Text style={styles.balanceAmount}>
                         {formatAmount(wallet?.balance)}
@@ -139,7 +139,7 @@ const WalletScreen = () => {
                                 {formatAmount(wallet?.totalAdded)}
                             </Text>
                         </View>
-                        <View style={styles.statDivider} />
+                        <View style={styles.statDivider}/>
                         <View style={styles.statItem}>
                             <Text style={styles.statLabel}>Total Spent</Text>
                             <Text style={styles.statValue}>
@@ -157,8 +157,8 @@ const WalletScreen = () => {
                             style={styles.actionButton}
                             onPress={() => router.push('AddMoney')}
                         >
-                            <View style={[styles.actionIcon, { backgroundColor: '#E8F5E8' }]}>
-                                <Ionicons name="add-circle" size={24} color="#10B981" />
+                            <View style={[styles.actionIcon, {backgroundColor: '#E8F5E8'}]}>
+                                <Ionicons name="add-circle" size={24} color="#10B981"/>
                             </View>
                             <Text style={styles.actionText}>Add Money</Text>
                         </TouchableOpacity>
@@ -167,8 +167,8 @@ const WalletScreen = () => {
                             style={styles.actionButton}
                             onPress={() => router.push('/screens/TransactionsScreen')}
                         >
-                            <View style={[styles.actionIcon, { backgroundColor: '#E3F2FD' }]}>
-                                <Ionicons name="list-circle" size={24} color="#2196F3" />
+                            <View style={[styles.actionIcon, {backgroundColor: '#E3F2FD'}]}>
+                                <Ionicons name="list-circle" size={24} color="#2196F3"/>
                             </View>
                             <Text style={styles.actionText}>Transactions</Text>
                         </TouchableOpacity>
@@ -177,8 +177,8 @@ const WalletScreen = () => {
                             style={styles.actionButton}
                             onPress={() => router.push('/screens/PaymentHistoryScreen')}
                         >
-                            <View style={[styles.actionIcon, { backgroundColor: '#FFF3E0' }]}>
-                                <Ionicons name="time" size={24} color="#FF9800" />
+                            <View style={[styles.actionIcon, {backgroundColor: '#FFF3E0'}]}>
+                                <Ionicons name="time" size={24} color="#FF9800"/>
                             </View>
                             <Text style={styles.actionText}>History</Text>
                         </TouchableOpacity>
@@ -196,7 +196,7 @@ const WalletScreen = () => {
 
                     {transactions.length === 0 ? (
                         <View style={styles.emptyState}>
-                            <Ionicons name="receipt-outline" size={64} color="#CCC" />
+                            <Ionicons name="receipt-outline" size={64} color="#CCC"/>
                             <Text style={styles.emptyStateText}>No transactions yet</Text>
                             <Text style={styles.emptyStateSubtext}>
                                 Your wallet transactions will appear here
@@ -211,8 +211,8 @@ const WalletScreen = () => {
                                     style={styles.transactionItem}
                                 >
                                     <View style={styles.transactionLeft}>
-                                        <View style={[styles.transactionIcon, { backgroundColor: `${icon.color}15` }]}>
-                                            <Ionicons name={icon.name} size={20} color={icon.color} />
+                                        <View style={[styles.transactionIcon, {backgroundColor: `${icon.color}15`}]}>
+                                            <Ionicons name={icon.name} size={20} color={icon.color}/>
                                         </View>
                                         <View style={styles.transactionDetails}>
                                             <Text style={styles.transactionReference}>
@@ -227,7 +227,7 @@ const WalletScreen = () => {
                                         <Text
                                             style={[
                                                 styles.transactionAmount,
-                                                { color: transaction.type === 'credit' ? '#4CAF50' : '#F44336' }
+                                                {color: transaction.type === 'credit' ? '#4CAF50' : '#F44336'}
                                             ]}
                                         >
                                             {transaction.type === 'credit' ? '+' : '-'}
@@ -248,15 +248,15 @@ const WalletScreen = () => {
                     <Text style={styles.sectionTitle}>Wallet Benefits</Text>
                     <View style={styles.benefitsList}>
                         <View style={styles.benefitItem}>
-                            <Ionicons name="flash" size={20} color="#10B981" />
+                            <Ionicons name="flash" size={20} color="#10B981"/>
                             <Text style={styles.benefitText}>Instant checkout</Text>
                         </View>
                         <View style={styles.benefitItem}>
-                            <Ionicons name="shield-checkmark" size={20} color="#10B981" />
+                            <Ionicons name="shield-checkmark" size={20} color="#10B981"/>
                             <Text style={styles.benefitText}>Secure payments</Text>
                         </View>
                         <View style={styles.benefitItem}>
-                            <Ionicons name="cash" size={20} color="#10B981" />
+                            <Ionicons name="cash" size={20} color="#10B981"/>
                             <Text style={styles.benefitText}>Cashback offers</Text>
                         </View>
                     </View>
@@ -308,7 +308,7 @@ const styles = StyleSheet.create({
         padding: 20,
         borderRadius: 12,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
+        shadowOffset: {width: 0, height: 2},
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 3,

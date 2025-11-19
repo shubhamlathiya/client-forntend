@@ -11,6 +11,7 @@ import {
 import {addCartItem, getOrCreateSessionId} from '../../api/cartApi';
 import {getProductById, getVariants, getProducts} from '../../api/catalogApi';
 import {API_BASE_URL} from '../../config/apiConfig';
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function ProductDetailScreen() {
     const router = useRouter();
@@ -21,7 +22,7 @@ export default function ProductDetailScreen() {
     const [variants, setVariants] = useState([]);
     const [selectedVariantId, setSelectedVariantId] = useState(null);
     const [related, setRelated] = useState([]);
-
+    const [isBusinessUser, setIsBusinessUser] = useState(false);
 
     const handleBack = () => {
         // Check if there’s a previous route in history
@@ -32,7 +33,18 @@ export default function ProductDetailScreen() {
             router.replace('/Home');
         }
     };
+
+    const checkUserType = async () => {
+        try {
+            const loginType = await AsyncStorage.getItem('loginType');
+            setIsBusinessUser(loginType === 'business');
+        } catch (error) {
+            console.error('Error checking user type:', error);
+        }
+    };
+
     useEffect(() => {
+        checkUserType();
         let mounted = true;
 
         async function load() {

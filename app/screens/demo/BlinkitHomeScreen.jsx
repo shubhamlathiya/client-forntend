@@ -19,8 +19,8 @@ import {useRouter} from "expo-router";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {getCategories, getProducts, getProductsByCategory} from "../../../api/catalogApi";
 import {API_BASE_URL} from "../../../config/apiConfig";
-import {addCartItem} from "../../../api/cartApi";
 import {getAddresses} from "../../../api/addressApi";
+import {addCartItem} from "../../../api/cartApi";
 
 const {width, height} = Dimensions.get('window');
 
@@ -45,9 +45,9 @@ const TAB_CATEGORIES = [
         id: 'winter',
         name: 'Winter',
         icon: require('../../../assets/icons/winter.png'),
-        color: '#1E88E5', // Dark Blue
+        color: '#1E88E5',
         headerColor: '#1E88E5',
-        lightColor: '#87CEEB' // Light Blue
+        lightColor: '#87CEEB'
     },
     {
         id: 'electronics',
@@ -90,6 +90,8 @@ export default function BlinkitHomeScreen() {
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [categoryProducts, setCategoryProducts] = useState([]);
     const [fragmentLoading, setFragmentLoading] = useState(false);
+    const [isBusinessUser, setIsBusinessUser] = useState(false);
+    const [tierPricing, setTierPricing] = useState({});
 
     // New state for tab view
     const [activeTab, setActiveTab] = useState('all');
@@ -102,12 +104,37 @@ export default function BlinkitHomeScreen() {
     const placeholderAnim = useState(new Animated.Value(1))[0];
 
     useEffect(() => {
+        checkUserType();
         loadUserData();
         fetchCategories();
         loadFeaturedProducts();
         loadTabProducts('all'); // Load initial tab products
     }, []);
 
+    const checkUserType = async () => {
+        try {
+            const loginType = await AsyncStorage.getItem('loginType');
+            setIsBusinessUser(loginType === 'business');
+
+            // Load tier pricing if business user
+            if (loginType === 'business') {
+                await loadTierPricing();
+            }
+        } catch (error) {
+            console.error('Error checking user type:', error);
+        }
+    };
+
+    // Add this function to load tier pricing
+    const loadTierPricing = async () => {
+        try {
+            // You might want to load tier pricing data here
+            // This could be a separate API call or part of your product data
+            console.log('Loading tier pricing for business user...');
+        } catch (error) {
+            console.error('Error loading tier pricing:', error);
+        }
+    };
     // Update header color when tab changes
     useEffect(() => {
         const activeTabData = TAB_CATEGORIES.find(tab => tab.id === activeTab);
@@ -399,11 +426,22 @@ export default function BlinkitHomeScreen() {
     const handleAddToCart = async (product, isFragment = false) => {
         try {
             const productId = product.id || product._id;
+
+            // Check minimum quantity for business users
+            if (isBusinessUser && product.minQty && product.minQty > 1) {
+                Alert.alert(
+                    'Minimum Quantity Required',
+                    `Minimum order quantity for this product is ${product.minQty} units for business customers.`,
+                    [{ text: 'OK' }]
+                );
+                return;
+            }
+
             setAddingToCart(prev => ({...prev, [productId]: true}));
 
             const cartItem = {
                 productId: productId,
-                quantity: 1,
+                quantity: product.minQty || 1, // Use min quantity for business users
                 variantId: product.variantId || null
             };
 
@@ -411,12 +449,24 @@ export default function BlinkitHomeScreen() {
 
         } catch (error) {
             console.error('Add to cart error:', error);
-            Alert.alert('Error', 'Failed to add product to cart. Please try again.');
+
+            // Handle business-specific errors
+            if (error.response?.data?.message?.includes('Minimum quantity')) {
+                Alert.alert('Minimum Quantity', error.response.data.message);
+            } else {
+                Alert.alert('Error', 'Failed to add product to cart. Please try again.');
+            }
         } finally {
             const productId = product.id || product._id;
             setAddingToCart(prev => ({...prev, [productId]: false}));
         }
     };
+
+    const BusinessUserBadge = () => (
+        <View style={styles.businessBadge}>
+            <Text style={styles.businessBadgeText}>BUSINESS</Text>
+        </View>
+    );
 
     const handleFragmentProductPress = (product) => {
         closeCategoryFragment();
@@ -436,10 +486,11 @@ export default function BlinkitHomeScreen() {
             }
         });
     };
-    const calculateProductPrice = (product) => {
+// Modify the calculateProductPrice function to include tier pricing
+    const calculateProductPrice = (product, quantity = 1) => {
         const normalize = (val) => val !== undefined && val !== null ? Number(val) : null;
 
-        const buildResponse = (base, final, discount, discountPercentOverride) => {
+        const buildResponse = (base, final, discount, discountPercentOverride, minQty = 1) => {
             base = normalize(base);
             final = normalize(final);
 
@@ -462,16 +513,44 @@ export default function BlinkitHomeScreen() {
                 basePrice: Math.round(base),
                 finalPrice: Math.round(final),
                 hasDiscount: discountPercent > 0,
-                discountPercent
+                discountPercent,
+                minQty // Add min quantity for business users
             };
         };
 
-        if (Array.isArray(product?.variants) && product.variants.length > 0) {
-            const v = product.variants[0];
-            return buildResponse(v.basePrice ?? product.basePrice, v.finalPrice ?? product.finalPrice ?? product.price, v.discount ?? product.discount, v.discountPercent ?? product.discountPercent);
+        // Apply tier pricing logic for business users
+        if (isBusinessUser && product.tierPricing) {
+            const applicableTier = product.tierPricing.find(tier =>
+                quantity >= tier.minQty && quantity <= tier.maxQty
+            );
+
+            if (applicableTier) {
+                return buildResponse(
+                    applicableTier.price,
+                    applicableTier.price,
+                    null,
+                    0,
+                    applicableTier.minQty
+                );
+            }
         }
 
-        return buildResponse(product.basePrice ?? product.price, product.finalPrice ?? product.price, product.discount, product.discountPercent);
+        if (Array.isArray(product?.variants) && product.variants.length > 0) {
+            const v = product.variants[0];
+            return buildResponse(
+                v.basePrice ?? product.basePrice,
+                v.finalPrice ?? product.finalPrice ?? product.price,
+                v.discount ?? product.discount,
+                v.discountPercent ?? product.discountPercent
+            );
+        }
+
+        return buildResponse(
+            product.basePrice ?? product.price,
+            product.finalPrice ?? product.price,
+            product.discount,
+            product.discountPercent
+        );
     };
 
     const renderFragmentProduct = ({item, index}) => {
@@ -540,6 +619,13 @@ export default function BlinkitHomeScreen() {
                 style={styles.tabProductCard}
                 onPress={() => router.push(`/screens/ProductDetailScreen?id=${item.id}`)}
             >
+                {/* Business User Badge */}
+                {isBusinessUser && priceInfo.minQty > 1 && (
+                    <View style={styles.minQtyBadge}>
+                        <Text style={styles.minQtyText}>Min: {priceInfo.minQty}</Text>
+                    </View>
+                )}
+
                 <Image
                     source={imageSource}
                     style={styles.tabProductImage}
@@ -566,6 +652,13 @@ export default function BlinkitHomeScreen() {
                                         {priceInfo.discountPercent}% OFF
                                     </Text>
                                 </View>
+                            )}
+
+                            {/* Show min quantity for business users */}
+                            {isBusinessUser && priceInfo.minQty > 1 && (
+                                <Text style={styles.businessMinQty}>
+                                    Min. {priceInfo.minQty} units
+                                </Text>
                             )}
                         </View>
 
@@ -980,15 +1073,6 @@ export default function BlinkitHomeScreen() {
                         </View>
                     </View>
 
-                    {/* Decorative Images */}
-                    <Image
-                        source={require('../../../assets/icons/diwali-offer.png')}
-                        style={styles.saleImageRight}
-                    />
-                    <Image
-                        source={require('../../../assets/icons/diwali-offer.png')}
-                        style={styles.saleImageLeft}
-                    />
                 </View>
 
                 {/* Active Tab Products Section */}
@@ -1118,7 +1202,7 @@ export default function BlinkitHomeScreen() {
                         {groceryCategories.map((category, index) => {
                             const url = category?.image || category?.icon;
                             const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../../assets/images/gifts.png");
-
+                            console.log(category._id)
                             return (
                             <TouchableOpacity
                                 key={category?._id || `category-${index}`}
@@ -1943,6 +2027,42 @@ const styles = StyleSheet.create({
     discountBox: {
         flexDirection: "row",
         alignItems: "center",
+        marginTop: 2,
+    },
+    businessBadge: {
+        position: 'absolute',
+        top: 8,
+        left: 8,
+        backgroundColor: '#4CAD73',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        zIndex: 1,
+    },
+    businessBadgeText: {
+        color: '#FFFFFF',
+        fontSize: 8,
+        fontFamily: 'Poppins-Bold',
+    },
+    minQtyBadge: {
+        position: 'absolute',
+        top: 8,
+        right: 8,
+        backgroundColor: '#FF6B35',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        zIndex: 1,
+    },
+    minQtyText: {
+        color: '#FFFFFF',
+        fontSize: 8,
+        fontFamily: 'Poppins-Bold',
+    },
+    businessMinQty: {
+        fontSize: 10,
+        fontFamily: 'Poppins-Regular',
+        color: '#FF6B35',
         marginTop: 2,
     },
 });

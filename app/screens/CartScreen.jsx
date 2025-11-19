@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useState, useCallback } from "react";
 import {
     Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Dimensions,
-    FlatList
+    FlatList, Modal
 } from "react-native";
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -11,7 +11,12 @@ import {
     getCart,
     removeCartItem,
     removeCoupon as removeCouponApi,
-    updateCartItem as updateCartItemApi
+    updateCartItem as updateCartItemApi,
+    createBulkNegotiation,
+    getTierPricing,
+    applyTierPricing,
+    getOrCreateSessionId,
+    getUserType
 } from '../../api/cartApi';
 import { API_BASE_URL } from '../../config/apiConfig';
 import RelatedProducts from "../../components/screens/RelatedProducts";
@@ -29,6 +34,15 @@ export default function CartScreen() {
     const [updatingItems, setUpdatingItems] = useState({});
     const [selectedAddress, setSelectedAddress] = useState(null);
     const [selectedInstructions, setSelectedInstructions] = useState([]);
+
+    // Business user states
+    const [isBusinessUser, setIsBusinessUser] = useState(false);
+    const [negotiationModalVisible, setNegotiationModalVisible] = useState(false);
+    const [selectedProductForNegotiation, setSelectedProductForNegotiation] = useState(null);
+    const [proposedPrice, setProposedPrice] = useState('');
+    const [negotiationLoading, setNegotiationLoading] = useState(false);
+    const [tierPricing, setTierPricing] = useState({});
+    const [sessionId, setSessionId] = useState(null);
 
     // Mock data for special deals - only one
     const [specialDeal] = useState({
@@ -93,6 +107,54 @@ export default function CartScreen() {
         }
     ]);
 
+    // Initialize session and user type
+    const initializeSession = async () => {
+        try {
+            const sid = await getOrCreateSessionId();
+            setSessionId(sid);
+
+            const loginType = await getUserType();
+            setIsBusinessUser(loginType === 'business');
+
+            // Load tier pricing for business users
+            if (loginType === 'business') {
+                await loadTierPricing();
+            }
+        } catch (error) {
+            console.error('Error initializing session:', error);
+        }
+    };
+
+    // Load tier pricing for business users
+    const loadTierPricing = async () => {
+        try {
+            const response = await getTierPricing();
+            if (response.success) {
+                const pricingMap = {};
+                response.data.forEach(tier => {
+                    const key = tier.variantId ? `${tier.productId}_${tier.variantId}` : tier.productId;
+                    if (!pricingMap[key]) pricingMap[key] = [];
+                    pricingMap[key].push(tier);
+                });
+                setTierPricing(pricingMap);
+            }
+        } catch (error) {
+            console.error('Error loading tier pricing:', error);
+        }
+    };
+
+    // Apply tier pricing to cart for business users
+    const applyTierPricingToCart = async () => {
+        if (!isBusinessUser) return;
+
+        try {
+            await applyTierPricing();
+            await loadCartData(false);
+        } catch (error) {
+            console.error('Error applying tier pricing:', error);
+        }
+    };
+
     // Load selected address from AsyncStorage
     const loadSelectedAddress = async () => {
         try {
@@ -107,6 +169,7 @@ export default function CartScreen() {
 
     // Auto refresh when screen comes into focus
     useFocusEffect(useCallback(() => {
+        initializeSession();
         loadCartData();
         loadSelectedAddress();
     }, []));
@@ -118,7 +181,6 @@ export default function CartScreen() {
 
             const res = await getCart();
             const data = res?.data ?? res;
-
             const items = Array.isArray(data?.items) ? data.items : [];
 
             const mapped = items.map((ci) => {
@@ -137,7 +199,9 @@ export default function CartScreen() {
                     quantity: Number(ci?.quantity || 1),
                     imageUrl: ci?.product?.thumbnail || ci?.product?.images?.[0] || ci?.variant?.images?.[0] || null,
                     variantId: ci?.variantId || null,
-                    subtotal: Number(ci?.subtotal ?? 0)
+                    subtotal: Number(ci?.subtotal ?? 0),
+                    minQty: ci?.minQty || 1, // For business users
+                    shippingCharge: ci?.shippingCharge || 0
                 };
             });
 
@@ -164,11 +228,20 @@ export default function CartScreen() {
     const updateQuantity = useCallback(async (itemId, newQuantity, productId, variantId = null) => {
         if (newQuantity < 1) return;
 
+        // Check minimum quantity for business users
+        const item = cartItems.find(item => item.id === itemId);
+        if (isBusinessUser && item?.minQty && newQuantity < item.minQty) {
+            Alert.alert('Minimum Quantity', `Minimum quantity for this product is ${item.minQty}`);
+            return;
+        }
+
         try {
             setUpdatingItems(prev => ({ ...prev, [itemId]: true }));
 
             // Optimistic update
-            const updatedItems = cartItems.map(item => item.id === itemId ? { ...item, quantity: newQuantity } : item);
+            const updatedItems = cartItems.map(item =>
+                item.id === itemId ? { ...item, quantity: newQuantity } : item
+            );
             setCartItems(updatedItems);
 
             // API call
@@ -185,7 +258,7 @@ export default function CartScreen() {
         } finally {
             setUpdatingItems(prev => ({ ...prev, [itemId]: false }));
         }
-    }, [cartItems, loadCartData]);
+    }, [cartItems, loadCartData, isBusinessUser]);
 
     // Optimized item removal
     const removeItem = useCallback(async (productId, variantId = null, itemId) => {
@@ -212,6 +285,75 @@ export default function CartScreen() {
         }
     }, [cartItems, loadCartData]);
 
+    // Open negotiation modal
+    const openNegotiationModal = (product) => {
+        setSelectedProductForNegotiation(product);
+        setProposedPrice(product.finalPrice.toString());
+        setNegotiationModalVisible(true);
+    };
+
+    // Submit negotiation request
+    const submitNegotiation = async () => {
+        if (!proposedPrice || !selectedProductForNegotiation) return;
+
+        try {
+            setNegotiationLoading(true);
+
+            // 1. Get loginType
+            const loginType = await AsyncStorage.getItem('loginType');
+
+            // 2. Get cart info (to extract cartId)
+            const cartResponse = await getCart();
+            const cartId = cartResponse?.data?.cartId || cartResponse?.cartId;
+
+            if (!cartId) {
+                Alert.alert('Error', 'Cart not found');
+                return;
+            }
+
+            // 3. Build negotiation payload
+            const negotiationData = {
+                loginType,
+                cartId, // <-- added cartId here
+                products: [
+                    {
+                        productId: selectedProductForNegotiation.productId,
+                        variantId: selectedProductForNegotiation.variantId,
+                        productName: selectedProductForNegotiation.name,
+                        variantName: selectedProductForNegotiation.description,
+                        quantity: selectedProductForNegotiation.quantity,
+                        currentPrice: selectedProductForNegotiation.finalPrice,
+                        proposedPrice: parseFloat(proposedPrice),
+                        totalAmount:
+                            parseFloat(proposedPrice) *
+                            selectedProductForNegotiation.quantity
+                    }
+                ],
+                totalProposedAmount:
+                    parseFloat(proposedPrice) *
+                    selectedProductForNegotiation.quantity
+            };
+
+            // 4. Send request
+            const result = await createBulkNegotiation(negotiationData);
+
+            if (result.success) {
+                Alert.alert('Success', 'Negotiation request submitted successfully!');
+                setNegotiationModalVisible(false);
+                setSelectedProductForNegotiation(null);
+                setProposedPrice('');
+            } else {
+                Alert.alert('Error', result.error || 'Failed to submit negotiation');
+            }
+        } catch (error) {
+            console.error('Negotiation error:', error);
+            Alert.alert('Error', 'Failed to submit negotiation request');
+        } finally {
+            setNegotiationLoading(false);
+        }
+    };
+
+
     // Coupon application with immediate feedback
     const applyCoupon = useCallback(async () => {
         if (!couponCode.trim()) return;
@@ -223,7 +365,7 @@ export default function CartScreen() {
             if (result.success) {
                 await loadCartData(false);
                 setCouponCode('');
-                Alert.alert('Success', result.data.message);
+                Alert.alert('Success', result.data.message || 'Coupon applied successfully!');
             } else {
                 Alert.alert('Coupon Error', result.error || 'Failed to apply coupon');
             }
@@ -316,6 +458,16 @@ export default function CartScreen() {
                     <Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
                     <Text style={styles.productDescription} numberOfLines={1}>{item.description}</Text>
 
+                    {/* Minimum quantity warning for business users */}
+                    {isBusinessUser && item.minQty && item.minQty > 1 && (
+                        <Text style={styles.minQtyText}>Min. Qty: {item.minQty}</Text>
+                    )}
+
+                    {/* Shipping cost display */}
+                    {item.shippingCharge > 0 && (
+                        <Text style={styles.shippingText}>Shipping: ₹{item.shippingCharge.toFixed(2)}</Text>
+                    )}
+
                     <View style={styles.priceContainer}>
                         {item.hasDiscount ? (<>
                             <Text style={styles.finalPrice}>₹{item.finalPrice.toFixed(2)}</Text>
@@ -327,6 +479,23 @@ export default function CartScreen() {
                             </View>
                         </>) : (<Text style={styles.finalPrice}>₹{item.finalPrice.toFixed(2)}</Text>)}
                     </View>
+
+                    {/* Tier pricing info for business users */}
+                    {isBusinessUser && tierPricing[item.variantId ? `${item.productId}_${item.variantId}` : item.productId] && (
+                        <Text style={styles.tierPricingText}>
+                            Tier pricing applied
+                        </Text>
+                    )}
+
+                    {/* Negotiation button for business users */}
+                    {isBusinessUser && (
+                        <TouchableOpacity
+                            style={styles.negotiateButton}
+                            onPress={() => openNegotiationModal(item)}
+                        >
+                            <Text style={styles.negotiateButtonText}>Request Better Price</Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
             </View>
 
@@ -346,10 +515,10 @@ export default function CartScreen() {
                     <TouchableOpacity
                         style={styles.quantityButton}
                         onPress={() => updateQuantity(item.id, item.quantity - 1, item.productId, item.variantId)}
-                        disabled={updatingItems[item.id] || item.quantity <= 1}
+                        disabled={updatingItems[item.id] || item.quantity <= (item.minQty || 1)}
                     >
                         <View
-                            style={[styles.minusButton, (updatingItems[item.id] || item.quantity <= 1) && styles.disabledButton]}>
+                            style={[styles.minusButton, (updatingItems[item.id] || item.quantity <= (item.minQty || 1)) && styles.disabledButton]}>
                             <Text style={styles.minusText}>-</Text>
                         </View>
                     </TouchableOpacity>
@@ -370,7 +539,7 @@ export default function CartScreen() {
                 </View>
             </View>
         </View>
-    ), [updateQuantity, removeItem, updatingItems]);
+    ), [updateQuantity, removeItem, updatingItems, isBusinessUser, openNegotiationModal, tierPricing]);
 
     const handleBack = () => {
         if (router.canGoBack()) {
@@ -390,6 +559,11 @@ export default function CartScreen() {
                     />
                 </TouchableOpacity>
                 <Text style={styles.heading}>Cart</Text>
+                {isBusinessUser && (
+                    <View style={styles.businessBadge}>
+                        <Text style={styles.businessBadgeText}>Business</Text>
+                    </View>
+                )}
             </View>
 
             <ScrollView
@@ -399,6 +573,14 @@ export default function CartScreen() {
                 bounces={true}
             >
 
+                {/* Business User Notice */}
+                {isBusinessUser && (
+                    <View style={styles.businessNotice}>
+                        <Text style={styles.businessNoticeText}>
+                            🏢 Business Account - Tier pricing applied. Minimum quantities may apply.
+                        </Text>
+                    </View>
+                )}
 
                 {/* Special Deal Section - Single Card */}
                 <View style={styles.section}>
@@ -472,6 +654,7 @@ export default function CartScreen() {
                 </View>
 
                 <RelatedProducts />
+
                 {/* Shipping Address Section */}
                 {cartItems.length > 0 && (
                     <View style={styles.section}>
@@ -515,6 +698,7 @@ export default function CartScreen() {
                         </View>
                     </View>
                 )}
+
                 {/* Bill Details Section */}
                 {cartItems.length > 0 && (
                     <View style={styles.section}>
@@ -616,6 +800,81 @@ export default function CartScreen() {
                     </View>
                 )}
             </ScrollView>
+
+            {/* Negotiation Modal */}
+            <Modal
+                visible={negotiationModalVisible}
+                animationType="slide"
+                transparent={true}
+                onRequestClose={() => setNegotiationModalVisible(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <Text style={styles.modalTitle}>Request Better Price</Text>
+
+                        {selectedProductForNegotiation && (
+                            <View style={styles.negotiationProduct}>
+                                <Image
+                                    source={selectedProductForNegotiation.imageUrl ?
+                                        { uri: `${API_BASE_URL}${selectedProductForNegotiation.imageUrl}` } :
+                                        require("../../assets/sample-product.png")}
+                                    style={styles.negotiationImage}
+                                />
+                                <View style={styles.negotiationProductInfo}>
+                                    <Text style={styles.negotiationProductName}>
+                                        {selectedProductForNegotiation.name}
+                                    </Text>
+                                    <Text style={styles.negotiationProductDesc}>
+                                        {selectedProductForNegotiation.description}
+                                    </Text>
+                                    <Text style={styles.currentPrice}>
+                                        Current Price: ₹{selectedProductForNegotiation.finalPrice.toFixed(2)}
+                                    </Text>
+                                    <Text style={styles.currentQuantity}>
+                                        Quantity: {selectedProductForNegotiation.quantity}
+                                    </Text>
+                                </View>
+                            </View>
+                        )}
+
+                        <Text style={styles.modalLabel}>Your Proposed Price (per unit)</Text>
+                        <TextInput
+                            style={styles.priceInput}
+                            value={proposedPrice}
+                            onChangeText={setProposedPrice}
+                            placeholder="Enter your proposed price"
+                            keyboardType="numeric"
+                            placeholderTextColor="#999"
+                        />
+
+                        {proposedPrice && selectedProductForNegotiation && (
+                            <View style={styles.totalCalculation}>
+                                <Text style={styles.totalCalculationText}>
+                                    Total: ₹{(parseFloat(proposedPrice) * selectedProductForNegotiation.quantity).toFixed(2)}
+                                </Text>
+                            </View>
+                        )}
+
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity
+                                style={[styles.modalButton, styles.cancelButton]}
+                                onPress={() => setNegotiationModalVisible(false)}
+                            >
+                                <Text style={styles.cancelButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.modalButton, styles.submitButton, (!proposedPrice || negotiationLoading) && styles.disabledButton]}
+                                onPress={submitNegotiation}
+                                disabled={!proposedPrice || negotiationLoading}
+                            >
+                                <Text style={styles.submitButtonText}>
+                                    {negotiationLoading ? 'Submitting...' : 'Submit Request'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -644,6 +903,182 @@ const styles = StyleSheet.create({
         height: 32,
         borderRadius: 8,
     },
+    // Business User Styles
+    businessBadge: {
+        backgroundColor: '#4CAD73',
+        paddingHorizontal: 12,
+        paddingVertical: 4,
+        borderRadius: 12,
+        marginLeft: 'auto',
+    },
+    businessBadgeText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontFamily: 'Poppins-SemiBold',
+    },
+    businessNotice: {
+        backgroundColor: '#E6F2FF',
+        marginHorizontal: 16,
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 16,
+        borderLeftWidth: 4,
+        borderLeftColor: '#4CAD73',
+    },
+    businessNoticeText: {
+        fontSize: 14,
+        fontFamily: 'Poppins-Medium',
+        color: '#1B1B1B',
+    },
+    minQtyText: {
+        fontSize: 12,
+        fontFamily: 'Poppins-Regular',
+        color: '#FF6B35',
+        marginTop: 2,
+    },
+    shippingText: {
+        fontSize: 12,
+        fontFamily: 'Poppins-Regular',
+        color: '#666',
+        marginTop: 2,
+    },
+    tierPricingText: {
+        fontSize: 11,
+        fontFamily: 'Poppins-Regular',
+        color: '#4CAD73',
+        fontStyle: 'italic',
+        marginTop: 2,
+    },
+    negotiateButton: {
+        backgroundColor: '#FFA500',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 6,
+        marginTop: 8,
+        alignSelf: 'flex-start',
+    },
+    negotiateButtonText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontFamily: 'Poppins-SemiBold',
+    },
+    // Modal Styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    modalContent: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        padding: 20,
+        width: '100%',
+        maxWidth: 400,
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontFamily: 'Poppins-SemiBold',
+        color: '#1B1B1B',
+        marginBottom: 16,
+        textAlign: 'center',
+    },
+    negotiationProduct: {
+        flexDirection: 'row',
+        backgroundColor: '#F8F9FA',
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 16,
+    },
+    negotiationImage: {
+        width: 50,
+        height: 50,
+        borderRadius: 6,
+    },
+    negotiationProductInfo: {
+        flex: 1,
+        marginLeft: 12,
+    },
+    negotiationProductName: {
+        fontSize: 14,
+        fontFamily: 'Poppins-SemiBold',
+        color: '#1B1B1B',
+    },
+    negotiationProductDesc: {
+        fontSize: 12,
+        fontFamily: 'Poppins-Regular',
+        color: '#666',
+        marginTop: 2,
+    },
+    currentPrice: {
+        fontSize: 12,
+        fontFamily: 'Poppins-SemiBold',
+        color: '#4CAD73',
+        marginTop: 4,
+    },
+    currentQuantity: {
+        fontSize: 12,
+        fontFamily: 'Poppins-Regular',
+        color: '#666',
+        marginTop: 2,
+    },
+    modalLabel: {
+        fontSize: 14,
+        fontFamily: 'Poppins-Medium',
+        color: '#1B1B1B',
+        marginBottom: 8,
+    },
+    priceInput: {
+        borderWidth: 1,
+        borderColor: '#E0E0E0',
+        borderRadius: 8,
+        padding: 12,
+        fontSize: 16,
+        fontFamily: 'Poppins-Regular',
+        marginBottom: 12,
+    },
+    totalCalculation: {
+        backgroundColor: '#F8F9FA',
+        padding: 8,
+        borderRadius: 6,
+        marginBottom: 16,
+    },
+    totalCalculationText: {
+        fontSize: 14,
+        fontFamily: 'Poppins-SemiBold',
+        color: '#4CAD73',
+        textAlign: 'center',
+    },
+    modalButtons: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    modalButton: {
+        flex: 1,
+        padding: 16,
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    cancelButton: {
+        backgroundColor: '#F8F9FA',
+        borderWidth: 1,
+        borderColor: '#E0E0E0',
+    },
+    cancelButtonText: {
+        color: '#666',
+        fontSize: 14,
+        fontFamily: 'Poppins-SemiBold',
+    },
+    submitButton: {
+        backgroundColor: '#4CAD73',
+    },
+    submitButtonText: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontFamily: 'Poppins-SemiBold',
+    },
+    // ... (keep all the existing styles from previous implementation)
     scrollView: {
         flex: 1,
     },
@@ -1210,8 +1645,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: 6,
-    },
-    checkoutPriceText: {
         color: '#FFFFFF',
         fontSize: 14,
         fontFamily: 'Poppins-SemiBold',

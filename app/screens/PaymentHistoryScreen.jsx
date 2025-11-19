@@ -208,7 +208,9 @@ const PaymentHistoryScreen = () => {
                     />
                 </View>
                 <View style={styles.historyInfo}>
-                    <Text style={styles.historyOrder}>Order #{item.orderNumber}</Text>
+                    <Text style={styles.historyOrder}>
+                        {item.orderNumber?.length > 15 ? `${item.orderNumber.substring(0, 15)}...` : item.orderNumber}
+                    </Text>
                     <View style={styles.historyDetails}>
                         <Text style={styles.historyMethod}>
                             {item.paymentMethod?.charAt(0).toUpperCase() + item.paymentMethod?.slice(1)}
@@ -468,7 +470,7 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
     },
     loadingContainer: {
-        flex: 1,
+
         justifyContent: 'center',
         alignItems: 'center',
     },

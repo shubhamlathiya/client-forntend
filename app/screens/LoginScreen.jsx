@@ -69,7 +69,7 @@ export default function LoginScreen() {
             } catch (_) {
             }
             // After login, go to login type selection
-            router.replace("/Home");
+            router.replace("/screens/LoginTypeSelectionScreen");
         } catch (error) {
             const message = error?.response?.data?.message || 'Login failed. Please check your credentials.';
             Alert.alert('Error', message);

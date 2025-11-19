@@ -156,7 +156,7 @@ export default function AddressListScreen() {
     if (loading) {
         return (
             <View style={styles.loadingContainer}>
-                <StatusBar backgroundColor="#EC0505" barStyle="light-content" />
+                <StatusBar backgroundColor="#EC0505" barStyle="light-content"/>
                 <ActivityIndicator size="large" color="#EC0505"/>
                 <Text style={styles.loadingText}>Loading addresses...</Text>
             </View>
@@ -165,7 +165,7 @@ export default function AddressListScreen() {
 
     return (
         <View style={styles.container}>
-            <StatusBar backgroundColor="#EC0505" barStyle="light-content" />
+            <StatusBar backgroundColor="#EC0505" barStyle="light-content"/>
 
             {/* Header - Blinkit Style */}
             <View style={styles.header}>
@@ -177,7 +177,7 @@ export default function AddressListScreen() {
                         />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>Select Delivery Address</Text>
-                    <View style={styles.headerPlaceholder} />
+                    <View style={styles.headerPlaceholder}/>
                 </View>
 
                 <View style={styles.deliveryInfo}>
@@ -317,7 +317,7 @@ export default function AddressListScreen() {
                                     {/* Selection Overlay */}
                                     {selectedAddressId === id && (
                                         <View style={styles.selectingOverlay}>
-                                            <ActivityIndicator size="small" color="#EC0505" />
+                                            <ActivityIndicator size="small" color="#EC0505"/>
                                             <Text style={styles.selectingText}>Selecting...</Text>
                                         </View>
                                     )}
@@ -328,7 +328,7 @@ export default function AddressListScreen() {
                 </View>
 
                 {/* Add Space at Bottom */}
-                <View style={styles.bottomSpacer} />
+                <View style={styles.bottomSpacer}/>
             </ScrollView>
 
             {/* Fixed Add Address Button - Blinkit Style */}
@@ -355,7 +355,7 @@ const styles = StyleSheet.create({
     },
     // Header Styles
     header: {
-        backgroundColor: '#f4bc2c',
+        backgroundColor: '#4CAD73',
         paddingTop: 50,
         paddingBottom: 15,
         paddingHorizontal: 16,
@@ -419,7 +419,7 @@ const styles = StyleSheet.create({
         padding: 16,
         marginBottom: 20,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
+        shadowOffset: {width: 0, height: 2},
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 3,
@@ -438,7 +438,7 @@ const styles = StyleSheet.create({
     locationIcon: {
         width: 20,
         height: 20,
-        tintColor: '#f4bc2c',
+        tintColor: '#4CAD73',
     },
     locationInfo: {
         flex: 1,
@@ -479,7 +479,7 @@ const styles = StyleSheet.create({
         padding: 16,
         marginBottom: 12,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
+        shadowOffset: {width: 0, height: 2},
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 3,
@@ -488,7 +488,7 @@ const styles = StyleSheet.create({
         position: 'relative',
     },
     defaultAddressCard: {
-        borderColor: '#f4bc2c',
+        borderColor: '#4CAD73',
         borderWidth: 2,
     },
     addressHeader: {
@@ -519,7 +519,7 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
     },
     defaultBadge: {
-        backgroundColor: '#f4bc2c',
+        backgroundColor: '#4CAD73',
         paddingHorizontal: 8,
         paddingVertical: 4,
         borderRadius: 4,
@@ -572,19 +572,19 @@ const styles = StyleSheet.create({
         width: 14,
         height: 14,
         marginRight: 6,
-        tintColor: '#f4bc2c',
+        tintColor: '#4CAD73',
     },
     deleteIcon: {
-        tintColor: '#f4bc2c',
+        tintColor: '#4CAD73',
     },
     actionText: {
         fontSize: 12,
         fontWeight: '600',
-        color: '#f4bc2c',
+        color: '#4CAD73',
         fontFamily: 'Poppins-SemiBold',
     },
     deleteText: {
-        color: '#f4bc2c',
+        color: '#4CAD73',
     },
     // Selecting Overlay
     selectingOverlay: {
@@ -603,7 +603,7 @@ const styles = StyleSheet.create({
     selectingText: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#f4bc2c',
+        color: '#4CAD73',
         fontFamily: 'Poppins-SemiBold',
     },
     // Empty State
@@ -660,7 +660,7 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: '#F0F0F0',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
+        shadowOffset: {width: 0, height: -2},
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 8,
@@ -669,11 +669,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#f4bc2c',
+        backgroundColor: '#4CAD73',
         paddingVertical: 16,
         borderRadius: 12,
-        shadowColor: '#f4bc2c',
-        shadowOffset: { width: 0, height: 4 },
+        shadowColor: '#4CAD73',
+        shadowOffset: {width: 0, height: 4},
         shadowOpacity: 0.3,
         shadowRadius: 8,
         elevation: 4,

@@ -10,12 +10,13 @@ import {
     SafeAreaView,
     StatusBar,
     FlatList,
-    Image
+    Dimensions
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import apiClient from "../../utils/apiClient";
 
+const { width } = Dimensions.get('window');
 
 const TransactionsScreen = () => {
     const router = useRouter();
@@ -27,11 +28,11 @@ const TransactionsScreen = () => {
     const [filter, setFilter] = useState('all');
 
     const FILTER_OPTIONS = [
-        { id: 'all', label: 'All' },
-        { id: 'success', label: 'Successful' },
-        { id: 'failed', label: 'Failed' },
-        { id: 'refund', label: 'Refunds' },
-        { id: 'pending', label: 'Pending' }
+        { id: 'all', label: 'All', icon: 'list' },
+        { id: 'success', label: 'Success', icon: 'checkmark-circle' },
+        { id: 'failed', label: 'Failed', icon: 'close-circle' },
+        { id: 'refund', label: 'Refunds', icon: 'refresh' },
+        { id: 'pending', label: 'Pending', icon: 'time' }
     ];
 
     useEffect(() => {
@@ -150,6 +151,29 @@ const TransactionsScreen = () => {
         return `₹${amount?.toFixed(2) || '0.00'}`;
     };
 
+    const renderFilterTab = ({ item }) => (
+        <TouchableOpacity
+            style={[
+                styles.filterTab,
+                filter === item.id && styles.filterTabActive
+            ]}
+            onPress={() => setFilter(item.id)}
+        >
+            <Ionicons
+                name={item.icon}
+                size={16}
+                color={filter === item.id ? '#FFFFFF' : '#6B7280'}
+                style={styles.filterIcon}
+            />
+            <Text style={[
+                styles.filterText,
+                filter === item.id && styles.filterTextActive
+            ]}>
+                {item.label}
+            </Text>
+        </TouchableOpacity>
+    );
+
     const renderTransactionItem = ({ item, index }) => (
         <TouchableOpacity
             style={styles.transactionCard}
@@ -168,7 +192,9 @@ const TransactionsScreen = () => {
                         />
                     </View>
                     <View style={styles.transactionInfo}>
-                        <Text style={styles.orderNumber}>Order #{item.orderNumber}</Text>
+                        <Text style={styles.orderNumber}>
+                            {item.orderNumber?.length > 15 ? `${item.orderNumber.substring(0, 15)}...` : item.orderNumber}
+                        </Text>
                         <Text style={styles.transactionId}>
                             {item.transactionId}
                         </Text>
@@ -185,36 +211,37 @@ const TransactionsScreen = () => {
             <View style={styles.transactionDetails}>
                 <View style={styles.detailRow}>
                     <View style={styles.detailItem}>
-                        <Ionicons name={getPaymentMethodIcon(item.paymentMethod)} size={16} color="#6B7280" />
+                        <Ionicons name={getPaymentMethodIcon(item.paymentMethod)} size={14} color="#6B7280" />
                         <Text style={styles.detailText}>
                             {item.paymentMethod?.charAt(0).toUpperCase() + item.paymentMethod?.slice(1)}
                         </Text>
                     </View>
                     <View style={styles.detailItem}>
-                        <Ionicons name="calendar" size={16} color="#6B7280" />
+                        <Ionicons name="calendar" size={14} color="#6B7280" />
                         <Text style={styles.detailText}>{formatDate(item.createdAt)}</Text>
                     </View>
                 </View>
             </View>
-
-            {index < transactions.length - 1 && <View style={styles.separator} />}
         </TouchableOpacity>
     );
 
     const renderEmptyState = () => (
         <View style={styles.emptyState}>
-            <Ionicons name="receipt-outline" size={80} color="#D1D5DB" />
-            <Text style={styles.emptyStateTitle}>No Transactions</Text>
+            <View style={styles.emptyStateIcon}>
+                <Ionicons name="receipt-outline" size={64} color="#D1D5DB" />
+            </View>
+            <Text style={styles.emptyStateTitle}>No Transactions Found</Text>
             <Text style={styles.emptyStateText}>
                 {filter === 'all'
                     ? "You haven't made any transactions yet."
-                    : `No ${filter} transactions found.`
+                    : `No ${filter} transactions found. Try changing the filter.`
                 }
             </Text>
             <TouchableOpacity
                 style={styles.shopButton}
                 onPress={() => router.push('/(tabs)/home')}
             >
+                <Ionicons name="cart-outline" size={18} color="#FFFFFF" />
                 <Text style={styles.shopButtonText}>Start Shopping</Text>
             </TouchableOpacity>
         </View>
@@ -230,37 +257,24 @@ const TransactionsScreen = () => {
                     style={styles.backButton}
                     onPress={() => router.back()}
                 >
-                    <Ionicons name="arrow-back" size={24} color="#333" />
+                    <Ionicons name="arrow-back" size={24} color="#1F2937" />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Payment History</Text>
                 <View style={styles.placeholder} />
             </View>
 
-            {/* Filter Tabs */}
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.filterContainer}
-                contentContainerStyle={styles.filterContent}
-            >
-                {FILTER_OPTIONS.map((option) => (
-                    <TouchableOpacity
-                        key={option.id}
-                        style={[
-                            styles.filterTab,
-                            filter === option.id && styles.filterTabActive
-                        ]}
-                        onPress={() => setFilter(option.id)}
-                    >
-                        <Text style={[
-                            styles.filterText,
-                            filter === option.id && styles.filterTextActive
-                        ]}>
-                            {option.label}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
-            </ScrollView>
+            {/* Filter Tabs - Fixed Size */}
+            <View style={styles.filterContainer}>
+                <FlatList
+                    data={FILTER_OPTIONS}
+                    renderItem={renderFilterTab}
+                    keyExtractor={(item) => item.id}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.filterContent}
+                    scrollEnabled={true}
+                />
+            </View>
 
             {/* Transactions List */}
             {loading && page === 1 ? (
@@ -282,15 +296,18 @@ const TransactionsScreen = () => {
                         />
                     }
                     onEndReached={loadMore}
-                    onEndReachedThreshold={0.5}
+                    onEndReachedThreshold={0.3}
                     ListEmptyComponent={renderEmptyState}
-                    contentContainerStyle={styles.listContainer}
+                    contentContainerStyle={[
+                        styles.listContainer,
+                        transactions.length === 0 && styles.emptyListContainer
+                    ]}
                     showsVerticalScrollIndicator={false}
                     ListFooterComponent={
                         loading && page > 1 ? (
                             <View style={styles.footerLoading}>
                                 <ActivityIndicator size="small" color="#10B981" />
-                                <Text style={styles.footerLoadingText}>Loading more...</Text>
+                                <Text style={styles.footerLoadingText}>Loading more transactions...</Text>
                             </View>
                         ) : null
                     }
@@ -303,26 +320,27 @@ const TransactionsScreen = () => {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F8F9FA',
+        backgroundColor: '#FFFFFF',
     },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
+        paddingHorizontal: 20,
+        paddingVertical: 16,
         backgroundColor: '#FFFFFF',
         borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB',
+        borderBottomColor: '#F3F4F6',
     },
     backButton: {
         padding: 4,
+        marginRight: 8,
     },
     headerTitle: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#1F2937',
-        fontFamily: 'Poppins-SemiBold',
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#111827',
+        fontFamily: 'Poppins-Bold',
     },
     placeholder: {
         width: 32,
@@ -330,27 +348,42 @@ const styles = StyleSheet.create({
     filterContainer: {
         backgroundColor: '#FFFFFF',
         borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB',
+        borderBottomColor: '#F3F4F6',
+        paddingVertical: 12,
     },
     filterContent: {
         paddingHorizontal: 16,
-        paddingVertical: 12,
+        justifyContent: 'space-between',
     },
     filterTab: {
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 20,
-        marginRight: 8,
-        backgroundColor: '#F3F4F6',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 8,
+        paddingVertical: 10,
+        borderRadius: 12,
+        backgroundColor: '#F8FAFC',
+        marginHorizontal: 4,
+        borderWidth: 1,
+        borderColor: '#F1F5F9',
     },
     filterTabActive: {
         backgroundColor: '#10B981',
+        borderColor: '#10B981',
+        shadowColor: '#10B981',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 4,
+    },
+    filterIcon: {
+        marginRight: 4,
     },
     filterText: {
-        fontSize: 14,
-        fontWeight: '500',
-        color: '#6B7280',
-        fontFamily: 'Poppins-Medium',
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#64748B',
+        fontFamily: 'Poppins-SemiBold',
     },
     filterTextActive: {
         color: '#FFFFFF',
@@ -359,16 +392,22 @@ const styles = StyleSheet.create({
         flexGrow: 1,
         padding: 16,
     },
+    emptyListContainer: {
+        flex: 1,
+        justifyContent: 'center',
+    },
     transactionCard: {
         backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        padding: 16,
+        borderRadius: 16,
+        padding: 20,
         marginBottom: 12,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 2,
+        borderWidth: 1,
+        borderColor: '#F1F5F9',
     },
     transactionHeader: {
         flexDirection: 'row',
@@ -382,9 +421,9 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     statusIcon: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 12,
@@ -397,7 +436,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#1F2937',
         fontFamily: 'Poppins-SemiBold',
-        marginBottom: 2,
+        marginBottom: 4,
     },
     transactionId: {
         fontSize: 12,
@@ -412,19 +451,20 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: '#1F2937',
         fontFamily: 'Poppins-Bold',
-        marginBottom: 4,
+        marginBottom: 6,
     },
     statusBadge: {
-        paddingHorizontal: 8,
+        paddingHorizontal: 10,
         paddingVertical: 4,
-        borderRadius: 6,
+        borderRadius: 8,
     },
     statusText: {
         fontSize: 10,
-        fontWeight: '600',
+        fontWeight: '700',
         color: '#FFFFFF',
-        fontFamily: 'Poppins-SemiBold',
+        fontFamily: 'Poppins-Bold',
         textTransform: 'uppercase',
+        letterSpacing: 0.5,
     },
     transactionDetails: {
         marginTop: 8,
@@ -443,52 +483,65 @@ const styles = StyleSheet.create({
         fontFamily: 'Poppins-Regular',
         marginLeft: 6,
     },
-    separator: {
-        height: 1,
-        backgroundColor: '#F3F4F6',
-        marginTop: 12,
-    },
     emptyState: {
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 60,
+        paddingVertical: 80,
         paddingHorizontal: 40,
     },
+    emptyStateIcon: {
+        width: 120,
+        height: 120,
+        borderRadius: 60,
+        backgroundColor: '#F8FAFC',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 24,
+    },
     emptyStateTitle: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#6B7280',
-        fontFamily: 'Poppins-SemiBold',
-        marginTop: 16,
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#374151',
+        fontFamily: 'Poppins-Bold',
         marginBottom: 8,
+        textAlign: 'center',
     },
     emptyStateText: {
         fontSize: 14,
-        color: '#9CA3AF',
+        color: '#6B7280',
         fontFamily: 'Poppins-Regular',
         textAlign: 'center',
         lineHeight: 20,
+        marginBottom: 24,
     },
     shopButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
         backgroundColor: '#10B981',
         paddingHorizontal: 24,
-        paddingVertical: 12,
-        borderRadius: 8,
-        marginTop: 20,
+        paddingVertical: 14,
+        borderRadius: 12,
+        shadowColor: '#10B981',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 4,
     },
     shopButtonText: {
         color: '#FFFFFF',
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '600',
         fontFamily: 'Poppins-SemiBold',
+        marginLeft: 8,
     },
     loadingContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
+        backgroundColor: '#FFFFFF',
     },
     loadingText: {
-        marginTop: 12,
+        marginTop: 16,
         fontSize: 16,
         color: '#6B7280',
         fontFamily: 'Poppins-Medium',
@@ -497,10 +550,10 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'center',
         alignItems: 'center',
-        padding: 16,
+        padding: 20,
     },
     footerLoadingText: {
-        marginLeft: 8,
+        marginLeft: 12,
         fontSize: 14,
         color: '#6B7280',
         fontFamily: 'Poppins-Regular',

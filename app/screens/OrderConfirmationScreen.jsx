@@ -107,28 +107,7 @@ export default function OrderConfirmationScreen() {
 
             // Show confirmation with amount details
             const displayAmount = formatDisplayAmount(amountNum);
-            Alert.alert(
-                "Ready for Payment",
-                `Payment of ₹${displayAmount} has been initialized. Do you want to proceed to payment?\n\n💡 Use test card: 4111 1111 1111 1111`,
-                [
-                    {
-                        text: "Proceed to Pay",
-                        onPress: () => {
-
-                            setShowPaymentModal(true);
-                        }
-                    },
-                    {
-                        text: "Cancel",
-                        style: "cancel",
-                        onPress: () => {
-
-                            setPaymentInitialized(false);
-                            setPaymentData(null);
-                        }
-                    }
-                ]
-            );
+            setShowPaymentModal(true);
 
         } catch (error) {
             console.error("❌ Payment Initialization Error:", error);

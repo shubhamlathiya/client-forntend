@@ -1,5 +1,7 @@
 import apiClient from '../utils/apiClient';
 import { AUTH_ENDPOINTS } from '../config/apiConfig';
+import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export const registerUser = async ({ name = '', email, phone = '', password }) => {
   // frontend validation
@@ -76,8 +78,30 @@ export const resetPassword = async ({ type = 'email', contact, token, newPasswor
   return res.data;
 };
 
-export const logoutUser = async () => {
-  const res = await apiClient.post('/api/auth/logout');
-  return res.data;
-};
 
+export const logoutUser = async () => {
+  try {
+
+    // Clear AsyncStorage
+    const keys = await AsyncStorage.getAllKeys();
+    if (keys.length > 0) {
+      await AsyncStorage.multiRemove(keys);
+    }
+
+    // Clear common SecureStore keys
+    const secureKeys = ["accessToken", "refreshToken", "userData"];
+    for (const key of secureKeys) {
+      try {
+        await SecureStore.deleteItemAsync(key);
+      } catch (e) {
+
+      }
+    }
+    const res = await apiClient.post('/api/auth/logout');
+    return res.data;
+
+  } catch (error) {
+    console.log("❌ Quick cleanup failed:", error);
+    return { success: false, error: error.message };
+  }
+};

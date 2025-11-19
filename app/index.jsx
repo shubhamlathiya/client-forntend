@@ -11,27 +11,37 @@ export default function Index() {
     const router = useRouter();
 
     useEffect(() => {
-        (async () => {
-            try {
-                // Initialize/verify session ID for cart on app load
-                // Fire and forget to avoid blocking navigation
-                getOrCreateSessionId().catch(() => {});
-                const token = await SecureStore.getItemAsync('accessToken');
-                if (token) {
-                    // After login, ensure loginType is selected
-                    const lt = await AsyncStorage.getItem('loginType');
-                    if (lt) {
-                        router.replace('/Home');
+        const timer = setTimeout(() => {
+            (async () => {
+                try {
+                    // Initialize session ID for cart
+                    getOrCreateSessionId().catch(() => {});
+
+                    const token = await SecureStore.getItemAsync('accessToken');
+
+                    if (token) {
+                        const lt = await AsyncStorage.getItem('loginType');
+
+                        if (lt) {
+                            // Route based on login type logic
+                            if (lt === 'business') {
+                                router.replace('/Home');
+                            } else {
+                                router.replace('/Home'); // individual
+                            }
+                        } else {
+                            router.replace('/screens/LoginTypeSelectionScreen');
+                        }
                     } else {
-                        router.replace('/screens/LoginTypeSelectionScreen');
+                        router.replace('/screens/LoginScreen');
                     }
-                } else {
+                } catch {
                     router.replace('/screens/LoginScreen');
                 }
-            } catch {
-                router.replace('/screens/LoginScreen');
-            }
-        })();
+            })();
+        }, 2000);
+
+        return () => clearTimeout(timer);
     }, []);
 
     return (

@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import {
     View,
     Text,
@@ -15,12 +15,12 @@ import {
     Modal,
     Animated
 } from 'react-native';
-import {useRouter} from "expo-router";
+import {useFocusEffect, useRouter} from "expo-router";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {getCategories, getProducts, getProductsByCategory} from "../../../api/catalogApi";
 import {API_BASE_URL} from "../../../config/apiConfig";
 import {getAddresses} from "../../../api/addressApi";
-import {addCartItem} from "../../../api/cartApi";
+import {addCartItem, getCart, updateCartItem, removeCartItem} from "../../../api/cartApi";
 
 const {width, height} = Dimensions.get('window');
 
@@ -29,17 +29,17 @@ const TAB_CATEGORIES = [
         id: 'all',
         name: 'All',
         icon: require('../../../assets/icons/all.png'),
-        color: '#FF8C00', // Dark Orange
+        color: '#FF8C00',
         headerColor: '#FF8C00',
-        lightColor: '#FFD700' // Light Yellow
+        lightColor: '#FFD700'
     },
     {
         id: 'wedding',
         name: 'Wedding',
         icon: require('../../../assets/icons/wedding.png'),
-        color: '#D81B60', // Dark Pink
+        color: '#D81B60',
         headerColor: '#D81B60',
-        lightColor: '#FF69B4' // Light Pink
+        lightColor: '#FF69B4'
     },
     {
         id: 'winter',
@@ -53,25 +53,25 @@ const TAB_CATEGORIES = [
         id: 'electronics',
         name: 'Electronics',
         icon: require('../../../assets/icons/electronics.png'),
-        color: '#43A047', // Dark Green
+        color: '#43A047',
         headerColor: '#43A047',
-        lightColor: '#32CD32' // Light Green
+        lightColor: '#32CD32'
     },
     {
         id: 'grocery',
         name: 'Grocery',
         icon: require('../../../assets/icons/grocery.png'),
-        color: '#FF6F00', // Dark Orange
+        color: '#FF6F00',
         headerColor: '#FF6F00',
-        lightColor: '#FFA500' // Light Orange
+        lightColor: '#FFA500'
     },
     {
         id: 'fashion',
         name: 'Fashion',
         icon: require('../../../assets/icons/fashion.png'),
-        color: '#8E24AA', // Dark Purple
+        color: '#8E24AA',
         headerColor: '#8E24AA',
-        lightColor: '#9370DB' // Light Purple
+        lightColor: '#9370DB'
     }
 ];
 
@@ -85,18 +85,19 @@ export default function BlinkitHomeScreen() {
     const [loading, setLoading] = useState(false);
     const [selectedVariants, setSelectedVariants] = useState({});
     const [addingToCart, setAddingToCart] = useState({});
-    const [groceryCategories , setGroceryCategories] = useState([]);
+    const [groceryCategories, setGroceryCategories] = useState([]);
     const [showCategoryFragment, setShowCategoryFragment] = useState(false);
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [categoryProducts, setCategoryProducts] = useState([]);
     const [fragmentLoading, setFragmentLoading] = useState(false);
     const [isBusinessUser, setIsBusinessUser] = useState(false);
     const [tierPricing, setTierPricing] = useState({});
+    const [cartItems, setCartItems] = useState([]);
 
     // New state for tab view
     const [activeTab, setActiveTab] = useState('all');
     const [tabProducts, setTabProducts] = useState({});
-    const [headerColor, setHeaderColor] = useState('#EC0505'); // Default red color
+    const [headerColor, setHeaderColor] = useState('#EC0505');
 
     // Animation values
     const [searchFocused, setSearchFocused] = useState(false);
@@ -104,19 +105,67 @@ export default function BlinkitHomeScreen() {
     const placeholderAnim = useState(new Animated.Value(1))[0];
 
     useEffect(() => {
+        // Run on initial mount
         checkUserType();
         loadUserData();
         fetchCategories();
         loadFeaturedProducts();
-        loadTabProducts('all'); // Load initial tab products
+        loadTabProducts('all');
     }, []);
+
+
+    useFocusEffect(
+        useCallback(() => {
+            loadCartItems();
+        }, [])
+    );
+
+    // Load cart items
+    const loadCartItems = async () => {
+        try {
+            const cartData = await getCart();
+            let items = [];
+
+            if (cartData?.success) {
+                if (cartData.data?.items) {
+                    items = cartData.data.items;
+                } else if (Array.isArray(cartData.data)) {
+                    items = cartData.data;
+                }
+            } else if (Array.isArray(cartData)) {
+                items = cartData;
+            }
+
+            setCartItems(items);
+        } catch (error) {
+            console.error('Error loading cart items:', error);
+            setCartItems([]);
+        }
+    };
+
+    // Get cart quantity for a product
+    const getCartQuantity = (productId, variantId = null) => {
+        const item = cartItems.find(cartItem =>
+            cartItem.productId === String(productId) &&
+            cartItem.variantId === (variantId ? String(variantId) : null)
+        );
+        return item ? item.quantity : 0;
+    };
+
+    // Get cart item ID for update/remove operations
+    const getCartItemId = (productId, variantId = null) => {
+        const cartItem = cartItems.find(item =>
+            item.productId === String(productId) &&
+            item.variantId === (variantId ? String(variantId) : null)
+        );
+        return cartItem?._id || cartItem?.id;
+    };
 
     const checkUserType = async () => {
         try {
             const loginType = await AsyncStorage.getItem('loginType');
             setIsBusinessUser(loginType === 'business');
 
-            // Load tier pricing if business user
             if (loginType === 'business') {
                 await loadTierPricing();
             }
@@ -125,17 +174,14 @@ export default function BlinkitHomeScreen() {
         }
     };
 
-    // Add this function to load tier pricing
     const loadTierPricing = async () => {
         try {
-            // You might want to load tier pricing data here
-            // This could be a separate API call or part of your product data
             console.log('Loading tier pricing for business user...');
         } catch (error) {
             console.error('Error loading tier pricing:', error);
         }
     };
-    // Update header color when tab changes
+
     useEffect(() => {
         const activeTabData = TAB_CATEGORIES.find(tab => tab.id === activeTab);
         if (activeTabData) {
@@ -143,7 +189,6 @@ export default function BlinkitHomeScreen() {
         }
     }, [activeTab]);
 
-    // Search bar animation
     useEffect(() => {
         Animated.parallel([
             Animated.timing(searchAnim, {
@@ -180,17 +225,14 @@ export default function BlinkitHomeScreen() {
     });
 
     // Load products for specific tab
-    // Load products for specific tab
     const loadTabProducts = async (tabId) => {
         try {
             setLoading(true);
             let products = [];
 
-            // Helper function to extract products from API response
             const extractProducts = (response) => {
                 if (!response) return [];
 
-                // Handle different response structures
                 if (Array.isArray(response)) {
                     return response;
                 } else if (Array.isArray(response.data)) {
@@ -205,7 +247,6 @@ export default function BlinkitHomeScreen() {
                 return [];
             };
 
-            // Helper function to filter products
             const filterProducts = (productsArray, keywords) => {
                 if (!Array.isArray(productsArray)) return [];
 
@@ -284,12 +325,9 @@ export default function BlinkitHomeScreen() {
                 }
             } catch (apiError) {
                 console.warn(`API error for ${tabId} tab:`, apiError);
-                // Continue with fallback products
             }
 
-            // If no products found from API, use fallback products
             if (!Array.isArray(products) || products.length === 0) {
-                console.log(`Using fallback products for ${tabId} tab`);
                 products = generateFallbackProducts(tabId);
             }
 
@@ -306,7 +344,8 @@ export default function BlinkitHomeScreen() {
                     discountPercent: priceInfo.discountPercent,
                     deliveryTime: "16 MINS",
                     image: product?.thumbnail ? {uri: `${API_BASE_URL}${product.thumbnail}`} : require("../../../assets/Rectangle 24904.png"),
-                    variantId: product.variants?.[0]?._id || null
+                    variantId: product.variants?.[0]?._id || null,
+                    minQty: priceInfo.minQty || 1
                 };
             });
 
@@ -318,14 +357,12 @@ export default function BlinkitHomeScreen() {
         } catch (error) {
             console.error(`Error loading ${activeTab} tab products:`, error);
 
-            // Use featured products as final fallback
             const fallbackProducts = generateFallbackProducts(tabId);
             setTabProducts(prev => ({
                 ...prev,
                 [tabId]: fallbackProducts
             }));
 
-            // Show user-friendly error message
             Alert.alert(
                 'Temporary Issue',
                 `Having trouble loading ${TAB_CATEGORIES.find(tab => tab.id === tabId)?.name} products. Showing available items.`,
@@ -336,7 +373,6 @@ export default function BlinkitHomeScreen() {
         }
     };
 
-    // Generate fallback products when API fails
     const generateFallbackProducts = (tabId) => {
         const tabNames = {
             'all': 'General',
@@ -365,9 +401,11 @@ export default function BlinkitHomeScreen() {
             discountPercent: Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100),
             deliveryTime: "16 MINS",
             image: require("../../../assets/Rectangle 24904.png"),
-            variantId: null
+            variantId: null,
+            minQty: 1
         }));
     };
+
     const handleTabPress = (tabId) => {
         setActiveTab(tabId);
         if (!tabProducts[tabId]) {
@@ -406,7 +444,8 @@ export default function BlinkitHomeScreen() {
                     discountPercent: priceInfo.discountPercent,
                     deliveryTime: "16 MINS",
                     image: item?.thumbnail ? {uri: `${API_BASE_URL}${item.thumbnail}`} : require("../../../assets/Rectangle 24904.png"),
-                    variantId: item.variants[0]._id
+                    variantId: item.variants?.[0]?._id || null,
+                    minQty: priceInfo.minQty || 1
                 });
             }
             setCategoryProducts(category_products);
@@ -423,6 +462,7 @@ export default function BlinkitHomeScreen() {
         loadCategoryProducts(category._id);
     };
 
+    // Updated handleAddToCart function
     const handleAddToCart = async (product, isFragment = false) => {
         try {
             const productId = product.id || product._id;
@@ -441,16 +481,16 @@ export default function BlinkitHomeScreen() {
 
             const cartItem = {
                 productId: productId,
-                quantity: product.minQty || 1, // Use min quantity for business users
+                quantity: product.minQty || 1,
                 variantId: product.variantId || null
             };
 
             await addCartItem(cartItem);
+            await loadCartItems(); // Reload cart items after adding
 
         } catch (error) {
             console.error('Add to cart error:', error);
 
-            // Handle business-specific errors
             if (error.response?.data?.message?.includes('Minimum quantity')) {
                 Alert.alert('Minimum Quantity', error.response.data.message);
             } else {
@@ -459,6 +499,30 @@ export default function BlinkitHomeScreen() {
         } finally {
             const productId = product.id || product._id;
             setAddingToCart(prev => ({...prev, [productId]: false}));
+        }
+    };
+
+    // New function to handle quantity updates
+    const handleUpdateQuantity = async (productId, variantId, newQuantity) => {
+        try {
+            const itemId = getCartItemId(productId, variantId);
+
+            if (!itemId) {
+                Alert.alert('Error', 'Cart item not found');
+                return;
+            }
+
+            if (newQuantity === 0) {
+
+                await removeCartItem(productId , variantId);
+                await loadCartItems();
+            } else {
+                await updateCartItem(itemId, newQuantity);
+                await loadCartItems();
+            }
+        } catch (error) {
+            console.error('Error updating quantity:', error);
+            Alert.alert('Error', 'Failed to update quantity');
         }
     };
 
@@ -486,7 +550,7 @@ export default function BlinkitHomeScreen() {
             }
         });
     };
-// Modify the calculateProductPrice function to include tier pricing
+
     const calculateProductPrice = (product, quantity = 1) => {
         const normalize = (val) => val !== undefined && val !== null ? Number(val) : null;
 
@@ -514,11 +578,10 @@ export default function BlinkitHomeScreen() {
                 finalPrice: Math.round(final),
                 hasDiscount: discountPercent > 0,
                 discountPercent,
-                minQty // Add min quantity for business users
+                minQty
             };
         };
 
-        // Apply tier pricing logic for business users
         if (isBusinessUser && product.tierPricing) {
             const applicableTier = product.tierPricing.find(tier =>
                 quantity >= tier.minQty && quantity <= tier.maxQty
@@ -553,10 +616,11 @@ export default function BlinkitHomeScreen() {
         );
     };
 
+    // Updated renderFragmentProduct function with quantity controls
     const renderFragmentProduct = ({item, index}) => {
         const priceInfo = calculateProductPrice(item);
         const productId = item._id || item.id;
-
+        const cartQuantity = getCartQuantity(productId, item.variantId);
         const imageSource = item.image?.uri ? {uri: item.image.uri} : require("../../../assets/Rectangle 24904.png");
 
         return (
@@ -593,25 +657,46 @@ export default function BlinkitHomeScreen() {
                             )}
                         </View>
 
-                        <TouchableOpacity
-                            style={[styles.fragmentAddButton, addingToCart[productId] && styles.fragmentAddButtonDisabled]}
-                            disabled={addingToCart[productId]}
-                            onPress={() => handleAddToCart(item, true)}
-                        >
-                            <Text style={styles.fragmentAddButtonText}>
-                                {addingToCart[productId] ? "ADDING..." : "ADD"}
-                            </Text>
-                        </TouchableOpacity>
+                        {cartQuantity > 0 ? (
+                            <View style={styles.quantityControl}>
+                                <TouchableOpacity
+                                    style={styles.quantityButton}
+                                    onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity - 1)}
+                                >
+                                    <Text style={styles.quantityMinus}>-</Text>
+                                </TouchableOpacity>
+
+                                <Text style={styles.quantityText}>{cartQuantity}</Text>
+
+                                <TouchableOpacity
+                                    style={styles.quantityButton}
+                                    onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity + 1)}
+                                >
+                                    <Text style={styles.quantityPlus}>+</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <TouchableOpacity
+                                style={[styles.fragmentAddButton, addingToCart[productId] && styles.fragmentAddButtonDisabled]}
+                                disabled={addingToCart[productId]}
+                                onPress={() => handleAddToCart(item, true)}
+                            >
+                                <Text style={styles.fragmentAddButtonText}>
+                                    {addingToCart[productId] ? "ADDING..." : "ADD"}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 </View>
             </TouchableOpacity>
         );
     };
 
+    // Updated renderTabProduct function with quantity controls
     const renderTabProduct = ({item}) => {
         const priceInfo = calculateProductPrice(item);
         const productId = item.id;
-
+        const cartQuantity = getCartQuantity(productId, item.variantId);
         const imageSource = item.image?.uri ? {uri: item.image.uri} : require("../../../assets/Rectangle 24904.png");
 
         return (
@@ -654,7 +739,6 @@ export default function BlinkitHomeScreen() {
                                 </View>
                             )}
 
-                            {/* Show min quantity for business users */}
                             {isBusinessUser && priceInfo.minQty > 1 && (
                                 <Text style={styles.businessMinQty}>
                                     Min. {priceInfo.minQty} units
@@ -662,35 +746,54 @@ export default function BlinkitHomeScreen() {
                             )}
                         </View>
 
-                        <TouchableOpacity
-                            style={[styles.tabAddButton, addingToCart[productId] && styles.tabAddButtonDisabled]}
-                            disabled={addingToCart[productId]}
-                            onPress={() => handleAddToCart(item)}
-                        >
-                            <Text style={styles.tabAddButtonText}>
-                                {addingToCart[productId] ? "..." : "ADD"}
-                            </Text>
-                        </TouchableOpacity>
+                        {cartQuantity > 0 ? (
+                            <View style={styles.quantityControl}>
+                                <TouchableOpacity
+                                    style={styles.quantityButton}
+                                    onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity - 1)}
+                                >
+                                    <Text style={styles.quantityMinus}>-</Text>
+                                </TouchableOpacity>
+
+                                <Text style={styles.quantityText}>{cartQuantity}</Text>
+
+                                <TouchableOpacity
+                                    style={styles.quantityButton}
+                                    onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity + 1)}
+                                >
+                                    <Text style={styles.quantityPlus}>+</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <TouchableOpacity
+                                style={[styles.tabAddButton, addingToCart[productId] && styles.tabAddButtonDisabled]}
+                                disabled={addingToCart[productId]}
+                                onPress={() => handleAddToCart(item)}
+                            >
+                                <Text style={styles.tabAddButtonText}>
+                                    {addingToCart[productId] ? "..." : "ADD"}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 </View>
             </TouchableOpacity>
         );
     };
 
-    // Rest of your existing functions (fetchCategories, loadUserData, etc.)
+    // Rest of your existing functions (fetchCategories, loadUserData, etc.) remain the same
     const fetchCategories = async () => {
         try {
             setLoading(true);
             const res = await getCategories();
             if (res?.success && Array.isArray(res?.data?.data)) {
-
                 setCategories(res.data.data);
                 setGroceryCategories(res.data.data);
             } else if (res?.success && Array.isArray(res.data)) {
                 setCategories(res.data);
                 setGroceryCategories(res.data);
             } else {
-                setGroceryCategories( [{
+                setGroceryCategories([{
                     id: 1, name: 'Vegetables & Fruits', image: require('../../../assets/images/vegetables.png'), color: '#D9EBEB'
                 }, {
                     id: 2, name: 'Atta, Dal & Rice', image: require('../../../assets/images/atta-dal.png'), color: '#D9EBEB'
@@ -730,16 +833,12 @@ export default function BlinkitHomeScreen() {
         try {
             let hasValidAddress = false;
 
-            // Step 1: Try to fetch addresses from API
             try {
                 const addressesResponse = await getAddresses();
-                console.log('Address API response:', addressesResponse);
 
-                // Extract addresses from response
                 const addresses = extractAddressesFromResponse(addressesResponse);
 
                 if (addresses.length > 0) {
-                    // Find and set default address
                     const defaultAddress = findDefaultAddress(addresses);
                     await saveAddressToStorage(defaultAddress);
                     hasValidAddress = true;
@@ -748,7 +847,6 @@ export default function BlinkitHomeScreen() {
                 console.warn('Could not fetch addresses from API, using stored data:', apiError);
             }
 
-            // Step 2: Load address from AsyncStorage (either existing or API-saved)
             if (!hasValidAddress) {
                 const storedAddress = await loadAddressFromStorage();
                 if (storedAddress) {
@@ -757,15 +855,11 @@ export default function BlinkitHomeScreen() {
                 }
             }
 
-            // Step 3: If no address found, set default message
             if (!hasValidAddress) {
                 setUserAddress('Select delivery address');
             }
 
-            // Step 4: Load user name
             await loadUserName();
-
-            // Step 5: Set delivery time
             setRandomDeliveryTime();
 
         } catch (error) {
@@ -774,7 +868,6 @@ export default function BlinkitHomeScreen() {
         }
     };
 
-// Helper functions
     const extractAddressesFromResponse = (response) => {
         if (!response) return [];
 
@@ -848,6 +941,7 @@ export default function BlinkitHomeScreen() {
         setUserName('Guest User');
         setDeliveryTime('20 minutes');
     };
+
     async function loadFeaturedProducts() {
         try {
             setLoading(true);
@@ -869,7 +963,8 @@ export default function BlinkitHomeScreen() {
                     discountPercent: priceInfo.discountPercent,
                     deliveryTime: "16 MINS",
                     image: item?.thumbnail ? {uri: `${API_BASE_URL}${item.thumbnail}`} : require("../../../assets/Rectangle 24904.png"),
-                    variantId: item.variants[0]._id
+                    variantId: item.variants?.[0]?._id || null,
+                    minQty: priceInfo.minQty || 1
                 });
             }
             setFeaturedProducts(featured);
@@ -906,6 +1001,103 @@ export default function BlinkitHomeScreen() {
     function handleNotification() {
         router.push("/screens/NotificationScreen");
     }
+
+    const renderFeaturedProduct = (product) => {
+        const priceInfo = calculateProductPrice(product);
+        const productId = product._id || product.id;
+        const cartQuantity = getCartQuantity(productId, product.variantId);
+        const imageSource = product.image?.uri
+            ? { uri: product.image.uri }
+            : require("../../../assets/Rectangle 24904.png");
+
+        return (
+            <TouchableOpacity
+                key={productId}
+                style={styles.productCard}
+                onPress={() => handleProductPress(product)}
+            >
+                {/* Product Image */}
+                <Image
+                    source={imageSource}
+                    style={styles.productImage}
+                    resizeMode="cover"
+                />
+
+                {/* Product Info */}
+                <View style={styles.fragmentProductInfo}>
+                    <Text style={styles.fragmentProductName} numberOfLines={2}>
+                        {product.name}
+                    </Text>
+
+                    {/* Price Section */}
+                    <View style={styles.leftPriceBox}>
+                        <Text style={styles.fragmentProductPrice}>
+                            ₹{priceInfo.finalPrice}
+                        </Text>
+
+                        {priceInfo.hasDiscount && (
+                            <View style={styles.discountBox}>
+                                <Text style={styles.fragmentProductOriginalPrice}>
+                                    ₹{priceInfo.basePrice}
+                                </Text>
+                                <Text style={styles.discountBadge}>
+                                    {priceInfo.discountPercent}% OFF
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+
+                    {/* Quantity / Add Button at Bottom */}
+                    <View style={styles.bottomQuantityContainer}>
+                        {cartQuantity > 0 ? (
+                            <View style={styles.quantityControl}>
+                                <TouchableOpacity
+                                    style={styles.quantityButton}
+                                    onPress={() =>
+                                        handleUpdateQuantity(
+                                            productId,
+                                            product.variantId,
+                                            cartQuantity - 1
+                                        )
+                                    }
+                                >
+                                    <Text style={styles.quantityMinus}>-</Text>
+                                </TouchableOpacity>
+
+                                <Text style={styles.quantityText}>{cartQuantity}</Text>
+
+                                <TouchableOpacity
+                                    style={styles.quantityButton}
+                                    onPress={() =>
+                                        handleUpdateQuantity(
+                                            productId,
+                                            product.variantId,
+                                            cartQuantity + 1
+                                        )
+                                    }
+                                >
+                                    <Text style={styles.quantityPlus}>+</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <TouchableOpacity
+                                style={[
+                                    styles.fragmentAddButton,
+                                    addingToCart[productId] && styles.fragmentAddButtonDisabled,
+                                ]}
+                                disabled={addingToCart[productId]}
+                                onPress={() => handleAddToCart(product)}
+                            >
+                                <Text style={styles.fragmentAddButtonText}>
+                                    {addingToCart[productId] ? "ADDING..." : "ADD"}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </View>
+            </TouchableOpacity>
+        );
+    };
 
     return (
         <SafeAreaView style={styles.container}>
@@ -993,7 +1185,6 @@ export default function BlinkitHomeScreen() {
                                 ]}
                                 onPress={() => handleTabPress(tab.id)}
                             >
-                                {/* First Row - Icon */}
                                 <View style={styles.tabIconContainer}>
                                     <Image
                                         source={tab.icon}
@@ -1004,7 +1195,6 @@ export default function BlinkitHomeScreen() {
                                     />
                                 </View>
 
-                                {/* Second Row - Name */}
                                 <Text style={[
                                     styles.tabText,
                                     activeTab === tab.id && styles.activeTabText
@@ -1012,7 +1202,6 @@ export default function BlinkitHomeScreen() {
                                     {tab.name}
                                 </Text>
 
-                                {/* Active Tab Indicator */}
                                 {activeTab === tab.id && (
                                     <View style={[styles.activeTabIndicator, { backgroundColor: '#FFFFFF' }]} />
                                 )}
@@ -1041,7 +1230,6 @@ export default function BlinkitHomeScreen() {
                     <View style={styles.saleContent}>
                         <Text style={styles.saleTitle}>Mega Diwali Sale</Text>
 
-                        {/* Categories Section Integrated in Banner */}
                         <View style={styles.categoriesSection}>
                             <ScrollView
                                 horizontal
@@ -1125,60 +1313,7 @@ export default function BlinkitHomeScreen() {
                         showsHorizontalScrollIndicator={false}
                         contentContainerStyle={styles.productsScroll}
                     >
-                        {featuredProducts.map((product) => {
-                            const priceInfo = calculateProductPrice(product);
-                            const productId = product._id || product.id;
-                            const imageSource = product.image?.uri ? {uri: product.image.uri} : require("../../../assets/Rectangle 24904.png");
-
-                            return (
-                                <TouchableOpacity
-                                    key={productId}
-                                    style={styles.productCard}
-                                    onPress={() => handleProductPress(product)}
-                                >
-                                    <Image
-                                        source={imageSource}
-                                        style={styles.productImage}
-                                        resizeMode="cover"
-                                    />
-
-                                    <View style={styles.fragmentProductInfo}>
-                                        <Text style={styles.fragmentProductName} numberOfLines={2}>
-                                            {product.name}
-                                        </Text>
-
-                                        <View style={styles.rowBetween}>
-                                            <View style={styles.leftPriceBox}>
-                                                <Text style={styles.fragmentProductPrice}>
-                                                    ₹{priceInfo.finalPrice}
-                                                </Text>
-
-                                                {priceInfo.hasDiscount && (
-                                                    <View style={styles.discountBox}>
-                                                        <Text style={styles.fragmentProductOriginalPrice}>
-                                                            ₹{priceInfo.basePrice}
-                                                        </Text>
-                                                        <Text style={styles.discountBadge}>
-                                                            {priceInfo.discountPercent}% OFF
-                                                        </Text>
-                                                    </View>
-                                                )}
-                                            </View>
-
-                                            <TouchableOpacity
-                                                style={[styles.fragmentAddButton, addingToCart[productId] && styles.fragmentAddButtonDisabled]}
-                                                disabled={addingToCart[productId]}
-                                                onPress={() => handleAddToCart(product)}
-                                            >
-                                                <Text style={styles.fragmentAddButtonText}>
-                                                    {addingToCart[productId] ? "ADDING..." : "ADD"}
-                                                </Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    </View>
-                                </TouchableOpacity>
-                            );
-                        })}
+                        {featuredProducts.map((product) => renderFeaturedProduct(product))}
                     </ScrollView>
                 </View>
 
@@ -1202,27 +1337,25 @@ export default function BlinkitHomeScreen() {
                         {groceryCategories.map((category, index) => {
                             const url = category?.image || category?.icon;
                             const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../../assets/images/gifts.png");
-                            console.log(category._id)
                             return (
-                            <TouchableOpacity
-                                key={category?._id || `category-${index}`}
-                                style={styles.groceryCard}
-                                onPress={() => handleCategorySelected(category)}
-                            >
-                                <View style={[styles.groceryImageContainer, {backgroundColor: category.color}]}>
-                                    <Image
-                                        source={imageSource}
-                                        style={styles.groceryImage}
-                                        resizeMode="contain"
-                                    />
-                                </View>
-                                <Text style={styles.groceryName}>{category.name}</Text>
-                            </TouchableOpacity>
-                        )})}
+                                <TouchableOpacity
+                                    key={category?._id || `category-${index}`}
+                                    style={styles.groceryCard}
+                                    onPress={() => handleCategorySelected(category)}
+                                >
+                                    <View style={[styles.groceryImageContainer, {backgroundColor: category.color}]}>
+                                        <Image
+                                            source={imageSource}
+                                            style={styles.groceryImage}
+                                            resizeMode="contain"
+                                        />
+                                    </View>
+                                    <Text style={styles.groceryName}>{category.name}</Text>
+                                </TouchableOpacity>
+                            )})}
                     </ScrollView>
                 </View>
 
-                {/* Add more space at the bottom */}
                 <View style={styles.bottomSpacer}/>
 
             </ScrollView>
@@ -1237,7 +1370,6 @@ export default function BlinkitHomeScreen() {
                 <View style={styles.modalOverlay}>
                     <View style={styles.halfScreenModal}>
                         <SafeAreaView style={styles.fragmentContainer}>
-                            {/* Fragment Header */}
                             <View style={[styles.fragmentHeader]}>
                                 <TouchableOpacity onPress={closeCategoryFragment} style={styles.fragmentCloseButton}>
                                     <Image
@@ -1252,7 +1384,6 @@ export default function BlinkitHomeScreen() {
                             </View>
 
                             <View style={styles.fragmentContent}>
-                                {/* Left Column - Categories */}
                                 <View style={styles.fragmentLeftColumn}>
                                     <ScrollView
                                         style={styles.fragmentCategoriesList}
@@ -1287,7 +1418,6 @@ export default function BlinkitHomeScreen() {
                                     </ScrollView>
                                 </View>
 
-                                {/* Right Column - Products */}
                                 <View style={styles.fragmentRightColumn}>
                                     {fragmentLoading ? (
                                         <View style={styles.fragmentLoading}>
@@ -1324,6 +1454,39 @@ export default function BlinkitHomeScreen() {
 }
 
 const styles = StyleSheet.create({
+    quantityControl: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#F8F8F8',
+        borderRadius: 10,
+        paddingHorizontal: 8,
+        borderColor: '#27AF34',
+        paddingVertical: 6,
+    },
+
+    quantityMinus: {
+        fontSize: 16,
+        color: '#666',
+        fontWeight: 'bold',
+        textAlign: 'center',
+    },
+
+    quantityPlus: {
+        fontSize: 16,
+        color: '#171717',
+        fontWeight: 'bold',
+        textAlign: 'center',
+    },
+
+    quantityText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#1B1B1B',
+        marginHorizontal: 12,
+        minWidth: 20,
+        textAlign: 'center',
+    },
     tabContent: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1332,7 +1495,6 @@ const styles = StyleSheet.create({
     container: {
         flex: 1, backgroundColor: '#FFFFFF',
     },
-    // Tab View Styles
     tabContainer: {
         paddingHorizontal: 16,
         paddingTop: 6,
@@ -1346,7 +1508,6 @@ const styles = StyleSheet.create({
         paddingVertical: 10,
         borderRadius: 12,
         marginRight: 8,
-
     },
     activeTabItem: {
         shadowColor: '#000',
@@ -1381,7 +1542,6 @@ const styles = StyleSheet.create({
         height: 3,
         borderRadius: 2,
     },
-    // Tab Products Section
     tabProductsSection: {
         paddingHorizontal: 16,
         marginTop: 20,
@@ -1447,7 +1607,6 @@ const styles = StyleSheet.create({
     tabAddButtonDisabled: {
         opacity: 0.6,
     },
-    // Section Header with See All Button
     sectionHeaderWithButton: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -1472,7 +1631,6 @@ const styles = StyleSheet.create({
         height: 12,
         tintColor: '#000000',
     },
-    // Loading State
     loadingContainer: {
         alignItems: 'center',
         justifyContent: 'center',
@@ -1483,7 +1641,6 @@ const styles = StyleSheet.create({
         fontFamily: 'Poppins-Medium',
         color: '#666',
     },
-    // Discount Badge
     discountBadge: {
         backgroundColor: '#FFE8E8',
         paddingHorizontal: 6,
@@ -1809,7 +1966,6 @@ const styles = StyleSheet.create({
         position: 'absolute',
         bottom: -8,
     },
-    // Fragment styles remain the same...
     modalOverlay: {
         flex: 1,
         justifyContent: 'flex-end',
@@ -1867,14 +2023,13 @@ const styles = StyleSheet.create({
     fragmentCategoryItem: {
         paddingVertical: 16,
         paddingHorizontal: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E8E8E8',
+        borderBottomColor: '#4CAD73',
         backgroundColor: '#FFFFFF',
     },
     fragmentSelectedCategoryItem: {
         backgroundColor: '#FFF5F5',
-        borderLeftWidth: 4,
-        borderLeftColor: '#EC0505',
+        borderLeftWidth: 5,
+        borderRightColor: '#4CAD73',
     },
     fragmentCategoryContent: {
         alignItems: 'center',
@@ -2064,5 +2219,13 @@ const styles = StyleSheet.create({
         fontFamily: 'Poppins-Regular',
         color: '#FF6B35',
         marginTop: 2,
+    },
+    bottomQuantityContainer: {
+        borderTopColor: '#eee',
+        paddingTop: 10,
+        paddingBottom: 4,
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        alignItems: 'center',
     },
 });

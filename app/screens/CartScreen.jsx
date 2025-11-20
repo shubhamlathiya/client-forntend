@@ -16,7 +16,7 @@ import {
     getTierPricing,
     applyTierPricing,
     getOrCreateSessionId,
-    getUserType
+    getUserType, updateCartItem
 } from '../../api/cartApi';
 import { API_BASE_URL } from '../../config/apiConfig';
 import RelatedProducts from "../../components/screens/RelatedProducts";
@@ -226,35 +226,50 @@ export default function CartScreen() {
 
     // Optimized quantity update with immediate UI feedback
     const updateQuantity = useCallback(async (itemId, newQuantity, productId, variantId = null) => {
-        if (newQuantity < 1) return;
-
-        // Check minimum quantity for business users
-        const item = cartItems.find(item => item.id === itemId);
-        if (isBusinessUser && item?.minQty && newQuantity < item.minQty) {
-            Alert.alert('Minimum Quantity', `Minimum quantity for this product is ${item.minQty}`);
-            return;
-        }
+        // Early exit if newQuantity is negative
+        if (newQuantity < 0) return;
 
         try {
+            // Find the cart item locally
+            const item = cartItems.find(i => i.id === itemId);
+            if (!item) {
+                Alert.alert('Error', 'Cart item not found');
+                return;
+            }
+
+            // Check minimum quantity for business users
+            if (isBusinessUser && item.minQty && newQuantity < item.minQty) {
+                Alert.alert('Minimum Quantity', `Minimum quantity for this product is ${item.minQty}`);
+                return;
+            }
+
             setUpdatingItems(prev => ({ ...prev, [itemId]: true }));
 
-            // Optimistic update
-            const updatedItems = cartItems.map(item =>
-                item.id === itemId ? { ...item, quantity: newQuantity } : item
-            );
-            setCartItems(updatedItems);
+            if (newQuantity === 0) {
+                // Remove item if quantity is zero
+                await removeCartItem(productId, variantId);
+            } else {
+                // Optimistic update
+                setCartItems(prevItems =>
+                    prevItems.map(i =>
+                        i.id === itemId ? { ...i, quantity: newQuantity } : i
+                    )
+                );
 
-            // API call
-            await updateCartItemApi(itemId, newQuantity);
+                // Update quantity via API
+                await updateCartItemApi(itemId, newQuantity);
+            }
 
-            // Refresh data to ensure sync with backend
+            // Refresh cart to sync with backend
             await loadCartData(false);
 
         } catch (error) {
             console.error('Update quantity error:', error);
             Alert.alert('Error', 'Failed to update quantity');
+
             // Revert optimistic update on error
             await loadCartData(false);
+
         } finally {
             setUpdatingItems(prev => ({ ...prev, [itemId]: false }));
         }
@@ -515,7 +530,6 @@ export default function CartScreen() {
                     <TouchableOpacity
                         style={styles.quantityButton}
                         onPress={() => updateQuantity(item.id, item.quantity - 1, item.productId, item.variantId)}
-                        disabled={updatingItems[item.id] || item.quantity <= (item.minQty || 1)}
                     >
                         <View
                             style={[styles.minusButton, (updatingItems[item.id] || item.quantity <= (item.minQty || 1)) && styles.disabledButton]}>

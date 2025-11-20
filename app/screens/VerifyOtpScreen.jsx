@@ -1,10 +1,9 @@
 // screens/VerifyOtpScreen.js
 import React, {useRef, useState} from "react";
-import {View, Text, TextInput, TouchableOpacity, StyleSheet, Image} from "react-native";
+import {View, Text, TextInput, TouchableOpacity, StyleSheet, Image,Alert} from "react-native";
 import {SafeAreaView} from "react-native-safe-area-context";
 import {globalStyles} from "../../constants/globalStyles";
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Alert } from 'react-native';
 import { verifyEmail, resendVerification, forgotPassword } from '../../api/authApi';
 import * as SecureStore from 'expo-secure-store';
 

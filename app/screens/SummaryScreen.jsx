@@ -37,17 +37,6 @@ export default function SummaryScreen() {
         }
     };
 
-    // Load payment methods
-    // const loadPaymentMethods = async () => {
-    //     try {
-    //         // const methods = await getPaymentMethods();
-    //         // setPaymentMethods(methods.data || methods);
-    //     } catch (error) {
-    //         console.log('Payment methods load error:', error);
-    //         // Continue with default payment method
-    //     }
-    // };
-
     // Load summary + address
     const loadSummary = async () => {
         try {
@@ -73,11 +62,8 @@ export default function SummaryScreen() {
             // Generate order summary with address
             const summaryRes = await generateOrderSummary(selectedAddress._id || selectedAddress.id, cart.cartId);
             const data = summaryRes?.data ?? summaryRes;
-            // console.log('Order Summary:', data);
-            setSummary(data);
 
-            // Load payment methods
-            // await loadPaymentMethods();
+            setSummary(data);
 
         } catch (error) {
             console.log('Summary load error:', error);

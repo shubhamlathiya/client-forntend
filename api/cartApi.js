@@ -23,7 +23,7 @@ export const getOrCreateSessionId = async (loginType = null) => {
         const sessionKey = `sessionId_${loginType}`;
         let sid = await AsyncStorage.getItem(sessionKey);
 
-        console.log(`Session ID for ${loginType}:`, sid);
+
 
         if (sid) return sid;
 
@@ -31,7 +31,6 @@ export const getOrCreateSessionId = async (loginType = null) => {
         sid = `sid_${loginType}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
         await AsyncStorage.setItem(sessionKey, sid);
 
-        console.log(`Created new session for ${loginType}:`, sid);
         return sid;
     } catch (err) {
         console.warn('getOrCreateSessionId error:', err);
@@ -96,8 +95,6 @@ export const createNewCart = async () => {
             couponCode: null
         };
 
-        console.log('Created new empty cart for session:', sessionId);
-
         return {
             success: true,
             data: newCart,
@@ -124,13 +121,11 @@ export const getCart = async () => {
         const status = error.response?.status;
 
         if (status === 404) {
-            console.log("Cart not found. Creating new cart...");
             await AsyncStorage.removeItem("sessionId");
             return await createNewCart();
         }
 
         if (status === 401) {
-            console.log("Token invalid. Creating fresh cart...");
             await SecureStore.deleteItemAsync("accessToken");
             await SecureStore.deleteItemAsync("refreshToken");
             return await createNewCart();

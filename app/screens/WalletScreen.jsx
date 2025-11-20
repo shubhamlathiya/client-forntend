@@ -35,7 +35,6 @@ const WalletScreen = () => {
                 apiClient.get('/api/wallet'),
                 apiClient.get('/api/wallet/transactions'),
             ]);
-            console.log(walletResponse.data);
             setWallet(walletResponse.data.data);
             setTransactions(transactionsResponse.data.data.transactions || []);
         } catch (error) {

@@ -55,7 +55,7 @@ export default function ProductDetailScreen() {
                     try {
                         const parsed = typeof productParam === 'string' ? JSON.parse(productParam) : productParam;
                         p = parsed;
-                        console.log('Received product data (route params):', p);
+
                     } catch (err) {
                         console.warn('Failed to parse product from params', err);
                     }
@@ -64,7 +64,7 @@ export default function ProductDetailScreen() {
                     const pr = await getProductById(String(id));
                     p = pr?.data || pr?.product || pr || null;
                 }
-                // console.log('Loaded product:', p);
+
                 if (mounted) setProduct(p);
 
                 let vItems = [];
@@ -103,8 +103,7 @@ export default function ProductDetailScreen() {
                 const res = await getProducts({page: 1, limit: 4, categoryId: String(primaryCategoryId)});
                 const payload = res?.data ?? res;
                 const items = Array.isArray(payload) ? payload : (payload?.items || []);
-                // console.log('Related products fetched:', items?.length);
-                setRelated(items);
+          setRelated(items);
             } catch (e) {
                 console.warn('Related products fetch failed:', e?.response?.data || e?.message || e);
             }
@@ -137,7 +136,6 @@ export default function ProductDetailScreen() {
                 variantId: variantId ? String(variantId) : null,
                 quantity: Number(quantity),
             });
-            console.log('Add to Cart Response:', res);
             router.push("/Cart")
         } catch (e) {
             console.warn('Add to Cart Error:', e);
@@ -278,12 +276,6 @@ export default function ProductDetailScreen() {
                                             style={[styles.variantChip, isSelected && styles.variantChipSelected]}
                                             onPress={() => {
                                                 setSelectedVariantId(idVal);
-                                                console.log('Variant selected:', {
-                                                    id: idVal,
-                                                    label,
-                                                    price: v?.price,
-                                                    stock: v?.stock
-                                                });
                                             }}
                                         >
                                             <Text

@@ -40,10 +40,8 @@ export const registerUser = async ({ name = '', email, phone = '', password }) =
   const formattedPhone = phone.trim() === '' ? null : phone;
   // proceed with API call if valid
   const body = { name, email,  phone: formattedPhone, password };
-  console.log(body);
 
   const res = await apiClient.post(AUTH_ENDPOINTS.register, body);
-  console.log(res);
 
   return res.data;
 };

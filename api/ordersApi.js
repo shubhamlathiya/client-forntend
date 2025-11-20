@@ -40,7 +40,6 @@ export const generateOrderSummary = async (addressId = null , cartId = null) => 
   };
 
   const res = await apiClient.post('/api/orders/summary', body);
-  console.log('Order Summary Response:', res?.data);
   return res.data;
 };
 
@@ -70,7 +69,7 @@ export const createOrder = async (payload = {}) => {
   };
 
   const res = await apiClient.post('/api/orders', body);
-  console.log('Create Order Response:', res?.data);
+
   return res.data;
 };
 
@@ -84,14 +83,12 @@ export const getOrders = async (params = {}) => {
   queryParams.append('limit', limit.toString());
 
   const res = await apiClient.get(`/api/orders?${queryParams.toString()}`);
-  // console.log('Get Orders Response:', res?.data);
   return res.data;
 };
 
 // Get order by id
 export const getOrderById = async (orderId) => {
   const res = await apiClient.get(`/api/orders/${orderId}`);
-  // console.log('Get Order By ID Response:', res?.data);
   return res.data;
 };
 
@@ -104,7 +101,6 @@ export const requestReturn = async ({ orderId, items, reason, resolution = 'refu
     resolution
   };
   const res = await apiClient.post('/api/orders/return', body);
-  console.log('Request Return Response:', res?.data);
   return res.data;
 };
 
@@ -117,7 +113,6 @@ export const requestReplacement = async ({ orderId, items, reason, images = [] }
     ...(Array.isArray(images) && images.length ? { images } : {})
   };
   const res = await apiClient.post('/api/orders/replacement', body);
-  console.log('Request Replacement Response:', res?.data);
   return res.data;
 };
 
@@ -132,7 +127,6 @@ export const adminGetAllOrders = async (params = {}) => {
   queryParams.append('limit', limit.toString());
 
   const res = await apiClient.get(`/api/orders/admin/all?${queryParams.toString()}`);
-  console.log('Admin Get All Orders Response:', res?.data);
   return res.data;
 };
 
@@ -142,13 +136,11 @@ export const adminUpdateOrderStatus = async (orderId, status, comment = '') => {
     ...(comment && { comment })
   };
   const res = await apiClient.put(`/api/orders/admin/${orderId}/status`, body);
-  console.log('Admin Update Order Status Response:', res?.data);
   return res.data;
 };
 
 export const adminProcessOrderAction = async (type, requestId, payload = {}) => {
   const res = await apiClient.put(`/api/orders/admin/${type}/${requestId}`, payload);
-  console.log('Admin Process Order Action Response:', res?.data);
   return res.data;
 };
 
@@ -200,13 +192,11 @@ export const getOrderSummary = async (cartId) => {
 // Send invoice email
 export const sendOrderInvoice = async (orderId) => {
   const res = await apiClient.post(`/api/orders/${orderId}/invoice`);
-  console.log('Send Invoice Response:', res?.data);
   return res.data;
 };
 
 // Create admin order directly
 export const adminCreateOrder = async (orderData) => {
   const res = await apiClient.post('/api/orders/admin/create', orderData);
-  console.log('Admin Create Order Response:', res?.data);
   return res.data;
 };

@@ -26,10 +26,10 @@ apiClient.interceptors.request.use(async (config) => {
   // Dev logging for requests
   try {
     const { method, url, params, data } = config;
-    console.log('[API REQUEST]', method?.toUpperCase(), url, {
-      params,
-      data,
-    });
+    // console.log('[API REQUEST]', method?.toUpperCase(), url, {
+    //   params,
+    //   data,
+    // });
   } catch (_) {}
   return config;
 });
@@ -37,13 +37,13 @@ apiClient.interceptors.request.use(async (config) => {
 // Basic response normalization
 apiClient.interceptors.response.use(
   (response) => {
-    try {
-      const { config, status, data } = response;
-      console.log('[API RESPONSE]', config?.method?.toUpperCase(), config?.url, {
-        status,
-        data,
-      });
-    } catch (_) {}
+    // try {
+    //   const { config, status, data } = response;
+    //   console.log('[API RESPONSE]', config?.method?.toUpperCase(), config?.url, {
+    //     status,
+    //     data,
+    //   });
+    // } catch (_) {}
     return response;
   },
   async (error) => {

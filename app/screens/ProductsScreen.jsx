@@ -16,7 +16,7 @@ import {
     FlatList,
     SafeAreaView
 } from "react-native";
-import {addCartItem, getCart, getOrCreateSessionId, removeCartItem, updateCartItem} from '../../api/cartApi';
+import {addCartItem, getCart, removeCartItem, updateCartItem} from '../../api/cartApi';
 import {getProducts, getCategories} from '../../api/catalogApi';
 import {API_BASE_URL} from '../../config/apiConfig';
 
@@ -50,7 +50,6 @@ export default function ProductsScreen() {
                         : selectedCategory?._id ||
                         selectedCategory?.id ||
                         null;
-
 
                 const requests = [
                     getProducts({categoryId}),
@@ -95,7 +94,6 @@ export default function ProductsScreen() {
                     if (categoriesList.length > 0) {
                         setActiveCategory(categoriesList[0]);
                     }
-
                 }
             } catch (e) {
                 if (mounted) {
@@ -119,12 +117,10 @@ export default function ProductsScreen() {
 
     // Filter products when category or search query changes
     useEffect(() => {
-
         let filtered = [...products];
 
         // Filter by active category
         if (activeCategory) {
-            const previousCount = filtered.length;
             filtered = filtered.filter(product => {
                 const matchesCategory =
                     product.categoryIds?.includes(activeCategory._id) ||
@@ -141,7 +137,6 @@ export default function ProductsScreen() {
 
         // Filter by search query
         if (searchQuery) {
-            const previousCount = filtered.length;
             const query = searchQuery.toLowerCase();
             filtered = filtered.filter(product =>
                 product.title?.toLowerCase().includes(query) ||
@@ -171,7 +166,7 @@ export default function ProductsScreen() {
                 items = cartData;
             }
 
-           setCartItems(items);
+            setCartItems(items);
             return cartData;
         } catch (error) {
             setCartItems([]);
@@ -183,7 +178,7 @@ export default function ProductsScreen() {
         (async () => {
             try {
                 const lt = await AsyncStorage.getItem('loginType');
-               if (lt) {
+                if (lt) {
                     setLoginType(lt);
                 }
             } catch (error) {
@@ -200,6 +195,15 @@ export default function ProductsScreen() {
         const id = item?.id || item?._id || item?.productId;
         return id;
     }
+
+    // Get cart item ID for update/remove operations
+    const getCartItemId = (productId, variantId = null) => {
+        const cartItem = cartItems.find(item =>
+            item.productId === String(productId) &&
+            item.variantId === (variantId ? String(variantId) : null)
+        );
+        return cartItem?._id || cartItem?.id;
+    };
 
     function computeProductPrice(item) {
         // Check if product has variants with pricing
@@ -229,8 +233,6 @@ export default function ProductsScreen() {
             discountPercent = Math.round(((base - final) / base) * 100);
             hasDiscount = discountPercent > 0;
         }
-
-
 
         return {base, final, hasDiscount, discountPercent};
     }
@@ -281,7 +283,6 @@ export default function ProductsScreen() {
             hasDiscount = true;
         }
 
-
         return {base: Number(base), final: Number(final), hasDiscount};
     }
 
@@ -321,7 +322,7 @@ export default function ProductsScreen() {
             if (variant) {
                 setShowVariantModal(false);
                 setSelectedProductForVariant(null);
-             }
+            }
         } catch (e) {
             Alert.alert('Error', 'Failed to add item to cart');
         }
@@ -329,32 +330,35 @@ export default function ProductsScreen() {
 
     async function handleUpdateQuantity(productId, variantId, newQuantity) {
         try {
-            const sessionId = await getOrCreateSessionId();
+            const itemId = getCartItemId(productId, variantId);
+
+            if (!itemId) {
+                Alert.alert('Error', 'Cart item not found');
+                return;
+            }
 
             if (newQuantity === 0) {
-                await removeCartItem(productId, variantId);
+                await removeCartItem(itemId);
                 await loadCartItems();
                 if (Platform.OS === 'android') {
                     ToastAndroid.show('Removed from cart', ToastAndroid.SHORT);
                 }
             } else {
-               await updateCartItem(productId, newQuantity);
+                await updateCartItem(itemId, newQuantity);
                 await loadCartItems();
             }
-
-       } catch (error) {
-           Alert.alert('Error', 'Failed to update quantity');
+        } catch (error) {
+            Alert.alert('Error', 'Failed to update quantity');
         }
     }
 
     const handleVariantSelect = (product) => {
-
         setSelectedProductForVariant(product);
         setShowVariantModal(true);
     };
 
     const closeVariantModal = () => {
-       setShowVariantModal(false);
+        setShowVariantModal(false);
         setSelectedProductForVariant(null);
     };
 
@@ -521,6 +525,13 @@ export default function ProductsScreen() {
 
     return (
         <View style={styles.container}>
+            {/* Top Bar - Selected Category */}
+            <View style={styles.topBar}>
+                <Text style={styles.topBarTitle}>
+                    {activeCategory ? activeCategory.name : 'All Categories'}
+                </Text>
+            </View>
+
             {/* Two Column Layout */}
             <View style={styles.twoColumnLayout}>
                 {/* Left Column - Categories */}
@@ -567,7 +578,6 @@ export default function ProductsScreen() {
 
                 {/* Right Column - Products */}
                 <View style={styles.rightColumn}>
-
                     {loading ? (
                         <View style={styles.loadingContainer}>
                             <Text style={styles.loadingText}>Loading products…</Text>
@@ -655,12 +665,25 @@ export default function ProductsScreen() {
     );
 }
 
-// Styles remain the same as in your original code
 const styles = StyleSheet.create({
     container: {
-        marginTop:20,
+        marginTop: 20,
         flex: 1,
         backgroundColor: '#FFFFFF',
+    },
+    topBar: {
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E8E8E8',
+    },
+    topBarTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#1B1B1B',
+        fontFamily: 'Poppins-Bold',
+        textAlign: 'center',
     },
     twoColumnLayout: {
         flex: 1,
@@ -679,14 +702,13 @@ const styles = StyleSheet.create({
     categoryItem: {
         paddingVertical: 16,
         paddingHorizontal: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E8E8E8',
+        borderBottomColor: '#4CAD73',
         backgroundColor: '#FFFFFF',
     },
     activeCategoryItem: {
         backgroundColor: '#FFF5F5',
-        borderLeftWidth: 4,
-        borderLeftColor: '#4CAD73',
+        borderRightWidth: 5,
+        borderRightColor: '#4CAD73',
     },
     categoryContent: {
         alignItems: 'center',
@@ -711,7 +733,6 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         fontFamily: 'Poppins-SemiBold',
     },
-    // Right Column Styles
     rightColumn: {
         flex: 1,
     },

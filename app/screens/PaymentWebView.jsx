@@ -161,7 +161,6 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
                 if (debugContent) {
                     debugContent.innerHTML = debugLogs.join('<br>');
                 }
-                console.log('🔍 ' + message);
             }
 
             function showStatus(message, isError = false) {
@@ -248,7 +247,6 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
                     };
 
                     addDebugLog('Razorpay options configured');
-                    console.log('📋 Full Razorpay Options:', options);
 
                     // Validate key
                     if (!options.key || options.key === 'undefined') {
@@ -288,9 +286,7 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
         full_response: response,
         full_error: safeError
     };
-
-    console.log('📦 Normalized Error Payload:', errorDetail);
-
+    
     modalOpen = false;
     window.ReactNativeWebView.postMessage(JSON.stringify({
         type: 'FAILED',
@@ -398,21 +394,12 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
 
             switch (message.type) {
                 case 'SUCCESS':
-                    console.log('🎉 Payment successful!');
                     onSuccess(message.data);
                     break;
 
                 case 'FAILED':
                     console.error('💥 Payment failed with COMPLETE details:', JSON.stringify(message.data, null, 2));
 
-                    // Show detailed error analysis
-                    console.log('🔍 ERROR ANALYSIS:');
-                    console.log('- Code:', message.data.code);
-                    console.log('- Description:', message.data.description);
-                    console.log('- Source:', message.data.source);
-                    console.log('- Step:', message.data.step);
-                    console.log('- Reason:', message.data.reason);
-                    console.log('- Full Error:', message.data.full_error);
 
                     onError(message.data);
                     break;
@@ -428,11 +415,11 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
                     break;
 
                 case 'CONSOLE_LOG':
-                    console.log('🌐 WebView Log:', message.data);
+
                     break;
 
                 case 'CONSOLE_ERROR':
-                    console.error('🌐 WebView Error:', message.data);
+
                     break;
 
                 case 'CONSOLE_WARN':
@@ -467,7 +454,6 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
 
     const handleLoadEnd = () => {
         setIsLoading(false);
-        console.log('✅ WebView loaded successfully');
     };
 
     if (isDataLoading) {

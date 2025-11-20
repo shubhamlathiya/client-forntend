@@ -17,7 +17,6 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" options={{headerShown: false}}/>
             <Stack.Screen name="screens/SplashScreen" options={{headerShown: false}}/>
             <Stack.Screen name="screens/AuthScreen" options={{headerShown: false}}/>
-            <Stack.Screen name="screens/HomeScreen" options={{headerShown: false}}/>
             <Stack.Screen name="screens/LoginScreen" options={{headerShown: false}}/>
             <Stack.Screen name="screens/SignUpScreen" options={{headerShown: false}}/>
             <Stack.Screen name="screens/ForgotPasswordScreen" options={{headerShown: false}}/>

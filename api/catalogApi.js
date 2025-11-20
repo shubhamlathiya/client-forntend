@@ -26,7 +26,6 @@ export const getProducts = async ({ page = 1, limit = 20, categoryId = undefined
 
 export const getProductsByCategory = async (categoryId) => {
   try {
-    console.log("shubhamn",categoryId);
     const response = await apiClient.get(`/api/catalog/products?category=${categoryId}`);
     return response.data;
   } catch (error) {
@@ -40,7 +39,7 @@ export const getProductById = async (id) => {
   if (!id) throw new Error('Product id is required');
   try {
     const response = await apiClient.get(`/api/catalog/products/${id}`);
-    // console.log('[Catalog getProductById] id:', id, 'resp:', response?.data);
+
     return response.data;
   } catch (error) {
     console.error(`Failed to fetch product ${id}`, error);
@@ -54,7 +53,6 @@ export const getVariants = async ({ productId, page = 1, limit = 20 }) => {
   try {
     const params = { productId, page, limit };
     const response = await apiClient.get(`/api/catalog/variants`, { params });
-    console.log('[Catalog getVariants] params:', params, 'resp:', response?.data);
     return response.data;
   } catch (error) {
     console.error(`Failed to fetch variants for product ${productId}`, error);

@@ -40,10 +40,7 @@ export default function CheckoutScreen() {
         async function loadCart() {
             setLoading(true);
             try {
-                const sid = await AsyncStorage.getItem('sessionId');
-                // console.log('Checkout sessionId:', sid);
                 const res = await getCart();
-                // console.log('Checkout cart response:', res);
                 const data = res?.data || res || {};
                 const cartItems = data?.items || [];
                 const disc = Number(data?.discount || 0);

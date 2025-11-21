@@ -29,51 +29,53 @@ const TAB_CATEGORIES = [
         id: 'all',
         name: 'All',
         icon: require('../../../assets/icons/all.png'),
-        color: '#FF8C00',
-        headerColor: '#FF8C00',
-        lightColor: '#FFD700'
+        color: '#4CAF72',        // deeper green
+        headerColor: '#4CAF72',
+        lightColor: '#CFF5DE'
     },
     {
         id: 'wedding',
         name: 'Wedding',
         icon: require('../../../assets/icons/wedding.png'),
-        color: '#D81B60',
-        headerColor: '#D81B60',
-        lightColor: '#FF69B4'
+        color: '#D84F80',        // stronger pink
+        headerColor: '#D84F80',
+        lightColor: '#FFD6E5'
     },
     {
         id: 'winter',
         name: 'Winter',
         icon: require('../../../assets/icons/winter.png'),
-        color: '#1E88E5',
-        headerColor: '#1E88E5',
-        lightColor: '#87CEEB'
+        color: '#3A9AEF',        // deeper sky blue
+        headerColor: '#3A9AEF',
+        lightColor: '#D8ECFF'
     },
     {
         id: 'electronics',
         name: 'Electronics',
         icon: require('../../../assets/icons/electronics.png'),
-        color: '#43A047',
-        headerColor: '#43A047',
-        lightColor: '#32CD32'
+        color: '#33B5CC',        // darker teal-blue
+        headerColor: '#33B5CC',
+        lightColor: '#D6F6FF'
     },
     {
         id: 'grocery',
         name: 'Grocery',
         icon: require('../../../assets/icons/grocery.png'),
-        color: '#FF6F00',
-        headerColor: '#FF6F00',
-        lightColor: '#FFA500'
+        color: '#E89A23',        // deeper mango yellow
+        headerColor: '#E89A23',
+        lightColor: '#FFE8C8'
     },
     {
         id: 'fashion',
         name: 'Fashion',
         icon: require('../../../assets/icons/fashion.png'),
-        color: '#8E24AA',
-        headerColor: '#8E24AA',
-        lightColor: '#9370DB'
+        color: '#A466E8',        // darker lavender
+        headerColor: '#A466E8',
+        lightColor: '#E8D6FF'
     }
 ];
+
+
 
 export default function BlinkitHomeScreen() {
     const router = useRouter();
@@ -1524,12 +1526,14 @@ const styles = StyleSheet.create({
         tintColor: '#FFFFFF',
     },
     tabText: {
-        fontSize: 11,
+        fontSize: 16,
         fontFamily: 'Poppins-SemiBold',
         color: '#666',
         textAlign: 'center',
     },
     activeTabText: {
+        fontSize: 16,
+        fontWeight: 'bold',
         color: '#FFFFFF',
         fontFamily: 'Poppins-Bold',
     },

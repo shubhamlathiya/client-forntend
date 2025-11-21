@@ -1,65 +1,8 @@
 import apiClient from "../utils/apiClient";
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {getIdentity, getSelectedAddressId, getUserType} from "./sessionManager";
 
-export const getUserType = async () => {
-    try {
-        const loginType = await AsyncStorage.getItem("loginType");
-        return loginType || "individual";
-    } catch (error) {
-        console.error("getUserType error:", error);
-        return "individual";
-    }
-};
-
-export const getOrCreateSessionId = async (loginType = null) => {
-    try {
-        // If no loginType provided, get from storage
-        if (!loginType) {
-            loginType = await getUserType();
-        }
-
-        // Create storage key based on login type
-        const sessionKey = `sessionId_${loginType}`;
-        let sid = await AsyncStorage.getItem(sessionKey);
-
-
-
-        if (sid) return sid;
-
-        // Create a new session id for this login type
-        sid = `sid_${loginType}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-        await AsyncStorage.setItem(sessionKey, sid);
-
-        return sid;
-    } catch (err) {
-        console.warn('getOrCreateSessionId error:', err);
-        return null;
-    }
-};
-
-export const getCurrentSessionId = async () => {
-    try {
-        const loginType = await getUserType();
-        const sessionKey = `sessionId_${loginType}`;
-        return await AsyncStorage.getItem(sessionKey);
-    } catch (error) {
-        console.error('getCurrentSessionId error:', error);
-        return null;
-    }
-};
-const getIdentity = async () => {
-    try {
-        const token = await SecureStore.getItemAsync('accessToken');
-        const loginType = await getUserType();
-        const sessionId = await getOrCreateSessionId(loginType);
-        return {isAuthenticated: !!token, sessionId, loginType};
-    } catch (_) {
-        const loginType = await getUserType();
-        const sessionId = await getOrCreateSessionId(loginType);
-        return {isAuthenticated: false, sessionId, loginType};
-    }
-};
 
 // Helper function to get current user ID
 const getCurrentUserId = async () => {
@@ -112,8 +55,9 @@ export const getCart = async () => {
     try {
         const { sessionId } = await getIdentity();
         const loginType = await getUserType();
+        const addressId = await getSelectedAddressId();
 
-        const params = { sessionId, loginType };
+        const params = { sessionId, loginType ,addressId};
         const res = await apiClient.get("/api/cart", { params });
         return res.data;
 

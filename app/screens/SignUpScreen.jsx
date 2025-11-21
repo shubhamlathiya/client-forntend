@@ -36,7 +36,8 @@ export default function SignUpScreen() {
         setLoading(true);
         try {
             const name = email.split('@')[0];
-            await registerUser({ name, email, phone: '', password });
+            const data = await registerUser({ name, email, phone: '', password });
+            Alert.alert('Success', data?.message || 'User registered successfully.');
             router.push({ pathname: '/screens/VerifyOtpScreen', params: { email } });
         } catch (error) {
             const message = error?.response?.data?.message || 'Registration failed';

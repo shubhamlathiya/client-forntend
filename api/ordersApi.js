@@ -1,33 +1,10 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as SecureStore from 'expo-secure-store';
 import apiClient from '../utils/apiClient';
-import { getCart, getOrCreateSessionId } from "./cartApi";
-
-const getOrderIdentity = async () => {
-  try {
-    const token = await SecureStore.getItemAsync('accessToken');
-    const sessionId = await AsyncStorage.getItem('sessionId');
-    return { isAuthenticated: !!token, sessionId };
-  } catch (_) {
-    const sessionId = await AsyncStorage.getItem('sessionId');
-    return { isAuthenticated: false, sessionId };
-  }
-};
-
-const getIdentity = async () => {
-  try {
-    const token = await SecureStore.getItemAsync('accessToken');
-    const sessionId = await getOrCreateSessionId();
-    return { isAuthenticated: !!token, sessionId };
-  } catch (_) {
-    const sessionId = await getOrCreateSessionId();
-    return { isAuthenticated: false, sessionId };
-  }
-};
+import { getCart } from "./cartApi";
+import {getIdentity} from "./sessionManager";
 
 // Generate order summary from current cart and selected address
 export const generateOrderSummary = async (addressId = null , cartId = null) => {
-  const { sessionId } = await getOrderIdentity();
+  const { sessionId } = await getIdentity();
 
   if (!sessionId) {
     throw new Error('Session ID is required');
@@ -45,7 +22,7 @@ export const generateOrderSummary = async (addressId = null , cartId = null) => 
 
 // Create final order
 export const createOrder = async (payload = {}) => {
-  const { sessionId } = await getOrderIdentity();
+  const { sessionId } = await getIdentity();
 
   if (!sessionId) {
     throw new Error('Session ID is required');

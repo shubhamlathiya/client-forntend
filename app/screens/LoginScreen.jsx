@@ -15,10 +15,13 @@ import {
 import {SafeAreaView} from "react-native-safe-area-context";
 import {loginUser} from '../../api/authApi';
 import {mergeGuestCart} from '../../api/cartApi';
-import {BASE_URL} from '../../config/apiConfig';
+import {API_BASE_URL, BASE_URL} from '../../config/apiConfig';
 import {globalStyles} from '../../constants/globalStyles';
 
 WebBrowser.maybeCompleteAuthSession();
+const APP_REDIRECT = "exp://192.168.0.119:8081/--/auth/callback";
+// const BACKEND = "https://e-commerce-rho-nine-36.vercel.app";
+// const BACKEND = "http://localhost:8000";
 
 export default function LoginScreen() {
     const router = useRouter();
@@ -82,12 +85,17 @@ export default function LoginScreen() {
         if (googleLoading) return;
         setGoogleLoading(true);
         try {
-            const redirectUrl = Linking.createURL('/');
-            // Add mobile app identifier to the auth URL
-            const authUrl = `${BASE_URL}/api/auth/social/google?redirect_uri=${encodeURIComponent(redirectUrl)}&source=mobile-app`;
+            const authUrl = `${API_BASE_URL}/api/auth/social/google?redirect_uri=${encodeURIComponent(
+                APP_REDIRECT
+            )}&source=mobile-app`;
+
+            console.log("AUTH URL →", authUrl);
+            console.log("APP REDIRECT →", APP_REDIRECT);
 
             // Open an auth session; it resolves when redirected to redirectUrl
-            const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
+            const result = await WebBrowser.openAuthSessionAsync(authUrl, APP_REDIRECT);
+
+            console.log(result);
 
             if (result.type === 'success' && result.url) {
                 const finalUrl = result.url;

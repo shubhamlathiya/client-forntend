@@ -1,6 +1,7 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { API_BASE_URL } from '../config/apiConfig';
+import { router } from 'expo-router';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -10,7 +11,7 @@ const apiClient = axios.create({
   timeout: 15000,
 });
 
-// Attach access token if available
+// Attach access token
 apiClient.interceptors.request.use(async (config) => {
   try {
     const token = await SecureStore.getItemAsync('accessToken');
@@ -20,45 +21,37 @@ apiClient.interceptors.request.use(async (config) => {
         Authorization: `Bearer ${token}`,
       };
     }
-  } catch (e) {
-    // No-op: token read failures should not block requests
-  }
-  // Dev logging for requests
-  try {
-    const { method, url, params, data } = config;
-    // console.log('[API REQUEST]', method?.toUpperCase(), url, {
-    //   params,
-    //   data,
-    // });
-  } catch (_) {}
+  } catch (e) {}
   return config;
 });
 
-// Basic response normalization
 apiClient.interceptors.response.use(
-  (response) => {
-    // try {
-    //   const { config, status, data } = response;
-    //   console.log('[API RESPONSE]', config?.method?.toUpperCase(), config?.url, {
-    //     status,
-    //     data,
-    //   });
-    // } catch (_) {}
-    return response;
-  },
-  async (error) => {
-    // Optionally handle refresh flows or global errors here
-    try {
-      const cfg = error?.config || {};
-      const payload = {
-        status: error?.response?.status,
-        data: error?.response?.data,
-        message: error?.message,
-      };
-      console.warn('[API ERROR]', cfg?.method?.toUpperCase(), cfg?.url, payload);
-    } catch (_) {}
-    return Promise.reject(error);
-  }
+    (response) => response,
+
+    async (error) => {
+      const status = error?.response?.status;
+      const msg = error?.response?.data?.message;
+      const errData = error?.response?.data;
+
+      const expired =
+          (status === 401 && msg?.toLowerCase()?.includes('expired')) ||
+          (status === 500 &&
+              typeof errData === 'object' &&
+              JSON.stringify(errData).toLowerCase().includes('jwt expired'));
+
+      if (expired) {
+        console.log('🔴 JWT expired. Logging out...');
+
+        await SecureStore.deleteItemAsync('accessToken');
+        await SecureStore.deleteItemAsync('refreshToken');
+        await SecureStore.deleteItemAsync('user');
+
+        router.replace('/screens/LoginScreen');
+        return Promise.reject(error);
+      }
+
+      return Promise.reject(error);
+    }
 );
 
 export default apiClient;

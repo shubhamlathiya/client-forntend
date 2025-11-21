@@ -8,10 +8,11 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import {addCartItem, getOrCreateSessionId} from '../../api/cartApi';
+import {addCartItem} from '../../api/cartApi';
 import {getProductById, getVariants, getProducts} from '../../api/catalogApi';
 import {API_BASE_URL} from '../../config/apiConfig';
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {getOrCreateSessionId} from "../../api/sessionManager";
 
 export default function ProductDetailScreen() {
     const router = useRouter();

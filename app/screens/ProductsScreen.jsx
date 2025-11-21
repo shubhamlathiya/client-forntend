@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useLocalSearchParams, useRouter} from "expo-router";
-import {useEffect, useState} from "react";
+import {useEffect, useState, useCallback} from "react";
 import {
     Alert,
     Dimensions,
@@ -19,6 +19,7 @@ import {
 import {addCartItem, getCart, removeCartItem, updateCartItem} from '../../api/cartApi';
 import {getProducts, getCategories} from '../../api/catalogApi';
 import {API_BASE_URL} from '../../config/apiConfig';
+import { useFocusEffect } from '@react-navigation/native';
 
 const {width, height} = Dimensions.get("window");
 
@@ -35,6 +36,14 @@ export default function ProductsScreen() {
     const [activeCategory, setActiveCategory] = useState(null);
     const [showVariantModal, setShowVariantModal] = useState(false);
     const [selectedProductForVariant, setSelectedProductForVariant] = useState(null);
+    const [updatingItems, setUpdatingItems] = useState({});
+
+    // Auto refresh when screen comes into focus
+    useFocusEffect(
+        useCallback(() => {
+            loadCartItems();
+        }, [])
+    );
 
     useEffect(() => {
         let mounted = true;
@@ -150,7 +159,7 @@ export default function ProductsScreen() {
         setFilteredProducts(filtered);
     }, [activeCategory, searchQuery, products]);
 
-    // Load cart items
+    // Load cart items with real-time updates
     const loadCartItems = async () => {
         try {
             const cartData = await getCart();
@@ -295,7 +304,7 @@ export default function ProductsScreen() {
         return quantity;
     };
 
-    async function handleAddToCart(item, variant = null) {
+    const handleAddToCart = async (item, variant = null) => {
         try {
             const productId = getProductId(item);
             const variants = Array.isArray(item?.variants) ? item.variants : [];
@@ -309,26 +318,37 @@ export default function ProductsScreen() {
                 variantId: effectiveVariantId ? String(effectiveVariantId) : null,
             };
 
+
+            const tempId = `${productId}_${effectiveVariantId || 'default'}`;
+            setUpdatingItems(prev => ({ ...prev, [tempId]: true }));
+
             await addCartItem(payload);
             await loadCartItems();
 
+
             if (Platform.OS === 'android') {
                 ToastAndroid.show('Added to cart', ToastAndroid.SHORT);
-            } else {
-                Alert.alert('', 'Added to cart');
             }
 
-            // Close variant modal if open
             if (variant) {
                 setShowVariantModal(false);
                 setSelectedProductForVariant(null);
             }
         } catch (e) {
             Alert.alert('Error', 'Failed to add item to cart');
-        }
-    }
+        } finally {
+            const productId = getProductId(item);
+            const variants = Array.isArray(item?.variants) ? item.variants : [];
+            const defaultVariant = variants.find(v => (v?.stock ?? 1) > 0) || variants[0] || null;
+            const effectiveVariantId = variant ? String(variant._id || variant.id) : selectedVariants[String(productId)] || (defaultVariant ? String(defaultVariant?._id || defaultVariant?.id || defaultVariant?.variantId) : null);
+            const tempId = `${productId}_${effectiveVariantId || 'default'}`;
 
-    async function handleUpdateQuantity(productId, variantId, newQuantity) {
+            setUpdatingItems(prev => ({ ...prev, [tempId]: false }));
+        }
+    };
+
+
+    const handleUpdateQuantity = async (productId, variantId, newQuantity) => {
         try {
             const itemId = getCartItemId(productId, variantId);
 
@@ -337,20 +357,23 @@ export default function ProductsScreen() {
                 return;
             }
 
+            const tempId = `${productId}_${variantId || 'default'}`;
+            setUpdatingItems(prev => ({ ...prev, [tempId]: true }));
+
             if (newQuantity === 0) {
-                await removeCartItem(itemId);
-                await loadCartItems();
-                if (Platform.OS === 'android') {
-                    ToastAndroid.show('Removed from cart', ToastAndroid.SHORT);
-                }
+                await removeCartItem(productId, variantId);
             } else {
                 await updateCartItem(itemId, newQuantity);
-                await loadCartItems();
             }
+
+            await loadCartItems();
         } catch (error) {
             Alert.alert('Error', 'Failed to update quantity');
+        } finally {
+            const tempId = `${productId}_${variantId || 'default'}`;
+            setUpdatingItems(prev => ({ ...prev, [tempId]: false }));
         }
-    }
+    };
 
     const handleVariantSelect = (product) => {
         setSelectedProductForVariant(product);
@@ -360,6 +383,14 @@ export default function ProductsScreen() {
     const closeVariantModal = () => {
         setShowVariantModal(false);
         setSelectedProductForVariant(null);
+    };
+
+    const handleBack = () => {
+        if (router.canGoBack()) {
+            router.back();
+        } else {
+            router.replace('/Home');
+        }
     };
 
     const renderProductItem = ({item}) => {
@@ -381,6 +412,8 @@ export default function ProductsScreen() {
         const bizInfo = isBusiness ? getBusinessPriceInfo(item) : null;
         const cartQuantity = getCartQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id);
         const hasMultipleVariants = variants.length > 1;
+        const tempId = `${productId}_${selectedVariantObj?._id || selectedVariantObj?.id || 'default'}`;
+        const isUpdating = updatingItems[tempId];
 
         return (
             <View style={styles.productCard}>
@@ -419,13 +452,11 @@ export default function ProductsScreen() {
                             ) : (
                                 <>
                                     {showDiscount ? (
-                                        <Text style={styles.priceContainer}>
+                                        <View style={styles.discountContainer}>
                                             <Text style={styles.oldPrice}>₹{Number(productPrice.base).toFixed(2)}</Text>
-                                            {'\n'}
                                             <Text style={styles.newPrice}>₹{Number(displayFinalPrice || 0).toFixed(2)}</Text>
-                                            {'\n'}
                                             <Text style={styles.discountPercent}>{productPrice.discountPercent}% OFF</Text>
-                                        </Text>
+                                        </View>
                                     ) : (
                                         <Text style={styles.newPrice}>₹{Number(displayFinalPrice || 0).toFixed(2)}</Text>
                                     )}
@@ -442,28 +473,31 @@ export default function ProductsScreen() {
                             <TouchableOpacity
                                 style={styles.quantityButton}
                                 onPress={() => handleUpdateQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id, cartQuantity - 1)}
+                                disabled={isUpdating}
                             >
-                                <Text style={styles.quantityMinus}>-</Text>
+                                <Text style={[styles.quantityMinus, isUpdating && styles.disabledText]}>-</Text>
                             </TouchableOpacity>
 
-                            <Text style={styles.quantityText}>{cartQuantity}</Text>
+                            <Text style={styles.quantityText}>
+                                {isUpdating ? '...' : cartQuantity}
+                            </Text>
 
                             <TouchableOpacity
                                 style={styles.quantityButton}
                                 onPress={() => handleUpdateQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id, cartQuantity + 1)}
-                                disabled={isOutOfStock}
+                                disabled={isOutOfStock || isUpdating}
                             >
-                                <Text style={[styles.quantityPlus, isOutOfStock && styles.disabledText]}>+</Text>
+                                <Text style={[styles.quantityPlus, (isOutOfStock || isUpdating) && styles.disabledText]}>+</Text>
                             </TouchableOpacity>
                         </View>
                     ) : (
                         <TouchableOpacity
-                            style={[styles.addButton, hasMultipleVariants && styles.variantButton, isOutOfStock && styles.disabledButton]}
+                            style={[styles.addButton, hasMultipleVariants && styles.variantButton, (isOutOfStock || isUpdating) && styles.disabledButton]}
                             onPress={() => hasMultipleVariants ? handleVariantSelect(item) : handleAddToCart(item)}
-                            disabled={isOutOfStock}
+                            disabled={isOutOfStock || isUpdating}
                         >
-                            <Text style={[styles.addButtonText, isOutOfStock && styles.disabledText]}>
-                                {hasMultipleVariants ? 'Options' : 'ADD'}
+                            <Text style={[styles.addButtonText, (isOutOfStock || isUpdating) && styles.disabledText]}>
+                                {isUpdating ? '...' : (hasMultipleVariants ? 'Options' : 'ADD')}
                             </Text>
                         </TouchableOpacity>
                     )}
@@ -476,6 +510,8 @@ export default function ProductsScreen() {
         const priceInfo = computeVariantPrice(variant, selectedProductForVariant);
         const isOutOfStock = variant?.stock === 0;
         const cartQuantity = getCartQuantity(getProductId(selectedProductForVariant), variant._id || variant.id);
+        const tempId = `${getProductId(selectedProductForVariant)}_${variant._id || variant.id}`;
+        const isUpdating = updatingItems[tempId];
 
         return (
             <View style={[styles.variantCard, isOutOfStock && styles.disabledVariant]}>
@@ -496,26 +532,29 @@ export default function ProductsScreen() {
                         <TouchableOpacity
                             style={styles.variantQuantityButton}
                             onPress={() => handleUpdateQuantity(getProductId(selectedProductForVariant), variant._id || variant.id, cartQuantity - 1)}
+                            disabled={isUpdating}
                         >
-                            <Text style={styles.variantQuantityText}>-</Text>
+                            <Text style={[styles.variantQuantityText, isUpdating && styles.disabledText]}>-</Text>
                         </TouchableOpacity>
-                        <Text style={styles.variantQuantity}>{cartQuantity}</Text>
+                        <Text style={styles.variantQuantity}>
+                            {isUpdating ? '...' : cartQuantity}
+                        </Text>
                         <TouchableOpacity
                             style={styles.variantQuantityButton}
                             onPress={() => handleUpdateQuantity(getProductId(selectedProductForVariant), variant._id || variant.id, cartQuantity + 1)}
-                            disabled={isOutOfStock}
+                            disabled={isOutOfStock || isUpdating}
                         >
-                            <Text style={[styles.variantQuantityText, isOutOfStock && styles.disabledText]}>+</Text>
+                            <Text style={[styles.variantQuantityText, (isOutOfStock || isUpdating) && styles.disabledText]}>+</Text>
                         </TouchableOpacity>
                     </View>
                 ) : (
                     <TouchableOpacity
-                        style={[styles.variantAddButton, isOutOfStock && styles.disabledButton]}
+                        style={[styles.variantAddButton, (isOutOfStock || isUpdating) && styles.disabledButton]}
                         onPress={() => handleAddToCart(selectedProductForVariant, variant)}
-                        disabled={isOutOfStock}
+                        disabled={isOutOfStock || isUpdating}
                     >
-                        <Text style={[styles.variantAddText, isOutOfStock && styles.disabledText]}>
-                            ADD
+                        <Text style={[styles.variantAddText, (isOutOfStock || isUpdating) && styles.disabledText]}>
+                            {isUpdating ? '...' : 'ADD'}
                         </Text>
                     </TouchableOpacity>
                 )}
@@ -525,16 +564,23 @@ export default function ProductsScreen() {
 
     return (
         <View style={styles.container}>
-            {/* Top Bar - Selected Category */}
+
             <View style={styles.topBar}>
+                <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+                    <Image
+                        source={require("../../assets/icons/back_icon.png")}
+                        style={styles.backIcon}
+                    />
+                </TouchableOpacity>
                 <Text style={styles.topBarTitle}>
                     {activeCategory ? activeCategory.name : 'All Categories'}
                 </Text>
+                <View style={styles.backButton} />
             </View>
 
-            {/* Two Column Layout */}
+
             <View style={styles.twoColumnLayout}>
-                {/* Left Column - Categories */}
+
                 <View style={styles.leftColumn}>
                     <ScrollView
                         style={styles.categoriesList}
@@ -576,7 +622,6 @@ export default function ProductsScreen() {
                     </ScrollView>
                 </View>
 
-                {/* Right Column - Products */}
                 <View style={styles.rightColumn}>
                     {loading ? (
                         <View style={styles.loadingContainer}>
@@ -604,7 +649,6 @@ export default function ProductsScreen() {
                 </View>
             </View>
 
-            {/* Variant Selection Modal */}
             <Modal
                 visible={showVariantModal}
                 animationType="slide"
@@ -627,7 +671,6 @@ export default function ProductsScreen() {
                                 </TouchableOpacity>
                             </View>
 
-                            {/* Product Info */}
                             {selectedProductForVariant && (
                                 <View style={styles.productHeader}>
                                     <Image
@@ -667,7 +710,6 @@ export default function ProductsScreen() {
 
 const styles = StyleSheet.create({
     container: {
-        marginTop: 20,
         flex: 1,
         backgroundColor: '#FFFFFF',
     },
@@ -677,6 +719,19 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
         borderBottomWidth: 1,
         borderBottomColor: '#E8E8E8',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginTop: 20,
+    },
+    backButton: {
+        padding: 4,
+        width: 32,
+        height: 32,
+    },
+    backIcon: {
+        width: 24,
+        height: 24,
     },
     topBarTitle: {
         fontSize: 18,
@@ -684,6 +739,7 @@ const styles = StyleSheet.create({
         color: '#1B1B1B',
         fontFamily: 'Poppins-Bold',
         textAlign: 'center',
+        flex: 1,
     },
     twoColumnLayout: {
         flex: 1,
@@ -775,10 +831,13 @@ const styles = StyleSheet.create({
         marginBottom: 6,
     },
     priceRow: {
+        marginBottom: 4,
+    },
+    discountContainer: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        marginBottom: 4,
+        flexWrap: 'wrap',
     },
     oldPrice: {
         fontSize: 12,

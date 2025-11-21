@@ -191,6 +191,16 @@ export default function AddAddressScreen() {
         }
     };
 
+    // --- Sanitizers ---
+    const onlyText = (v) => v.replace(/[^a-zA-Z ]/g, '');
+    const onlyNumbers = (v, limit = null) => {
+        let cleaned = v.replace(/[^0-9]/g, '');
+        return limit ? cleaned.slice(0, limit) : cleaned;
+    };
+    const safeAddress = (v) =>
+        v.replace(/[^a-zA-Z0-9 ,./-]/g, '');  // allow letters, numbers, comma, dot, slash, hyphen
+
+
     const getAddressTypeLabel = (type) => {
         switch (type) {
             case AddressType.HOME:
@@ -235,20 +245,21 @@ export default function AddAddressScreen() {
                             style={styles.backIcon}
                         />
                     </TouchableOpacity>
+
                     <Text style={styles.headerTitle}>
                         {isEdit ? 'Edit Address' : 'Add New Address'}
                     </Text>
+
                     <View style={styles.headerPlaceholder}/>
                 </View>
 
-                {/* Form Section */}
+                {/* Contact Info */}
                 <View style={styles.formSection}>
                     <Text style={styles.sectionTitle}>Contact Information</Text>
 
                     <InputField
                         label="Full Name"
                         value={form.name}
-                        onChangeText={(v) => onChange('name', v)}
                         placeholder="Enter your full name"
                         autoCapitalize="words"
                         editable={!saving}
@@ -257,21 +268,22 @@ export default function AddAddressScreen() {
                     <InputField
                         label="Phone Number"
                         value={form.phone}
-                        onChangeText={(v) => onChange('phone', v)}
+                        onChangeText={(v) => onChange('phone', onlyNumbers(v, 10))}
                         placeholder="Enter your phone number"
-                        keyboardType="phone-pad"
-                        maxLength={15}
+                        keyboardType="numeric"
+                        maxLength={10}
                         editable={!saving}
                     />
                 </View>
 
+                {/* Address Details */}
                 <View style={styles.formSection}>
                     <Text style={styles.sectionTitle}>Address Details</Text>
 
                     <InputField
                         label="Street Address"
                         value={form.address}
-                        onChangeText={(v) => onChange('address', v)}
+                        onChangeText={(v) => onChange('address', safeAddress(v))}
                         placeholder="Enter your street address"
                         multiline
                         numberOfLines={3}
@@ -284,18 +296,20 @@ export default function AddAddressScreen() {
                             <InputField
                                 label="City"
                                 value={form.city}
-                                onChangeText={(v) => onChange('city', v)}
+                                onChangeText={(v) => onChange('city', onlyText(v))}
                                 placeholder="City"
                                 autoCapitalize="words"
                                 editable={!saving}
                             />
                         </View>
+
                         <View style={styles.spacer}/>
+
                         <View style={styles.flex}>
                             <InputField
                                 label="State"
                                 value={form.state}
-                                onChangeText={(v) => onChange('state', v)}
+                                onChangeText={(v) => onChange('state', onlyText(v))}
                                 placeholder="State"
                                 autoCapitalize="words"
                                 editable={!saving}
@@ -308,19 +322,21 @@ export default function AddAddressScreen() {
                             <InputField
                                 label="Pincode"
                                 value={form.pincode}
-                                onChangeText={(v) => onChange('pincode', v)}
+                                onChangeText={(v) => onChange('pincode', onlyNumbers(v, 6))}
                                 placeholder="Pincode"
                                 keyboardType="numeric"
-                                maxLength={10}
+                                maxLength={6}
                                 editable={!saving}
                             />
                         </View>
+
                         <View style={styles.spacer}/>
+
                         <View style={styles.flex}>
                             <InputField
                                 label="Country"
                                 value={form.country}
-                                onChangeText={(v) => onChange('country', v)}
+                                onChangeText={(v) => onChange('country', onlyText(v))}
                                 placeholder="Country"
                                 autoCapitalize="words"
                                 editable={!saving}
@@ -329,9 +345,10 @@ export default function AddAddressScreen() {
                     </View>
                 </View>
 
-                {/* Address Type Selection */}
+                {/* Address Type */}
                 <View style={styles.formSection}>
                     <Text style={styles.sectionTitle}>Address Type</Text>
+
                     <View style={styles.typeContainer}>
                         {Object.values(AddressType).map((type) => (
                             <TouchableOpacity
@@ -351,10 +368,13 @@ export default function AddAddressScreen() {
                                         form.type === type && styles.typeIconSelected
                                     ]}
                                 />
-                                <Text style={[
-                                    styles.typeLabel,
-                                    form.type === type && styles.typeLabelSelected
-                                ]}>
+
+                                <Text
+                                    style={[
+                                        styles.typeLabel,
+                                        form.type === type && styles.typeLabelSelected
+                                    ]}
+                                >
                                     {getAddressTypeLabel(type)}
                                 </Text>
                             </TouchableOpacity>
@@ -362,18 +382,20 @@ export default function AddAddressScreen() {
                     </View>
                 </View>
 
-                {/* Default Address Toggle */}
+                {/* Default Toggle */}
                 <View style={styles.defaultContainer}>
                     <TouchableOpacity
                         style={styles.defaultRow}
                         onPress={() => !saving && onChange('isDefault', !form.isDefault)}
                         disabled={saving}
                     >
-                        <View style={[
-                            styles.checkbox,
-                            form.isDefault && styles.checkboxChecked,
-                            saving && styles.disabled
-                        ]}>
+                        <View
+                            style={[
+                                styles.checkbox,
+                                form.isDefault && styles.checkboxChecked,
+                                saving && styles.disabled
+                            ]}
+                        >
                             {form.isDefault && (
                                 <Image
                                     source={require('../../assets/icons/back_icon.png')}
@@ -381,6 +403,7 @@ export default function AddAddressScreen() {
                                 />
                             )}
                         </View>
+
                         <View style={styles.defaultTextContainer}>
                             <Text style={styles.defaultLabel}>Set as default address</Text>
                             <Text style={styles.defaultSubtitle}>
@@ -391,7 +414,7 @@ export default function AddAddressScreen() {
                 </View>
             </ScrollView>
 
-            {/* Submit Button */}
+            {/* Submit */}
             <View style={styles.footer}>
                 <TouchableOpacity
                     style={[
@@ -411,6 +434,7 @@ export default function AddAddressScreen() {
                 </TouchableOpacity>
             </View>
         </KeyboardAvoidingView>
+
     );
 }
 

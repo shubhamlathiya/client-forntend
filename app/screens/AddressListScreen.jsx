@@ -62,7 +62,7 @@ export default function AddressListScreen() {
 
             // Store the selected address
             await AsyncStorage.setItem('selectedAddress', JSON.stringify(address));
-
+            console.log(address._id || address.id)
             // Always go back to previous screen
             if (router.canGoBack()) {
                 router.back();

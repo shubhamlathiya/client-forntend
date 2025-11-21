@@ -4,7 +4,8 @@ import {useRouter} from "expo-router";
 import SplashScreen from "./screens/SplashScreen";
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getOrCreateSessionId } from '../api/cartApi';
+import {getOrCreateSessionId} from "../api/sessionManager";
+
 
 
 export default function Index() {

@@ -15,11 +15,10 @@ import {
     createBulkNegotiation,
     getTierPricing,
     applyTierPricing,
-    getOrCreateSessionId,
-    getUserType, updateCartItem
 } from '../../api/cartApi';
 import { API_BASE_URL } from '../../config/apiConfig';
 import RelatedProducts from "../../components/screens/RelatedProducts";
+import {getOrCreateSessionId, getUserType} from "../../api/sessionManager";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -213,6 +212,7 @@ export default function CartScreen() {
                 discount: Number(data?.totals?.discount ?? 0),
                 shipping: Number(data?.totals?.shipping ?? 0),
                 marketplaceFees: Number(data?.totals?.marketplaceFees ?? 0),
+                tax: Number(data?.totals?.tax ?? 0), // Added tax field
                 total: Number(data?.totals?.totalPayable ?? 0),
             });
 
@@ -727,6 +727,14 @@ export default function CartScreen() {
                                 <Text style={styles.billLabel}>Delivery Fee</Text>
                                 <Text style={styles.billValue}>₹{cartInfo.shipping.toFixed(2)}</Text>
                             </View>
+
+                            {/* Tax Row - Added from cart data */}
+                            {cartInfo.tax > 0 && (
+                                <View style={styles.billRow}>
+                                    <Text style={styles.billLabel}>Tax</Text>
+                                    <Text style={styles.billValue}>₹{cartInfo.tax.toFixed(2)}</Text>
+                                </View>
+                            )}
 
                             {cartInfo.discount > 0 && (
                                 <View style={styles.billRow}>

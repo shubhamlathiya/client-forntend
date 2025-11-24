@@ -76,7 +76,6 @@ const TAB_CATEGORIES = [
 ];
 
 
-
 export default function BlinkitHomeScreen() {
     const router = useRouter();
     const [userAddress, setUserAddress] = useState('');
@@ -368,7 +367,7 @@ export default function BlinkitHomeScreen() {
             Alert.alert(
                 'Temporary Issue',
                 `Having trouble loading ${TAB_CATEGORIES.find(tab => tab.id === tabId)?.name} products. Showing available items.`,
-                [{ text: 'OK' }]
+                [{text: 'OK'}]
             );
         } finally {
             setLoading(false);
@@ -386,12 +385,12 @@ export default function BlinkitHomeScreen() {
         };
 
         const baseProducts = [
-            { name: `${tabNames[tabId]} Item 1`, price: 199, originalPrice: 299 },
-            { name: `${tabNames[tabId]} Item 2`, price: 299, originalPrice: 399 },
-            { name: `${tabNames[tabId]} Item 3`, price: 399, originalPrice: 499 },
-            { name: `${tabNames[tabId]} Item 4`, price: 149, originalPrice: 199 },
-            { name: `${tabNames[tabId]} Item 5`, price: 599, originalPrice: 799 },
-            { name: `${tabNames[tabId]} Item 6`, price: 249, originalPrice: 349 }
+            {name: `${tabNames[tabId]} Item 1`, price: 199, originalPrice: 299},
+            {name: `${tabNames[tabId]} Item 2`, price: 299, originalPrice: 399},
+            {name: `${tabNames[tabId]} Item 3`, price: 399, originalPrice: 499},
+            {name: `${tabNames[tabId]} Item 4`, price: 149, originalPrice: 199},
+            {name: `${tabNames[tabId]} Item 5`, price: 599, originalPrice: 799},
+            {name: `${tabNames[tabId]} Item 6`, price: 249, originalPrice: 349}
         ];
 
         return baseProducts.map((product, index) => ({
@@ -474,7 +473,7 @@ export default function BlinkitHomeScreen() {
                 Alert.alert(
                     'Minimum Quantity Required',
                     `Minimum order quantity for this product is ${product.minQty} units for business customers.`,
-                    [{ text: 'OK' }]
+                    [{text: 'OK'}]
                 );
                 return;
             }
@@ -516,7 +515,7 @@ export default function BlinkitHomeScreen() {
 
             if (newQuantity === 0) {
 
-                await removeCartItem(productId , variantId);
+                await removeCartItem(productId, variantId);
                 await loadCartItems();
             } else {
                 await updateCartItem(itemId, newQuantity);
@@ -567,11 +566,9 @@ export default function BlinkitHomeScreen() {
 
             if (discountPercentOverride > 0) {
                 discountPercent = discountPercentOverride;
-            }
-            else if (discount?.type === "percent" && discount.value > 0) {
+            } else if (discount?.type === "percent" && discount.value > 0) {
                 discountPercent = Number(discount.value);
-            }
-            else if (final < base) {
+            } else if (final < base) {
                 discountPercent = Math.round(((base - final) / base) * 100);
             }
 
@@ -658,7 +655,8 @@ export default function BlinkitHomeScreen() {
                                 </View>
                             )}
                         </View>
-
+                    </View>
+                    <View style={styles.rowBetween}>
                         {cartQuantity > 0 ? (
                             <View style={styles.quantityControl}>
                                 <TouchableOpacity
@@ -747,7 +745,8 @@ export default function BlinkitHomeScreen() {
                                 </Text>
                             )}
                         </View>
-
+                    </View>
+                    <View style={styles.rowBetween}>
                         {cartQuantity > 0 ? (
                             <View style={styles.quantityControl}>
                                 <TouchableOpacity
@@ -796,14 +795,31 @@ export default function BlinkitHomeScreen() {
                 setGroceryCategories(res.data);
             } else {
                 setGroceryCategories([{
-                    id: 1, name: 'Vegetables & Fruits', image: require('../../../assets/images/vegetables.png'), color: '#D9EBEB'
+                    id: 1,
+                    name: 'Vegetables & Fruits',
+                    image: require('../../../assets/images/vegetables.png'),
+                    color: '#D9EBEB'
                 }, {
-                    id: 2, name: 'Atta, Dal & Rice', image: require('../../../assets/images/atta-dal.png'), color: '#D9EBEB'
+                    id: 2,
+                    name: 'Atta, Dal & Rice',
+                    image: require('../../../assets/images/atta-dal.png'),
+                    color: '#D9EBEB'
                 }, {
-                    id: 3, name: 'Oil, Ghee & Masala', image: require('../../../assets/images/oil-masala.png'), color: '#D9EBEB'
+                    id: 3,
+                    name: 'Oil, Ghee & Masala',
+                    image: require('../../../assets/images/oil-masala.png'),
+                    color: '#D9EBEB'
                 }, {
-                    id: 4, name: 'Dairy, Bread & Milk', image: require('../../../assets/images/dairy.png'), color: '#D9EBEB'
-                }, {id: 5, name: 'Biscuits & Bakery', image: require('../../../assets/images/dairy.png'), color: '#D9EBEB'},]);
+                    id: 4,
+                    name: 'Dairy, Bread & Milk',
+                    image: require('../../../assets/images/dairy.png'),
+                    color: '#D9EBEB'
+                }, {
+                    id: 5,
+                    name: 'Biscuits & Bakery',
+                    image: require('../../../assets/images/dairy.png'),
+                    color: '#D9EBEB'
+                },]);
 
                 setCategories([{
                     _id: '1', name: 'Lights, Diyas & Candles', image: require('../../../assets/images/diyas.png'),
@@ -1009,7 +1025,7 @@ export default function BlinkitHomeScreen() {
         const productId = product._id || product.id;
         const cartQuantity = getCartQuantity(productId, product.variantId);
         const imageSource = product.image?.uri
-            ? { uri: product.image.uri }
+            ? {uri: product.image.uri}
             : require("../../../assets/Rectangle 24904.png");
 
         return (
@@ -1106,7 +1122,7 @@ export default function BlinkitHomeScreen() {
             <StatusBar backgroundColor={headerColor} barStyle="light-content"/>
 
             {/* Header Section with Dynamic Background */}
-            <View style={[styles.header, { backgroundColor: headerColor }]}>
+            <View style={[styles.header, {backgroundColor: headerColor}]}>
                 {/* Top Row */}
                 <View style={styles.topRow}>
                     <View style={styles.deliveryInfo}>
@@ -1154,7 +1170,7 @@ export default function BlinkitHomeScreen() {
                                     styles.searchPlaceholder,
                                     {
                                         opacity: placeholderOpacity,
-                                        transform: [{ scale: placeholderScale }]
+                                        transform: [{scale: placeholderScale}]
                                     }
                                 ]}
                             >
@@ -1182,7 +1198,7 @@ export default function BlinkitHomeScreen() {
                                     styles.tabItem,
                                     activeTab === tab.id && [
                                         styles.activeTabItem,
-                                        { backgroundColor: tab.color }
+                                        {backgroundColor: tab.color}
                                     ]
                                 ]}
                                 onPress={() => handleTabPress(tab.id)}
@@ -1205,7 +1221,7 @@ export default function BlinkitHomeScreen() {
                                 </Text>
 
                                 {activeTab === tab.id && (
-                                    <View style={[styles.activeTabIndicator, { backgroundColor: '#FFFFFF' }]} />
+                                    <View style={[styles.activeTabIndicator, {backgroundColor: '#FFFFFF'}]}/>
                                 )}
                             </TouchableOpacity>
                         ))}
@@ -1228,7 +1244,7 @@ export default function BlinkitHomeScreen() {
             >
 
                 {/* Mega Diwali Sale Banner with Integrated Categories */}
-                <View style={[styles.saleBanner, { backgroundColor: headerColor }]}>
+                <View style={[styles.saleBanner, {backgroundColor: headerColor}]}>
                     <View style={styles.saleContent}>
                         <Text style={styles.saleTitle}>Mega Diwali Sale</Text>
 
@@ -1354,7 +1370,8 @@ export default function BlinkitHomeScreen() {
                                     </View>
                                     <Text style={styles.groceryName}>{category.name}</Text>
                                 </TouchableOpacity>
-                            )})}
+                            )
+                        })}
                     </ScrollView>
                 </View>
 
@@ -1432,7 +1449,8 @@ export default function BlinkitHomeScreen() {
                                                 style={styles.fragmentEmptyIcon}
                                             />
                                             <Text style={styles.fragmentEmptyText}>No products found</Text>
-                                            <Text style={styles.fragmentEmptySubtext}>Try selecting another category</Text>
+                                            <Text style={styles.fragmentEmptySubtext}>Try selecting another
+                                                category</Text>
                                         </View>
                                     ) : (
                                         <FlatList
@@ -1468,14 +1486,14 @@ const styles = StyleSheet.create({
     },
 
     quantityMinus: {
-        fontSize: 16,
+        fontSize: 15,
         color: '#666',
         fontWeight: 'bold',
         textAlign: 'center',
     },
 
     quantityPlus: {
-        fontSize: 16,
+        fontSize: 15,
         color: '#171717',
         fontWeight: 'bold',
         textAlign: 'center',
@@ -1518,21 +1536,21 @@ const styles = StyleSheet.create({
         marginBottom: 4,
     },
     tabIcon: {
-        width: 24,
-        height: 24,
+        width: 20,
+        height: 20,
         tintColor: '#666',
     },
     activeTabIcon: {
         tintColor: '#FFFFFF',
     },
     tabText: {
-        fontSize: 16,
+        fontSize: 13,
         fontFamily: 'Poppins-SemiBold',
         color: '#666',
         textAlign: 'center',
     },
     activeTabText: {
-        fontSize: 16,
+        fontSize: 13,
         fontWeight: 'bold',
         color: '#FFFFFF',
         fontFamily: 'Poppins-Bold',
@@ -1561,7 +1579,7 @@ const styles = StyleSheet.create({
         padding: 12,
         margin: 6,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
+        shadowOffset: {width: 0, height: 2},
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 3,
@@ -1577,7 +1595,7 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     tabProductName: {
-        fontSize: 13,
+        fontSize: 12,
         fontFamily: 'Poppins-Medium',
         color: '#1B1B1B',
         marginBottom: 6,
@@ -1794,7 +1812,7 @@ const styles = StyleSheet.create({
     },
     saleTitle: {
         fontFamily: 'PT Serif',
-        fontSize: 24,
+        fontSize: 22,
         fontWeight: '700',
         lineHeight: 30,
         letterSpacing: -0.3,
@@ -1860,7 +1878,7 @@ const styles = StyleSheet.create({
     },
     sectionTitle: {
         fontFamily: 'Poppins',
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '700',
         lineHeight: 24,
         letterSpacing: -0.3,
@@ -2003,7 +2021,7 @@ const styles = StyleSheet.create({
         tintColor: '#000000',
     },
     fragmentHeaderTitle: {
-        fontSize: 18,
+        fontSize: 16,
         fontWeight: '700',
         color: '#000000',
         fontFamily: 'Poppins-Bold',
@@ -2032,7 +2050,8 @@ const styles = StyleSheet.create({
     },
     fragmentSelectedCategoryItem: {
         backgroundColor: '#FFF5F5',
-        borderLeftWidth: 5,
+        borderRightWidth: 4,
+        borderRadius: 4,
         borderRightColor: '#4CAD73',
     },
     fragmentCategoryContent: {
@@ -2070,7 +2089,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
     },
     fragmentLoadingText: {
-        fontSize: 16,
+        fontSize: 14,
         color: '#666',
         fontFamily: 'Poppins-Medium',
     },
@@ -2088,14 +2107,14 @@ const styles = StyleSheet.create({
         opacity: 0.5,
     },
     fragmentEmptyText: {
-        fontSize: 16,
+        fontSize: 14,
         fontFamily: 'Poppins-SemiBold',
         color: '#666',
         marginBottom: 8,
         textAlign: 'center',
     },
     fragmentEmptySubtext: {
-        fontSize: 14,
+        fontSize: 12,
         fontFamily: 'Poppins-Regular',
         color: '#999',
         textAlign: 'center',
@@ -2133,7 +2152,7 @@ const styles = StyleSheet.create({
         marginBottom: 8,
     },
     fragmentProductName: {
-        fontSize: 13,
+        fontSize: 12,
         fontWeight: '500',
         color: '#1B1B1B',
         marginBottom: 6,
@@ -2142,7 +2161,7 @@ const styles = StyleSheet.create({
         minHeight: 32,
     },
     fragmentProductPrice: {
-        fontSize: 15,
+        fontSize: 14,
         fontWeight: '700',
         color: '#1B1B1B',
         fontFamily: 'Poppins-Bold',
@@ -2178,6 +2197,7 @@ const styles = StyleSheet.create({
         justifyContent: "space-between",
         alignItems: "center",
         marginTop: 6,
+        marginLeft: 6
     },
     leftPriceBox: {
         flexDirection: "column",

@@ -19,7 +19,8 @@ import {API_BASE_URL, BASE_URL} from '../../config/apiConfig';
 import {globalStyles} from '../../constants/globalStyles';
 
 WebBrowser.maybeCompleteAuthSession();
-const APP_REDIRECT = "exp://192.168.0.119:8081/--/auth/callback";
+// const APP_REDIRECT = "exp://192.168.0.119:8081/--/auth/callback";
+const APP_REDIRECT = "clientforntend://auth/callback";
 // const BACKEND = "https://e-commerce-rho-nine-36.vercel.app";
 // const BACKEND = "http://localhost:8000";
 

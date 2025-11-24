@@ -261,7 +261,7 @@ export default function AddAddressScreen() {
                         label="Full Name"
                         value={form.name}
                         placeholder="Enter your full name"
-                        autoCapitalize="words"
+                        onChangeText={(v) => onChange('name', onlyText(v))}
                         editable={!saving}
                     />
 

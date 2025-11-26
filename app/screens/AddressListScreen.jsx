@@ -13,9 +13,11 @@ import {
     Platform,
     ActivityIndicator,
     RefreshControl,
-    StatusBar
+    StatusBar,
+    PermissionsAndroid
 } from 'react-native';
 import {getAddresses, deleteAddress, setDefaultAddress} from '../../api/addressApi';
+import * as Location from 'expo-location';
 
 export default function AddressListScreen() {
     const router = useRouter();
@@ -23,6 +25,7 @@ export default function AddressListScreen() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [selectedAddressId, setSelectedAddressId] = useState(null);
+    const [gettingLocation, setGettingLocation] = useState(false);
 
     const loadAddresses = async () => {
         try {
@@ -74,6 +77,72 @@ export default function AddressListScreen() {
             showMessage('Failed to select address', true);
         } finally {
             setSelectedAddressId(null);
+        }
+    };
+
+    const getCurrentLocation = async () => {
+        try {
+            setGettingLocation(true);
+
+            // Request location permissions
+            let { status } = await Location.requestForegroundPermissionsAsync();
+
+            if (status !== 'granted') {
+                showMessage('Permission to access location was denied', true);
+                return;
+            }
+
+            // Get current position
+            let location = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.High,
+                timeout: 15000
+            });
+
+            const { latitude, longitude } = location.coords;
+
+            // Reverse geocode to get address
+            let geocode = await Location.reverseGeocodeAsync({
+                latitude,
+                longitude
+            });
+
+            if (geocode.length > 0) {
+                const address = geocode[0];
+
+                // Create address object from geocoded data
+                const currentLocationAddress = {
+                    id: 'current_location',
+                    name: 'Current Location',
+                    phone: '', // Will need to be filled by user
+                    address: address.street || `${address.name || 'Unknown Street'}`,
+                    landmark: address.name || 'Current Location',
+                    city: address.city || address.subregion || 'Unknown City',
+                    state: address.region || 'Unknown State',
+                    pincode: address.postalCode || '',
+                    latitude: latitude.toString(),
+                    longitude: longitude.toString(),
+                    type: 'other',
+                    isCurrentLocation: true
+                };
+
+                // Navigate to AddAddressScreen with current location data
+                router.push({
+                    pathname: '/screens/AddAddressScreen',
+                    params: {
+                        currentLocation: JSON.stringify(currentLocationAddress)
+                    }
+                });
+
+                showMessage('Location fetched successfully!');
+            } else {
+                showMessage('Could not get address from location', true);
+            }
+
+        } catch (error) {
+            console.error('Location error:', error);
+            showMessage('Failed to get current location', true);
+        } finally {
+            setGettingLocation(false);
         }
     };
 
@@ -135,10 +204,10 @@ export default function AddressListScreen() {
         switch (type) {
             case 'home':
                 return require('../../assets/icons/home.png');
-            // case 'office':
-            //     return require('../../assets/icons/business.png');
-            // default:
-            //     return require('../../assets/icons/location.png');
+            case 'office':
+                return require('../../assets/icons/business.png');
+            default:
+                return require('../../assets/icons/location.png');
         }
     };
 
@@ -200,21 +269,34 @@ export default function AddressListScreen() {
                 }
             >
                 {/* Current Location Option */}
-                <TouchableOpacity style={styles.currentLocationCard}>
+                <TouchableOpacity
+                    style={[
+                        styles.currentLocationCard,
+                        gettingLocation && styles.disabledCard
+                    ]}
+                    onPress={getCurrentLocation}
+                    disabled={gettingLocation}
+                >
                     <View style={styles.locationIconContainer}>
-                        {/*<Image*/}
-                        {/*    source={require('../../assets/icons/gps.png')}*/}
-                        {/*    style={styles.locationIcon}*/}
-                        {/*/>*/}
+                        <Image
+                            source={require('../../assets/icons/location.png')}
+                            style={styles.locationIcon}
+                        />
                     </View>
                     <View style={styles.locationInfo}>
                         <Text style={styles.locationTitle}>Use current location</Text>
-                        <Text style={styles.locationSubtitle}>Deliver to my current location</Text>
+                        <Text style={styles.locationSubtitle}>
+                            {gettingLocation ? 'Fetching your location...' : 'Deliver to my current location'}
+                        </Text>
                     </View>
-                    <Image
-                        source={require('../../assets/icons/right-arrow.png')}
-                        style={styles.arrowIcon}
-                    />
+                    {gettingLocation ? (
+                        <ActivityIndicator size="small" color="#4CAD73" />
+                    ) : (
+                        <Image
+                            source={require('../../assets/icons/right-arrow.png')}
+                            style={styles.arrowIcon}
+                        />
+                    )}
                 </TouchableOpacity>
 
                 {/* Saved Addresses Section */}
@@ -223,10 +305,10 @@ export default function AddressListScreen() {
 
                     {addresses.length === 0 ? (
                         <View style={styles.emptyState}>
-                            {/*<Image*/}
-                            {/*    source={require('../../assets/icons/location-pin.png')}*/}
-                            {/*    style={styles.emptyIcon}*/}
-                            {/*/>*/}
+                            <Image
+                                source={require('../../assets/icons/location-pin.png')}
+                                style={styles.emptyIcon}
+                            />
                             <Text style={styles.emptyTitle}>No Saved Addresses</Text>
                             <Text style={styles.emptySubtitle}>
                                 Add your delivery address for faster checkout
@@ -337,10 +419,10 @@ export default function AddressListScreen() {
                     style={styles.addButton}
                     onPress={handleAddNew}
                 >
-                    {/*<Image*/}
-                    {/*    source={require('../../assets/icons/plus-white.png')}*/}
-                    {/*    style={styles.plusIcon}*/}
-                    {/*/>*/}
+                    <Image
+                        source={require('../../assets/icons/plus-white.png')}
+                        style={styles.plusIcon}
+                    />
                     <Text style={styles.addButtonText}>ADD NEW ADDRESS</Text>
                 </TouchableOpacity>
             </View>
@@ -425,6 +507,9 @@ const styles = StyleSheet.create({
         elevation: 3,
         borderWidth: 1,
         borderColor: '#F0F0F0',
+    },
+    disabledCard: {
+        opacity: 0.6,
     },
     locationIconContainer: {
         width: 40,

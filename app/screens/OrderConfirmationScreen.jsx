@@ -16,8 +16,6 @@ import { getOrderById } from "../../api/ordersApi";
 import { initiatePayment, verifyRazorpayPayment } from "../../api/paymentApi";
 import PaymentWebView from "./PaymentWebView";
 
-// NOTE: Add your AsyncStorage utility here if you don't use a separate file
-// import { fetchUserData } from "../../utils/asyncStorageUtils";
 
 export default function OrderConfirmationScreen() {
     const router = useRouter();

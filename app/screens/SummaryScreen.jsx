@@ -12,11 +12,13 @@ import {
     View,
     Platform,
     Image,
+    Modal,
 } from 'react-native';
 
-import {generateOrderSummary, createOrder} from '../../api/ordersApi';
+import {generateOrderSummary, createOrder, getOrderById} from '../../api/ordersApi';
 import {getCart} from '../../api/cartApi';
-import {initiatePayment, getPaymentMethods} from '../../api/paymentApi';
+import {initiatePayment, verifyRazorpayPayment} from '../../api/paymentApi';
+import PaymentWebView from './PaymentWebView';
 import {API_BASE_URL} from "../../config/apiConfig";
 
 export default function SummaryScreen() {
@@ -26,8 +28,15 @@ export default function SummaryScreen() {
     const [placing, setPlacing] = useState(false);
     const [address, setAddress] = useState(null);
     const [summary, setSummary] = useState(null);
-    const [paymentMethods, setPaymentMethods] = useState([]);
+    // const [paymentMethods, setPaymentMethods] = useState([]);
     const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('razorpay');
+
+    // Payment modal / flow states
+    const [startingPayment, setStartingPayment] = useState(false);
+    const [paymentInitialized, setPaymentInitialized] = useState(false);
+    const [paymentData, setPaymentData] = useState(null);
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [lastError, setLastError] = useState(null);
 
     const showMessage = (message, isError = false) => {
         if (Platform.OS === 'android') {
@@ -65,6 +74,16 @@ export default function SummaryScreen() {
 
             setSummary(data);
 
+            // Optionally load available payment methods
+            // try {
+            //     const pmRes = await getPaymentMethods();
+            //     const pmData = pmRes?.data ?? pmRes;
+            //     if (Array.isArray(pmData)) setPaymentMethods(pmData);
+            // } catch (e) {
+            //     // non-fatal
+            //     console.log('Payment methods load error', e);
+            // }
+
         } catch (error) {
             console.log('Summary load error:', error);
             showMessage('Failed to load order summary', true);
@@ -77,52 +96,22 @@ export default function SummaryScreen() {
         loadSummary();
     }, []);
 
-    // Handle payment initiation
-    const handlePayment = async (orderId) => {
-        try {
-            const paymentResult = await initiatePayment(orderId, selectedPaymentMethod);
+    // Create order and initialize payment in sequence
+    const startPaymentFlow = async () => {
+        // Prevent double clicks
+        if (placing || startingPayment || paymentInitialized) return;
 
-            if (paymentResult.success) {
-                if (selectedPaymentMethod === 'razorpay') {
-                    showMessage('Redirecting to payment gateway...');
-                    setTimeout(() => {
-                        handlePaymentSuccess(orderId);
-                    }, 2000);
-                } else {
-                    showMessage(`Processing ${selectedPaymentMethod} payment...`);
-                }
-            } else {
-                showMessage(paymentResult.error || 'Payment initiation failed', true);
-            }
-        } catch (error) {
-            console.log('Payment initiation error:', error);
-            showMessage('Failed to initiate payment', true);
-        }
-    };
-
-    // Handle payment success
-    const handlePaymentSuccess = async (orderId) => {
-        try {
-            showMessage('Payment successful!');
-
-            router.replace({
-                pathname: '/screens/OrderConfirmationScreen',
-                params: {id: String(orderId)},
-            });
-        } catch (error) {
-            console.log('Payment success handling error:', error);
-        }
-    };
-
-    // Handle order placement with payment
-    const handlePlaceOrder = async () => {
         try {
             setPlacing(true);
+            setStartingPayment(true);
+            setLastError(null);
 
             if (!address) return showMessage('Please select an address', true);
             if (!summary?.cartId) return showMessage('Order summary not found', true);
+
+            // 1) create order
             const orderPayload = {
-                summaryId : summary._id,
+                summaryId: summary._id,
                 cartId: summary.cartId,
                 paymentMethod: selectedPaymentMethod,
                 shippingAddress: address,
@@ -132,18 +121,122 @@ export default function SummaryScreen() {
 
             const orderResult = await createOrder(orderPayload);
 
-            if (orderResult.success) {
-                const orderId = orderResult.data?.orderId || orderResult.data?._id;
-                await handlePayment(orderId);
-            } else {
-                showMessage(orderResult.error || 'Failed to place order', true);
+            if (!orderResult || !orderResult.success) {
+                const err = orderResult?.error || 'Failed to place order';
+                showMessage(err, true);
+                setPlacing(false);
+                setStartingPayment(false);
+                return;
             }
+
+            const orderId = orderResult.data?.orderId || orderResult.data?._id;
+            if (!orderId) {
+                showMessage('Invalid order created', true);
+                setPlacing(false);
+                setStartingPayment(false);
+                return;
+            }
+
+            // 2) initiate payment for the created order
+            const payRes = await initiatePayment(orderId, selectedPaymentMethod);
+            const payData = payRes?.data ?? payRes;
+
+            if (!payData || !payData.orderId || !payData.keyId || !payData.amount) {
+                const err = payData?.message || 'Payment initialization failed';
+                showMessage(err, true);
+                setPlacing(false);
+                setStartingPayment(false);
+                return;
+            }
+
+            // Prepare data expected by WebView
+            const paymentPayload = {
+                amount: parseInt(payData.amount, 10),
+                orderId: payData.orderId,
+                keyId: payData.keyId,
+                currency: payData.currency || 'INR',
+                user: payData.user || summary.user || {},
+                billingAddress: payData.billingAddress || address || {}
+            };
+
+            setPaymentData(paymentPayload);
+            setPaymentInitialized(true);
+
+            // 3) open payment modal
+            setShowPaymentModal(true);
+
         } catch (error) {
-            console.log('Place order error:', error);
-            showMessage('Failed to place order', true);
+            console.error('Start payment flow error:', error);
+            showMessage('Failed to start payment', true);
+            setLastError(error.message || String(error));
         } finally {
+            setStartingPayment(false);
             setPlacing(false);
         }
+    };
+
+    const formatCurrencyFromPaise = (amount) => {
+        if (amount === undefined || amount === null) return '0.00';
+        const num = Number(amount);
+        if (isNaN(num)) return '0.00';
+        // assume paise if large number
+        if (num > 1000) return (num / 100).toFixed(2);
+        return num.toFixed(2);
+    };
+
+    // Payment WebView handlers
+    const handlePaymentSuccess = async (response) => {
+        // close modal
+        setShowPaymentModal(false);
+
+        try {
+            // verify with backend - use response fields
+            await verifyRazorpayPayment({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                // note: if your backend requires the app order id, include it if available
+            });
+
+            Alert.alert('Success', 'Payment completed successfully!');
+
+            // reset payment states
+            setPaymentData(null);
+            setPaymentInitialized(false);
+            setLastError(null);
+
+            // Navigate directly to Orders screen
+            router.replace('/Order');
+
+        } catch (verificationError) {
+            console.error('Payment verification failed:', verificationError);
+            Alert.alert('Verification Failed', verificationError?.response?.data?.message || 'Payment verification failed');
+            setLastError(verificationError?.message || String(verificationError));
+            setPaymentData(null);
+            setPaymentInitialized(false);
+        }
+    };
+
+    const handlePaymentError = (errorData) => {
+        console.error('Payment Error from WebView:', errorData);
+        setLastError(errorData?.description || 'Payment failed');
+        setShowPaymentModal(false);
+
+        Alert.alert('Payment Failed', errorData?.description || 'Payment failed. Please try again.', [
+            { text: 'Retry', onPress: () => {
+                    // allow retry - re-initiate payment flow
+                    setPaymentData(null);
+                    setPaymentInitialized(false);
+                    startPaymentFlow();
+                }
+            },
+            { text: 'Cancel', style: 'cancel' }
+        ]);
+    };
+
+    const handlePaymentClose = () => {
+        // Keep initialized state so user can resume without re-init
+        setShowPaymentModal(false);
     };
 
     // Loading UI
@@ -270,33 +363,45 @@ export default function SummaryScreen() {
                 {/* PAYMENT METHOD CARD */}
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Payment Method</Text>
-                    {paymentMethods.length > 0 ? (
-                        paymentMethods.map((method) => (
-                            <TouchableOpacity
-                                key={method._id || method.id}
-                                style={[
-                                    styles.paymentMethod,
-                                    selectedPaymentMethod === method.code && styles.paymentMethodSelected
-                                ]}
-                                onPress={() => setSelectedPaymentMethod(method.code)}
-                            >
-                                <View style={styles.paymentMethodLeft}>
-                                    <View style={[
-                                        styles.radioButton,
-                                        selectedPaymentMethod === method.code && styles.radioButtonSelected
-                                    ]}>
-                                        {selectedPaymentMethod === method.code && (
-                                            <View style={styles.radioButtonInner}/>
-                                        )}
-                                    </View>
-                                    <Text style={styles.paymentMethodName}>{method.name}</Text>
-                                </View>
-                                {method.description && (
-                                    <Text style={styles.paymentMethodDesc}>{method.description}</Text>
-                                )}
-                            </TouchableOpacity>
-                        ))
-                    ) : (
+                    {/*{paymentMethods.length > 0 ? (*/}
+                    {/*    paymentMethods.map((method) => (*/}
+                    {/*        <TouchableOpacity*/}
+                    {/*            key={method._id || method.id}*/}
+                    {/*            style={[*/}
+                    {/*                styles.paymentMethod,*/}
+                    {/*                selectedPaymentMethod === method.code && styles.paymentMethodSelected*/}
+                    {/*            ]}*/}
+                    {/*            onPress={() => setSelectedPaymentMethod(method.code)}*/}
+                    {/*        >*/}
+                    {/*            <View style={styles.paymentMethodLeft}>*/}
+                    {/*                <View style={[*/}
+                    {/*                    styles.radioButton,*/}
+                    {/*                    selectedPaymentMethod === method.code && styles.radioButtonSelected*/}
+                    {/*                ]}>*/}
+                    {/*                    {selectedPaymentMethod === method.code && (*/}
+                    {/*                        <View style={styles.radioButtonInner}/>*/}
+                    {/*                    )}*/}
+                    {/*                </View>*/}
+                    {/*                <Text style={styles.paymentMethodName}>{method.name}</Text>*/}
+                    {/*            </View>*/}
+                    {/*            {method.description && (*/}
+                    {/*                <Text style={styles.paymentMethodDesc}>{method.description}</Text>*/}
+                    {/*            )}*/}
+                    {/*        </TouchableOpacity>*/}
+                    {/*    ))*/}
+                    {/*) : (*/}
+                    {/*    <TouchableOpacity*/}
+                    {/*        style={[styles.paymentMethod, styles.paymentMethodSelected]}*/}
+                    {/*    >*/}
+                    {/*        <View style={styles.paymentMethodLeft}>*/}
+                    {/*            <View style={[styles.radioButton, styles.radioButtonSelected]}>*/}
+                    {/*                <View style={styles.radioButtonInner}/>*/}
+                    {/*            </View>*/}
+                    {/*            <Text style={styles.paymentMethodName}>Razorpay</Text>*/}
+                    {/*        </View>*/}
+                    {/*        <Text style={styles.paymentMethodDesc}>Cards, UPI, Netbanking</Text>*/}
+                    {/*    </TouchableOpacity>*/}
+                    {/*)}*/}
                         <TouchableOpacity
                             style={[styles.paymentMethod, styles.paymentMethodSelected]}
                         >
@@ -308,7 +413,6 @@ export default function SummaryScreen() {
                             </View>
                             <Text style={styles.paymentMethodDesc}>Cards, UPI, Netbanking</Text>
                         </TouchableOpacity>
-                    )}
                     <Text style={styles.paymentNote}>
                         You will be redirected to a secure payment page.
                     </Text>
@@ -351,35 +455,6 @@ export default function SummaryScreen() {
                     </View>
                 )}
 
-                {/* ORDER INFO CARD */}
-                <View style={styles.card}>
-                    <Text style={styles.cardTitle}>Order Information</Text>
-                    <View style={styles.infoRow}>
-                        <Text style={styles.infoLabel}>Order ID</Text>
-                        <Text style={styles.infoValue}>#{summary._id?.slice(-8).toUpperCase() || 'N/A'}</Text>
-                    </View>
-                    <View style={styles.infoRow}>
-                        <Text style={styles.infoLabel}>Cart ID</Text>
-                        <Text style={styles.infoValue}>#{summary.cartId?.slice(-8).toUpperCase() || 'N/A'}</Text>
-                    </View>
-                    <View style={styles.infoRow}>
-                        <Text style={styles.infoLabel}>Total Items</Text>
-                        <Text style={styles.infoValue}>
-                            {summaryData.totalItems || items.reduce((total, item) => total + item.quantity, 0)} items
-                        </Text>
-                    </View>
-                    <View style={styles.infoRow}>
-                        <Text style={styles.infoLabel}>Order Date</Text>
-                        <Text style={styles.infoValue}>
-                            {new Date(summary.createdAt).toLocaleDateString()}
-                        </Text>
-                    </View>
-                    <View style={styles.infoRow}>
-                        <Text style={styles.infoLabel}>Estimated Delivery</Text>
-                        <Text style={styles.infoValue}>3-5 business days</Text>
-                    </View>
-                </View>
-
             </ScrollView>
 
             {/* ACTION BUTTONS */}
@@ -403,9 +478,9 @@ export default function SummaryScreen() {
                             items.length === 0 && styles.buttonDisabled
                         ]}
                         disabled={placing || items.length === 0}
-                        onPress={handlePlaceOrder}
+                        onPress={startPaymentFlow}
                     >
-                        {placing ? (
+                        {startingPayment || placing ? (
                             <ActivityIndicator size="small" color="#FFFFFF" />
                         ) : (
                             <Text style={styles.primaryButtonText}>
@@ -415,10 +490,41 @@ export default function SummaryScreen() {
                     </TouchableOpacity>
                 </View>
             </View>
+
+            {/* Payment Modal - Only shows when paymentData exists */}
+            <Modal
+                visible={showPaymentModal && paymentData !== null}
+                animationType="slide"
+                presentationStyle="pageSheet"
+                onRequestClose={handlePaymentClose}
+            >
+                <View style={styles.modalContainer}>
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>
+                            Secure Payment - ₹{paymentData ? formatCurrencyFromPaise(paymentData.amount) : '0.00'}
+                        </Text>
+                        <TouchableOpacity
+                            onPress={handlePaymentClose}
+                            style={styles.closeButton}
+                        >
+                            <Text style={styles.closeButtonText}>✕</Text>
+                        </TouchableOpacity>
+                    </View>
+                    {paymentData && (
+                        <PaymentWebView
+                            orderData={paymentData}
+                            onSuccess={handlePaymentSuccess}
+                            onError={handlePaymentError}
+                            onClose={handlePaymentClose}
+                        />
+                    )}
+                </View>
+            </Modal>
         </View>
     );
 }
 
+// Reuse original styles and append modal styles
 const styles = StyleSheet.create({
     container: {
         flex: 1,
@@ -798,4 +904,32 @@ const styles = StyleSheet.create({
     buttonDisabled: {
         opacity: 0.6,
     },
+
+    /* Modal styles */
+    modalContainer: {
+        flex: 1,
+        backgroundColor: 'white'
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E0E0E0',
+        paddingTop: 60
+    },
+    modalTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#333'
+    },
+    closeButton: {
+        padding: 8
+    },
+    closeButtonText: {
+        fontSize: 20,
+        color: '#666',
+        fontWeight: 'bold'
+    }
 });

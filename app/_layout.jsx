@@ -40,6 +40,9 @@ export default function RootLayout() {
             <Stack.Screen name="screens/PaymentHistoryScreen" options={{headerShown: false}}/>
             <Stack.Screen name="screens/TransactionDetailScreen" options={{headerShown: false}}/>
             <Stack.Screen name="screens/ProductsScreen" options={{headerShown: false}}/>
+            <Stack.Screen name="screens/AllProductsScreen" options={{headerShown: false}}/>
+            <Stack.Screen name="screens/FeedbackScreen" options={{headerShown: false}}/>
+            <Stack.Screen name="screens/AllCategoriesScreen" options={{headerShown: false}}/>
 
         </Stack>
         </LoginTypeProvider>

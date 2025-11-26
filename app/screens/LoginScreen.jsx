@@ -19,10 +19,10 @@ import {API_BASE_URL, BASE_URL} from '../../config/apiConfig';
 import {globalStyles} from '../../constants/globalStyles';
 
 WebBrowser.maybeCompleteAuthSession();
-// const APP_REDIRECT = "exp://192.168.0.119:8081/--/auth/callback";
-const APP_REDIRECT = "clientforntend://auth/callback";
-// const BACKEND = "https://e-commerce-rho-nine-36.vercel.app";
-// const BACKEND = "http://localhost:8000";
+
+const APP_REDIRECT = "exp://192.168.1.15:8081/--/auth/callback";
+// const APP_REDIRECT = "clientforntend://auth/callback";
+
 
 export default function LoginScreen() {
     const router = useRouter();
@@ -85,6 +85,7 @@ export default function LoginScreen() {
     async function handleGoogleLogin() {
         if (googleLoading) return;
         setGoogleLoading(true);
+
         try {
             const authUrl = `${API_BASE_URL}/api/auth/social/google?redirect_uri=${encodeURIComponent(
                 APP_REDIRECT
@@ -93,54 +94,71 @@ export default function LoginScreen() {
             console.log("AUTH URL →", authUrl);
             console.log("APP REDIRECT →", APP_REDIRECT);
 
-            // Open an auth session; it resolves when redirected to redirectUrl
             const result = await WebBrowser.openAuthSessionAsync(authUrl, APP_REDIRECT);
 
-            console.log(result);
+            console.log("Google Auth Result →", result);
 
-            if (result.type === 'success' && result.url) {
-                const finalUrl = result.url;
-
-                // For mobile app, the response will be in query parameters
-                const urlParts = finalUrl.split('?');
-                const queryString = urlParts.length > 1 ? urlParts[1] : '';
-                const params = new URLSearchParams(queryString);
-
-                const accessToken = params.get('accessToken');
-                const refreshToken = params.get('refreshToken');
-                const userParam = params.get('user');
-
-                if (accessToken) {
-                    await SecureStore.setItemAsync('accessToken', String(accessToken));
+            if (result.type !== "success" || !result.url) {
+                if (result.type === "cancel") {
+                    Alert.alert("Cancelled", "Google login was cancelled");
+                } else {
+                    Alert.alert("Error", "Google login did not complete");
                 }
-                if (refreshToken) {
-                    await SecureStore.setItemAsync('refreshToken', String(refreshToken));
-                }
-
-                if (userParam) {
-                    try {
-                        const decoded = decodeURIComponent(userParam);
-                        await SecureStore.setItemAsync('user', decoded);
-                    } catch (_) {
-                        await SecureStore.setItemAsync('user', String(userParam));
-                    }
-                }
-
-                Alert.alert('Success', 'Logged in with Google');
-                // Merge guest cart into user account after social login
-                try {
-                    await mergeGuestCart();
-                } catch (_) {
-                }
-                router.replace('/screens/LoginTypeSelectionScreen');
-            } else if (result.type === 'cancel') {
-                Alert.alert('Cancelled', 'Google login was cancelled');
-            } else {
-                Alert.alert('Error', 'Google login did not complete');
+                return;
             }
+
+            // -----------------------------
+            // Extract params from redirect URL
+            // -----------------------------
+            const query = result.url.split("?")[1] || "";
+            const params = new URLSearchParams(query);
+
+            const accessToken = params.get("accessToken");
+            const refreshToken = params.get("refreshToken");
+            const userParam = params.get("user");
+
+            // -----------------------------
+            // Store tokens
+            // -----------------------------
+            if (accessToken) {
+                await AsyncStorage.setItem("accessToken", accessToken);
+            }
+
+            if (refreshToken) {
+                await AsyncStorage.setItem("refreshToken", refreshToken);
+            }
+
+            // -----------------------------
+            // Decode + store user object
+            // -----------------------------
+            if (userParam) {
+                try {
+                    const decoded = decodeURIComponent(userParam);
+                    console.log("Decoded User JSON →", decoded);
+
+                    const userObject = JSON.parse(decoded);
+                    console.log("User Object Parsed →", userObject);
+
+                    await AsyncStorage.setItem("userData", JSON.stringify(userObject));
+                } catch (err) {
+                    console.log("User decode error:", err);
+                }
+            }
+
+            Alert.alert("Success", "Logged in with Google");
+
+            // -----------------------------
+            // Merge guest cart (optional)
+            // -----------------------------
+            try {
+                await mergeGuestCart();
+            } catch (_) {}
+
+            router.replace("/screens/LoginTypeSelectionScreen");
+
         } catch (error) {
-            const message = error?.message || 'Failed to login with Google';
-            Alert.alert('Error', message);
+            const message = error?.message || "Failed to login with Google";
+            Alert.alert("Error", message);
         } finally {
             setGoogleLoading(false);
         }

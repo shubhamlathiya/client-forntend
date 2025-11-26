@@ -21,12 +21,15 @@ const initialForm = {
     name: '',
     phone: '',
     address: '',
+    landmark: '',
     city: '',
     state: '',
     pincode: '',
-    country: '',
+    country: 'India',
     type: 'home',
     isDefault: false,
+    latitude: '',
+    longitude: ''
 };
 
 const AddressType = {
@@ -37,7 +40,7 @@ const AddressType = {
 
 export default function AddAddressScreen() {
     const router = useRouter();
-    const {id} = useLocalSearchParams();
+    const {id, currentLocation} = useLocalSearchParams();
     const isEdit = !!id;
     const [form, setForm] = useState(initialForm);
     const [saving, setSaving] = useState(false);
@@ -55,6 +58,33 @@ export default function AddAddressScreen() {
         loadAddressData();
     }, [id]);
 
+    useEffect(() => {
+        if (currentLocation) {
+            try {
+                const currentLocationData = JSON.parse(currentLocation);
+                console.log('Current location data received:', currentLocationData);
+
+                // Pre-fill the form with current location data
+                setForm(prev => ({
+                    ...prev,
+                    name: currentLocationData.name || 'Current Location',
+                    address: currentLocationData.address || '',
+                    landmark: currentLocationData.landmark || '',
+                    city: currentLocationData.city || '',
+                    state: currentLocationData.state || '',
+                    pincode: currentLocationData.pincode || '',
+                    latitude: currentLocationData.latitude || '',
+                    longitude: currentLocationData.longitude || '',
+                }));
+
+                showMessage('Current location data loaded! Please complete the address details.');
+            } catch (error) {
+                console.error('Error parsing current location data:', error);
+                showMessage('Failed to load location data', true);
+            }
+        }
+    }, [currentLocation]);
+
     const loadAddressData = async () => {
         if (!isEdit) return;
 
@@ -70,17 +100,20 @@ export default function AddAddressScreen() {
                     name: addr?.name || '',
                     phone: addr?.phone || '',
                     address: addr?.address || '',
+                    landmark: addr?.landmark || '',
                     city: addr?.city || '',
                     state: addr?.state || '',
                     pincode: addr?.pincode || addr?.postalCode || '',
-                    country: addr?.country || '',
+                    country: addr?.country || 'India',
                     type: addr?.type || AddressType.HOME,
                     isDefault: !!addr?.isDefault,
+                    latitude: addr?.latitude || '',
+                    longitude: addr?.longitude || ''
                 });
             }
         } catch (error) {
             console.error('Error loading address:', error);
-            showMessage('Failed to load address data');
+            showMessage('Failed to load address data', true);
         } finally {
             setLoading(false);
         }
@@ -97,8 +130,8 @@ export default function AddAddressScreen() {
 
         if (!form.phone.trim()) {
             errors.push('Phone number is required');
-        } else if (!/^\+?[0-9]{10,15}$/.test(form.phone.trim())) {
-            errors.push('Please enter a valid phone number (10-15 digits)');
+        } else if (!/^[0-9]{10}$/.test(form.phone.trim())) {
+            errors.push('Please enter a valid 10-digit phone number');
         }
 
         if (!form.address.trim()) errors.push('Address is required');
@@ -107,8 +140,8 @@ export default function AddAddressScreen() {
 
         if (!form.pincode.trim()) {
             errors.push('Pincode is required');
-        } else if (!/^[0-9]{4,10}$/.test(form.pincode.trim())) {
-            errors.push('Please enter a valid pincode');
+        } else if (!/^[0-9]{6}$/.test(form.pincode.trim())) {
+            errors.push('Please enter a valid 6-digit pincode');
         }
 
         if (!form.country.trim()) errors.push('Country is required');
@@ -141,13 +174,18 @@ export default function AddAddressScreen() {
                 name: form.name.trim(),
                 phone: form.phone.trim(),
                 address: form.address.trim(),
+                landmark: form.landmark.trim(),
                 city: form.city.trim(),
                 state: form.state.trim(),
                 pincode: form.pincode.trim(),
                 country: form.country.trim(),
                 type: form.type,
                 isDefault: !!form.isDefault,
+                ...(form.latitude && { latitude: form.latitude }),
+                ...(form.longitude && { longitude: form.longitude })
             };
+
+            console.log('Submitting address data:', addressData);
 
             let result;
             if (isEdit) {
@@ -169,7 +207,9 @@ export default function AddAddressScreen() {
             }
 
             showMessage(`Address ${isEdit ? 'updated' : 'added'} successfully`);
-            router.back();
+
+            // Navigate back to address list
+            router.push('/screens/AddressListScreen');
         } catch (error) {
             console.error('Save address error:', error);
             showMessage(`Failed to ${isEdit ? 'update' : 'add'} address`, true);
@@ -182,12 +222,12 @@ export default function AddAddressScreen() {
         switch (type) {
             case AddressType.HOME:
                 return require('../../assets/icons/home.png');
-            // case AddressType.OFFICE:
-            //     return require('../../assets/icons/business_icon.png');
-            // case AddressType.OTHER:
-            //     return require('../../assets/icons/location_icon.png');
-            // default:
-            //     return require('../../assets/icons/home_icon.png');
+            case AddressType.OFFICE:
+                return require('../../assets/icons/business.png');
+            case AddressType.OTHER:
+                return require('../../assets/icons/location.png');
+            default:
+                return require('../../assets/icons/home.png');
         }
     };
 
@@ -198,20 +238,24 @@ export default function AddAddressScreen() {
         return limit ? cleaned.slice(0, limit) : cleaned;
     };
     const safeAddress = (v) =>
-        v.replace(/[^a-zA-Z0-9 ,./-]/g, '');  // allow letters, numbers, comma, dot, slash, hyphen
-
+        v.replace(/[^a-zA-Z0-9 ,./-]/g, '');
 
     const getAddressTypeLabel = (type) => {
         switch (type) {
             case AddressType.HOME:
                 return 'Home';
             case AddressType.OFFICE:
-                return 'Office';
+                return 'Work';
             case AddressType.OTHER:
                 return 'Other';
             default:
                 return 'Home';
         }
+    };
+
+    // Function to use current location again
+    const handleUseCurrentLocation = () => {
+        router.push('/screens/AddressListScreen');
     };
 
     if (loading) {
@@ -253,6 +297,36 @@ export default function AddAddressScreen() {
                     <View style={styles.headerPlaceholder}/>
                 </View>
 
+                {/* Current Location Banner */}
+                {(currentLocation && !isEdit) && (
+                    <View style={styles.locationBanner}>
+                        <View style={styles.locationBannerContent}>
+                            <Image
+                                source={require('../../assets/icons/location.png')}
+                                style={styles.locationBannerIcon}
+                            />
+                            <View style={styles.locationBannerText}>
+                                <Text style={styles.locationBannerTitle}>
+                                    Current Location Detected
+                                </Text>
+                                <Text style={styles.locationBannerSubtitle}>
+                                    Address has been pre-filled with your current location
+                                </Text>
+                            </View>
+                        </View>
+                        <TouchableOpacity
+                            style={styles.refreshLocationButton}
+                            onPress={handleUseCurrentLocation}
+                            disabled={saving}
+                        >
+                            <Image
+                                source={require('../../assets/icons/refresh.png')}
+                                style={styles.refreshIcon}
+                            />
+                        </TouchableOpacity>
+                    </View>
+                )}
+
                 {/* Contact Info */}
                 <View style={styles.formSection}>
                     <Text style={styles.sectionTitle}>Contact Information</Text>
@@ -269,8 +343,8 @@ export default function AddAddressScreen() {
                         label="Phone Number"
                         value={form.phone}
                         onChangeText={(v) => onChange('phone', onlyNumbers(v, 10))}
-                        placeholder="Enter your phone number"
-                        keyboardType="numeric"
+                        placeholder="Enter your 10-digit phone number"
+                        keyboardType="phone-pad"
                         maxLength={10}
                         editable={!saving}
                     />
@@ -284,10 +358,18 @@ export default function AddAddressScreen() {
                         label="Street Address"
                         value={form.address}
                         onChangeText={(v) => onChange('address', safeAddress(v))}
-                        placeholder="Enter your street address"
+                        placeholder="House no., Building, Street, Area"
                         multiline
                         numberOfLines={3}
                         textAlignVertical="top"
+                        editable={!saving}
+                    />
+
+                    <InputField
+                        label="Landmark (Optional)"
+                        value={form.landmark}
+                        onChangeText={(v) => onChange('landmark', safeAddress(v))}
+                        placeholder="Nearby landmark, if any"
                         editable={!saving}
                     />
 
@@ -323,7 +405,7 @@ export default function AddAddressScreen() {
                                 label="Pincode"
                                 value={form.pincode}
                                 onChangeText={(v) => onChange('pincode', onlyNumbers(v, 6))}
-                                placeholder="Pincode"
+                                placeholder="6-digit pincode"
                                 keyboardType="numeric"
                                 maxLength={6}
                                 editable={!saving}
@@ -343,6 +425,16 @@ export default function AddAddressScreen() {
                             />
                         </View>
                     </View>
+
+                    {/* Coordinates (Read-only) */}
+                    {(form.latitude && form.longitude) && (
+                        <View style={styles.coordinatesContainer}>
+                            <Text style={styles.coordinatesLabel}>Location Coordinates</Text>
+                            <Text style={styles.coordinatesText}>
+                                Lat: {form.latitude}, Lng: {form.longitude}
+                            </Text>
+                        </View>
+                    )}
                 </View>
 
                 {/* Address Type */}
@@ -385,32 +477,25 @@ export default function AddAddressScreen() {
                 {/* Default Toggle */}
                 <View style={styles.defaultContainer}>
                     <TouchableOpacity
-                        style={styles.defaultRow}
                         onPress={() => !saving && onChange('isDefault', !form.isDefault)}
                         disabled={saving}
+                        style={{ flexDirection: "row", alignItems: "center" }}
                     >
-                        <View
-                            style={[
-                                styles.checkbox,
-                                form.isDefault && styles.checkboxChecked,
-                                saving && styles.disabled
-                            ]}
-                        >
-                            {form.isDefault && (
-                                <Image
-                                    source={require('../../assets/icons/back_icon.png')}
-                                    style={styles.checkIcon}
-                                />
-                            )}
-                        </View>
+                        <Image
+                            source={
+                                form.isDefault
+                                    ? require('../../assets/icons/check.png')   // checked image
+                                    : require('../../assets/icons/uncheck.png') // unchecked image
+                            }
+                            style={{ width: 24, height: 24 }}
+                        />
 
-                        <View style={styles.defaultTextContainer}>
-                            <Text style={styles.defaultLabel}>Set as default address</Text>
-                            <Text style={styles.defaultSubtitle}>
-                                This address will be used as your primary shipping address
-                            </Text>
+                        <View style={{ marginLeft: 12 }}>
+                            <Text>Set as default address</Text>
+                            <Text>This address will be used as your primary shipping address</Text>
                         </View>
                     </TouchableOpacity>
+
                 </View>
             </ScrollView>
 
@@ -428,13 +513,12 @@ export default function AddAddressScreen() {
                         <ActivityIndicator color="#FFFFFF" size="small"/>
                     ) : (
                         <Text style={styles.submitButtonText}>
-                            {isEdit ? 'Update Address' : 'Add Address'}
+                            {isEdit ? 'Update Address' : 'Save Address'}
                         </Text>
                     )}
                 </TouchableOpacity>
             </View>
         </KeyboardAvoidingView>
-
     );
 }
 
@@ -495,6 +579,71 @@ const styles = StyleSheet.create({
     },
     headerPlaceholder: {
         width: 32,
+    },
+    // Location Banner
+    locationBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#E8F5E8',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 16,
+        borderLeftWidth: 4,
+        borderLeftColor: '#4CAD73',
+    },
+    locationBannerContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    locationBannerIcon: {
+        width: 24,
+        height: 24,
+        tintColor: '#4CAD73',
+        marginRight: 12,
+    },
+    locationBannerText: {
+        flex: 1,
+    },
+    locationBannerTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#1B1B1B',
+        fontFamily: 'Poppins-SemiBold',
+        marginBottom: 2,
+    },
+    locationBannerSubtitle: {
+        fontSize: 12,
+        color: '#666',
+        fontFamily: 'Poppins-Regular',
+    },
+    refreshLocationButton: {
+        padding: 8,
+    },
+    refreshIcon: {
+        width: 20,
+        height: 20,
+        tintColor: '#4CAD73',
+    },
+    // Coordinates
+    coordinatesContainer: {
+        backgroundColor: '#F8F9FA',
+        borderRadius: 8,
+        padding: 12,
+        marginTop: 8,
+    },
+    coordinatesLabel: {
+        fontSize: 12,
+        fontWeight: '500',
+        color: '#666',
+        fontFamily: 'Poppins-Medium',
+        marginBottom: 4,
+    },
+    coordinatesText: {
+        fontSize: 11,
+        color: '#888',
+        fontFamily: 'Poppins-Regular',
     },
     formSection: {
         backgroundColor: '#FFFFFF',

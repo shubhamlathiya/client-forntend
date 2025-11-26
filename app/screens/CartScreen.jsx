@@ -17,7 +17,6 @@ import {
     applyTierPricing,
 } from '../../api/cartApi';
 import { API_BASE_URL } from '../../config/apiConfig';
-import RelatedProducts from "../../components/screens/RelatedProducts";
 import {getOrCreateSessionId, getUserType} from "../../api/sessionManager";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -667,7 +666,6 @@ export default function CartScreen() {
                     />
                 </View>
 
-                <RelatedProducts />
 
                 {/* Shipping Address Section */}
                 {cartItems.length > 0 && (
@@ -1003,7 +1001,7 @@ const styles = StyleSheet.create({
         fontSize: 20,
         fontFamily: 'Poppins-SemiBold',
         color: '#1B1B1B',
-        marginBottom: 16,
+        marginBottom: 10,
         textAlign: 'center',
     },
     negotiationProduct: {
@@ -1011,7 +1009,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#F8F9FA',
         padding: 12,
         borderRadius: 8,
-        marginBottom: 16,
+        marginBottom: 10,
     },
     negotiationImage: {
         width: 50,
@@ -1031,13 +1029,11 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontFamily: 'Poppins-Regular',
         color: '#666',
-        marginTop: 2,
     },
     currentPrice: {
         fontSize: 12,
         fontFamily: 'Poppins-SemiBold',
         color: '#4CAD73',
-        marginTop: 4,
     },
     currentQuantity: {
         fontSize: 12,
@@ -1089,7 +1085,8 @@ const styles = StyleSheet.create({
     },
     cancelButtonText: {
         color: '#666',
-        fontSize: 14,
+        fontSize: 12,
+        fontWeight: 'bold',
         fontFamily: 'Poppins-SemiBold',
     },
     submitButton: {
@@ -1097,7 +1094,8 @@ const styles = StyleSheet.create({
     },
     submitButtonText: {
         color: '#FFFFFF',
-        fontSize: 14,
+        fontSize: 12,
+        fontWeight: 'bold',
         fontFamily: 'Poppins-SemiBold',
     },
     // ... (keep all the existing styles from previous implementation)
@@ -1338,7 +1336,7 @@ const styles = StyleSheet.create({
         borderRadius: 4,
     },
     discountText: {
-        fontSize: 10,
+        fontSize: 14,
         fontFamily: "Poppins-SemiBold",
         color: "#EC0505",
     },

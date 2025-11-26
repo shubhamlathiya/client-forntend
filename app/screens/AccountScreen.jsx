@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {useRouter} from "expo-router";
+import {useFocusEffect, useRouter} from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import React, {useEffect, useRef, useState} from "react";
+import React, {useCallback, useEffect, useRef, useState} from "react";
 import {
     Animated,
     Image,
@@ -29,26 +29,36 @@ export default function AccountScreen() {
     const [user, setUser] = useState(null);
     const [loggingOut, setLoggingOut] = useState(false);
 
-    useEffect(() => {
-        let mounted = true;
-        (async () => {
-            try {
-                const userData = await AsyncStorage.getItem("userData");
-                if (userData && mounted) setUser(JSON.parse(userData));
-                else if (mounted)
+    useFocusEffect(
+        useCallback(() => {
+            const loadUser = async () => {
+                try {
+                    const stored = await AsyncStorage.getItem("userData");
+                    console.log("Stored User →", stored);
+
+                    if (stored) {
+                        setUser(JSON.parse(stored));
+                    } else {
+                        setUser({
+                            name: "Lathiya Shubham",
+                            phone: "7041138931",
+                            dob: "18 Mar 2004",
+                        });
+                    }
+                } catch (err) {
+                    console.log("Failed to read AsyncStorage:", err);
                     setUser({
                         name: "Lathiya Shubham",
                         phone: "7041138931",
                         dob: "18 Mar 2004",
                     });
-            } catch (e) {
-                console.error("Failed to load user data", e);
-            }
-        })();
-        return () => {
-            mounted = false;
-        };
-    }, []);
+                }
+            };
+
+            loadUser();
+        }, [])
+    );
+
 
     const handleLogout = async () => {
         if (loggingOut) return;
@@ -273,26 +283,26 @@ export default function AccountScreen() {
                 </View>
 
                 {/* HIDE SENSITIVE CARD */}
-                <View style={styles.sensitiveCard}>
-                    <View style={styles.sensitiveLeft}>
-                        <Image
-                            source={require("../../assets/icons/hide.png")}
-                            style={styles.sensitiveIcon}
-                        />
-                        <View>
-                            <Text style={styles.sensitiveTitle}>Hide sensitive items</Text>
-                            <Text style={styles.sensitiveSubtitle}>
-                                Sexual wellness, nicotine products and other
-                                sensitive items will be hidden
-                            </Text>
-                        </View>
-                    </View>
-                    <Switch
-                        value={hideSensitive}
-                        onValueChange={setHideSensitive}
-                        trackColor={{ false: "#BEBEBE", true: "#4CD964" }}
-                    />
-                </View>
+                {/*<View style={styles.sensitiveCard}>*/}
+                {/*    <View style={styles.sensitiveLeft}>*/}
+                {/*        <Image*/}
+                {/*            source={require("../../assets/icons/hide.png")}*/}
+                {/*            style={styles.sensitiveIcon}*/}
+                {/*        />*/}
+                {/*        <View>*/}
+                {/*            <Text style={styles.sensitiveTitle}>Hide sensitive items</Text>*/}
+                {/*            <Text style={styles.sensitiveSubtitle}>*/}
+                {/*                Sexual wellness, nicotine products and other*/}
+                {/*                sensitive items will be hidden*/}
+                {/*            </Text>*/}
+                {/*        </View>*/}
+                {/*    </View>*/}
+                {/*    <Switch*/}
+                {/*        value={hideSensitive}*/}
+                {/*        onValueChange={setHideSensitive}*/}
+                {/*        trackColor={{ false: "#BEBEBE", true: "#4CD964" }}*/}
+                {/*    />*/}
+                {/*</View>*/}
 
                 {/* Your Information Card */}
                 <View style={styles.card}>

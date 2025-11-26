@@ -1,6 +1,17 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Platform, ToastAndroid } from 'react-native';
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  Platform,
+  ToastAndroid,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AppHeader from '../../components/ui/AppHeader';
 import { requestReturn, requestReplacement } from '../../api/ordersApi';
 
@@ -64,51 +75,54 @@ export default function ReturnReplacementForm() {
   };
 
   return (
-    <View style={styles.container}>
-      <AppHeader title={actionType === 'replacement' ? 'Replacement Request' : 'Return Request'} />
-      <ScrollView style={styles.content}>
-        <View style={styles.card}>
-          <Text style={styles.label}>Order ID</Text>
-          <Text style={styles.value}>{String(orderId)}</Text>
-        </View>
-
-        {actionType === 'return' && (
-          <View style={styles.card}>
-            <Text style={styles.label}>Resolution</Text>
-            <View style={styles.segmented}>
-              <TouchableOpacity
-                style={[styles.segment, resolution === 'refund' && styles.segmentActive]}
-                onPress={() => setResolution('refund')}
-              >
-                <Text style={[styles.segmentText, resolution === 'refund' && styles.segmentTextActive]}>Refund</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.segment, resolution === 'replacement' && styles.segmentActive]}
-                onPress={() => setResolution('replacement')}
-              >
-                <Text style={[styles.segmentText, resolution === 'replacement' && styles.segmentTextActive]}>Replacement</Text>
-              </TouchableOpacity>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.container}>
+          <AppHeader title={actionType === 'replacement' ? 'Replacement Request' : 'Return Request'} />
+          <ScrollView style={styles.content}>
+            <View style={styles.card}>
+              <Text style={styles.label}>Order ID</Text>
+              <Text style={styles.value}>{String(orderId)}</Text>
             </View>
-          </View>
-        )}
 
-        <View style={styles.card}>
-          <Text style={styles.label}>Reason / Note</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Describe your reason"
-            value={reason}
-            onChangeText={setReason}
-            multiline
-            numberOfLines={4}
-          />
+            {actionType === 'return' && (
+                <View style={styles.card}>
+                  <Text style={styles.label}>Resolution</Text>
+                  <View style={styles.segmented}>
+                    <TouchableOpacity
+                        style={[styles.segment, resolution === 'refund' && styles.segmentActive]}
+                        onPress={() => setResolution('refund')}
+                    >
+                      <Text style={[styles.segmentText, resolution === 'refund' && styles.segmentTextActive]}>Refund</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.segment, resolution === 'replacement' && styles.segmentActive]}
+                        onPress={() => setResolution('replacement')}
+                    >
+                      <Text style={[styles.segmentText, resolution === 'replacement' && styles.segmentTextActive]}>Replacement</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+            )}
+
+            <View style={styles.card}>
+              <Text style={styles.label}>Reason / Note</Text>
+              <TextInput
+                  style={styles.input}
+                  placeholder="Describe your reason"
+                  value={reason}
+                  onChangeText={setReason}
+                  multiline
+                  numberOfLines={4}
+              />
+            </View>
+
+            <TouchableOpacity style={[styles.submitButton, submitting && styles.buttonDisabled]} onPress={handleSubmit} disabled={submitting}>
+              <Text style={styles.submitText}>{submitting ? 'Submitting…' : 'Submit Request'}</Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
+      </SafeAreaView>
 
-        <TouchableOpacity style={[styles.submitButton, submitting && styles.buttonDisabled]} onPress={handleSubmit} disabled={submitting}>
-          <Text style={styles.submitText}>{submitting ? 'Submitting…' : 'Submit Request'}</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </View>
   );
 }
 
@@ -128,4 +142,3 @@ const styles = StyleSheet.create({
   submitText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
   buttonDisabled: { opacity: 0.6 },
 });
-

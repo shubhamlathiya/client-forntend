@@ -1,28 +1,134 @@
-import React, { useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Image, RefreshControl, Alert } from "react-native";
-import { useRouter, useFocusEffect } from "expo-router";
+import React, {useMemo, useCallback} from "react";
+import {
+    View,
+    Text,
+    StyleSheet,
+    ScrollView,
+    TouchableOpacity,
+    StatusBar,
+    Image,
+    RefreshControl,
+    Alert,
+    Platform
+} from "react-native";
+import {useRouter} from "expo-router";
 import useNotifications from "../../hooks/useNotifications";
+import * as Notifications from "expo-notifications";
+import * as Device from 'expo-device';
 
 export default function NotificationScreen() {
     const router = useRouter();
-    const { notifications, unreadCount, loading, refreshing, error, refresh, markOneAsRead, markAllAsRead, fetchNotifications } = useNotifications();
+    const {
+        notifications,
+        unreadCount,
+        loading,
+        refreshing,
+        error,
+        refresh,
+        markOneAsRead,
+        markAllAsRead,
+        fetchNotifications
+    } = useNotifications();
+
+    // Check if we're in Expo Go
+    const isExpoGo = useMemo(() => {
+        return Constants?.appOwnership === 'expo';
+    }, []);
+
+    // Set notification handler at the top level
+    React.useEffect(() => {
+        Notifications.setNotificationHandler({
+            handleNotification: async () => ({
+                shouldShowAlert: true,
+                shouldPlaySound: true,
+                shouldSetBadge: true,
+            }),
+        });
+    }, []);
 
     // Refresh when screen comes into focus
-    useFocusEffect(
-        React.useCallback(() => {
-            fetchNotifications();
-        }, [])
-    );
+    React.useEffect(() => {
+        let isMounted = true;
 
-    const handleBack = () => {
+        const setupNotifications = async () => {
+            if (!isExpoGo) {
+                await registerForPushNotifications();
+            }
+            if (isMounted) {
+                fetchNotifications();
+            }
+        };
+
+        setupNotifications();
+
+        const subscription = Notifications.addNotificationReceivedListener(notification => {
+            console.log("Received in foreground:", notification);
+            if (isMounted) {
+                fetchNotifications();
+            }
+        });
+
+        const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+            console.log("User tapped notification:", response);
+        });
+
+        return () => {
+            isMounted = false;
+            subscription.remove();
+            responseListener.remove();
+        };
+    }, [fetchNotifications, isExpoGo]);
+
+    const registerForPushNotifications = useCallback(async () => {
+        try {
+            // Skip in Expo Go
+            if (isExpoGo) {
+                console.log("Skipping push notification registration in Expo Go");
+                return;
+            }
+
+            let { status } = await Notifications.getPermissionsAsync();
+
+            if (status !== "granted") {
+                const permission = await Notifications.requestPermissionsAsync();
+                status = permission.status;
+            }
+
+            if (status !== "granted") {
+                Alert.alert("Permission required", "Enable notification permissions to receive alerts");
+                return;
+            }
+
+            // Get Expo Push Token
+            const token = (await Notifications.getExpoPushTokenAsync()).data;
+            console.log("Expo Push Token:", token);
+
+            // Send token to your backend here (optional)
+            // await saveDeviceToken(token);
+
+            if (Platform.OS === "android") {
+                await Notifications.setNotificationChannelAsync("default", {
+                    name: "default",
+                    importance: Notifications.AndroidImportance.MAX,
+                    vibrationPattern: [0, 250, 250, 250],
+                    lightColor: "#FF231F7C",
+                });
+            }
+
+        } catch (error) {
+            console.log("Notification register error:", error);
+        }
+    }, [isExpoGo]);
+
+    const handleBack = useCallback(() => {
         if (router.canGoBack()) {
             router.back();
         } else {
             router.replace('/Home');
         }
-    };
+    }, [router]);
 
-    const formatDate = (value) => {
+    const formatDate = useCallback((value) => {
         if (!value) return "";
         try {
             const d = new Date(value);
@@ -47,9 +153,9 @@ export default function NotificationScreen() {
         } catch {
             return String(value);
         }
-    };
+    }, []);
 
-    const getNotificationIcon = (type) => {
+    const getNotificationIcon = useCallback((type) => {
         switch (type) {
             case 'order':
                 return require('../../assets/icons/order.png');
@@ -60,29 +166,31 @@ export default function NotificationScreen() {
             default:
                 return require('../../assets/icons/notification.png');
         }
-    };
+    }, []);
 
-    const getTemplate = (n) => {
+    const getTemplate = useCallback((n) => {
         return n.template || n.text || n.message || n.title || "New notification";
-    };
+    }, []);
 
-    const getId = (n) => {
+    const getId = useCallback((n) => {
         return n.id || n._id || Math.random().toString();
-    };
+    }, []);
 
     const unread = useMemo(() => notifications.filter((n) => !n.read), [notifications]);
     const read = useMemo(() => notifications.filter((n) => !!n.read), [notifications]);
 
-    const NotificationCard = ({ item }) => {
+    const NotificationCard = React.useCallback(({item}) => {
         const isUnread = !item.read;
+
+        const handlePress = useCallback(() => {
+            const id = getId(item);
+            if (id) markOneAsRead(id);
+        }, [item, markOneAsRead, getId]);
 
         return (
             <TouchableOpacity
                 style={[styles.card, isUnread ? styles.cardUnread : styles.cardRead]}
-                onPress={() => {
-                    const id = getId(item);
-                    if (id) markOneAsRead(id);
-                }}
+                onPress={handlePress}
                 activeOpacity={0.8}
             >
                 <View style={styles.cardContent}>
@@ -96,7 +204,7 @@ export default function NotificationScreen() {
                                 {item.type ? item.type.charAt(0).toUpperCase() + item.type.slice(1) : 'Notification'}
                             </Text>
                             <View style={styles.headerRight}>
-                                {isUnread && <View style={styles.unreadDot} />}
+                                {isUnread && <View style={styles.unreadDot}/>}
                                 <Text style={styles.cardDate}>{formatDate(item.createdAt || item.date)}</Text>
                             </View>
                         </View>
@@ -108,35 +216,53 @@ export default function NotificationScreen() {
                 </View>
             </TouchableOpacity>
         );
-    };
+    }, [getNotificationIcon, getTemplate, formatDate, markOneAsRead, getId]);
 
-    const handleMarkAllAsRead = () => {
+    const handleMarkAllAsRead = useCallback(() => {
         if (unreadCount > 0) {
             Alert.alert(
                 "Mark All as Read",
                 "Are you sure you want to mark all notifications as read?",
                 [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Mark All", onPress: markAllAsRead }
+                    {text: "Cancel", style: "cancel"},
+                    {text: "Mark All", onPress: markAllAsRead}
                 ]
             );
         }
-    };
+    }, [unreadCount, markAllAsRead]);
+
+    const handleRefresh = useCallback(() => {
+        refresh();
+    }, [refresh]);
 
     return (
         <View style={styles.container}>
-            <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+            <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
+
+            {/* Expo Go Warning Banner */}
+            {isExpoGo && (
+                <View style={styles.expoGoWarning}>
+                    <Text style={styles.expoGoWarningText}>
+                        🔔 Push notifications are limited in Expo Go. Use a development build for full functionality.
+                    </Text>
+                </View>
+            )}
 
             {/* Header */}
             <View style={styles.header}>
                 <View style={styles.headerTop}>
                     <TouchableOpacity onPress={handleBack}>
-                        <Image source={require("../../assets/icons/back_icon.png")} style={styles.backIcon} />
+                        <Image
+                            source={require("../../assets/icons/back_icon.png")}
+                            style={styles.backIcon}
+                        />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>Notifications</Text>
                     {unreadCount > 0 && (
                         <View style={styles.unreadBadge}>
-                            <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
+                            <Text style={styles.unreadBadgeText}>
+                                {unreadCount > 99 ? '99+' : unreadCount}
+                            </Text>
                         </View>
                     )}
                 </View>
@@ -149,7 +275,8 @@ export default function NotificationScreen() {
                     onPress={handleMarkAllAsRead}
                     disabled={unreadCount === 0}
                 >
-                    <Text style={[styles.markAllText, unreadCount > 0 ? styles.markAllTextEnabled : styles.markAllTextDisabled]}>
+                    <Text
+                        style={[styles.markAllText, unreadCount > 0 ? styles.markAllTextEnabled : styles.markAllTextDisabled]}>
                         {unreadCount > 0 ? `Mark all as read (${unreadCount})` : "All caught up!"}
                     </Text>
                 </TouchableOpacity>
@@ -162,7 +289,7 @@ export default function NotificationScreen() {
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}
-                        onRefresh={refresh}
+                        onRefresh={handleRefresh}
                         colors={['#EC0505']}
                         tintColor="#EC0505"
                     />
@@ -171,7 +298,7 @@ export default function NotificationScreen() {
                 {error ? (
                     <View style={styles.errorBox}>
                         <Text style={styles.errorText}>{error}</Text>
-                        <TouchableOpacity style={styles.retryButton} onPress={refresh}>
+                        <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
                             <Text style={styles.retryText}>Try Again</Text>
                         </TouchableOpacity>
                     </View>
@@ -185,7 +312,7 @@ export default function NotificationScreen() {
                         </View>
                         <View style={styles.sectionContent}>
                             {unread.map((n) => (
-                                <NotificationCard key={String(getId(n))} item={n} />
+                                <NotificationCard key={String(getId(n))} item={n}/>
                             ))}
                         </View>
                     </View>
@@ -209,9 +336,14 @@ export default function NotificationScreen() {
                                 <Text style={styles.emptySubtitle}>
                                     We'll notify you when something new arrives
                                 </Text>
+                                {isExpoGo && (
+                                    <Text style={styles.expoGoHint}>
+                                        Note: Local notifications work, but push notifications require a development build
+                                    </Text>
+                                )}
                             </View>
                         ) : (
-                            read.map((n) => <NotificationCard key={String(getId(n))} item={n} />)
+                            read.map((n) => <NotificationCard key={String(getId(n))} item={n}/>)
                         )}
                     </View>
                 </View>
@@ -231,6 +363,18 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: "#FFFFFF",
     },
+    expoGoWarning: {
+        backgroundColor: '#FFF3CD',
+        padding: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#FFEAA7',
+    },
+    expoGoWarningText: {
+        fontSize: 12,
+        color: '#856404',
+        textAlign: 'center',
+        fontWeight: '500',
+    },
     header: {
         paddingTop: 50,
         paddingHorizontal: 16,
@@ -249,10 +393,9 @@ const styles = StyleSheet.create({
         fontSize: 20,
         fontWeight: '700',
         color: '#1B1B1B',
-        fontFamily: 'Poppins-Bold',
         flex: 1,
         textAlign: 'center',
-        marginLeft: -32, // Center the title
+        marginLeft: -32,
     },
     unreadBadge: {
         backgroundColor: '#EC0505',
@@ -266,7 +409,6 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: 12,
         fontWeight: '600',
-        fontFamily: 'Poppins-SemiBold',
     },
     actionsRow: {
         paddingHorizontal: 16,
@@ -286,7 +428,6 @@ const styles = StyleSheet.create({
     },
     markAllText: {
         fontSize: 14,
-        fontFamily: 'Poppins-SemiBold',
         fontWeight: '600',
     },
     markAllTextEnabled: {
@@ -307,7 +448,6 @@ const styles = StyleSheet.create({
     },
     sectionTitle: {
         fontSize: 16,
-        fontFamily: "Poppins-SemiBold",
         fontWeight: "600",
         color: "#666",
         textTransform: 'uppercase',
@@ -321,7 +461,7 @@ const styles = StyleSheet.create({
         padding: 16,
         marginBottom: 12,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
+        shadowOffset: {width: 0, height: 2},
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 3,
@@ -367,7 +507,6 @@ const styles = StyleSheet.create({
     },
     cardTitle: {
         fontSize: 14,
-        fontFamily: 'Poppins-SemiBold',
         fontWeight: '600',
         color: '#666',
         flex: 1,
@@ -377,19 +516,16 @@ const styles = StyleSheet.create({
     },
     cardDate: {
         fontSize: 12,
-        fontFamily: 'Poppins',
         color: '#999',
     },
     cardBody: {
         fontSize: 14,
-        fontFamily: 'Poppins',
         color: '#1B1B1B',
         lineHeight: 20,
         marginBottom: 4,
     },
     cardOrder: {
         fontSize: 12,
-        fontFamily: 'Poppins',
         color: '#218D96',
         fontWeight: '500',
     },
@@ -402,7 +538,6 @@ const styles = StyleSheet.create({
     },
     errorText: {
         fontSize: 14,
-        fontFamily: 'Poppins',
         color: '#DC1010',
         textAlign: 'center',
         marginBottom: 8,
@@ -416,7 +551,7 @@ const styles = StyleSheet.create({
     retryText: {
         color: '#FFFFFF',
         fontSize: 14,
-        fontFamily: 'Poppins-SemiBold',
+        fontWeight: '600',
     },
     emptyState: {
         alignItems: 'center',
@@ -432,15 +567,22 @@ const styles = StyleSheet.create({
     },
     emptyTitle: {
         fontSize: 16,
-        fontFamily: 'Poppins-SemiBold',
+        fontWeight: '600',
         color: '#666',
         marginBottom: 8,
     },
     emptySubtitle: {
         fontSize: 14,
-        fontFamily: 'Poppins',
         color: '#999',
         textAlign: 'center',
+        marginBottom: 8,
+    },
+    expoGoHint: {
+        fontSize: 12,
+        color: '#666',
+        textAlign: 'center',
+        fontStyle: 'italic',
+        marginTop: 8,
     },
     loadingContainer: {
         padding: 40,
@@ -448,7 +590,6 @@ const styles = StyleSheet.create({
     },
     loadingText: {
         fontSize: 14,
-        fontFamily: 'Poppins',
         color: '#666',
     },
 });

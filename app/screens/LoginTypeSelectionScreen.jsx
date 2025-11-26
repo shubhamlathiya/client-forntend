@@ -64,18 +64,9 @@ export default function LoginTypeSelectionScreen() {
 
   return (
       <SafeAreaView style={styles.container}>
-        {/* Soft modern gradient background */}
-        <LinearGradient
-            colors={['#A8CFFF', '#D6E8FF']}
-            style={styles.background}
-        />
 
         <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
 
-          <View style={styles.header}>
-            <Text style={styles.title}>Welcome to StorePro</Text>
-            <Text style={styles.subtitle}>Choose how you want to shop</Text>
-          </View>
 
           <View style={styles.cardsContainer}>
             {/* Individual */}
@@ -94,12 +85,6 @@ export default function LoginTypeSelectionScreen() {
 
                 <Text style={styles.cardTitle}>Individual</Text>
                 <Text style={styles.cardSubtitle}>Personal Shopping</Text>
-
-                <View style={styles.featuresList}>
-                  <Text style={styles.feature}>• Retail Pricing</Text>
-                  <Text style={styles.feature}>• Fast Checkout</Text>
-                  <Text style={styles.feature}>• No Restrictions</Text>
-                </View>
               </LinearGradient>
             </TouchableOpacity>
 
@@ -120,11 +105,6 @@ export default function LoginTypeSelectionScreen() {
                 <Text style={styles.cardTitle}>Business</Text>
                 <Text style={styles.cardSubtitle}>Wholesale & Bulk</Text>
 
-                <View style={styles.featuresList}>
-                  <Text style={styles.feature}>• Tier Pricing</Text>
-                  <Text style={styles.feature}>• Quantity Discounts</Text>
-                  <Text style={styles.feature}>• Negotiation Access</Text>
-                </View>
               </LinearGradient>
             </TouchableOpacity>
           </View>
@@ -185,7 +165,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   cardWrapper: {
-    width: width * 0.42,           // clean, responsive sizing
+    width: width * 0.42,
     borderRadius: 20,
     overflow: 'hidden',
     elevation: 6,
@@ -194,7 +174,7 @@ const styles = StyleSheet.create({
 
   cardGradient: {
     padding: 18,
-    height: 260,
+    height: 180,
     borderRadius: 20,
     justifyContent: 'space-between',
   },

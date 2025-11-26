@@ -1,7 +1,7 @@
 import React, {useState, useEffect} from "react";
 import {
     View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Image, ActivityIndicator, Alert, RefreshControl,
-    Modal, FlatList
+    Modal, SafeAreaView
 } from "react-native";
 import {useRouter} from "expo-router";
 import AppHeader from "../../components/ui/AppHeader";
@@ -107,7 +107,7 @@ export default function MyOrderScreen() {
     };
 
     const formatCurrency = (amount) => {
-        return `$${Number(amount || 0).toFixed(2)}`;
+        return `₹${Number(amount || 0).toFixed(2)}`;
     };
 
     const handleOrderPress = (order) => {
@@ -125,19 +125,24 @@ export default function MyOrderScreen() {
         showMessage('Reorder functionality will be implemented soon');
     };
 
-    const handleRateOrder = (order) => {
-        showMessage('Rate order functionality will be implemented soon');
+    // Navigate to feedback screen
+    const handleRateProduct = (product, order) => {
+        router.push({
+            pathname: '/screens/FeedbackScreen',
+            params: {
+                product: JSON.stringify(product),
+                order: JSON.stringify(order)
+            }
+        });
     };
 
     const OrderCard = ({order, index}) => {
         const totalAmount = order?.totals?.grandTotal || order?.priceBreakdown?.grandTotal || order?.total || 0;
-        const itemCount = order?.totalItems || order?.items?.length || 0;
+        const itemCount =  order?.items?.length || 0;
 
-        // Get first 3 product images with API_BASE_URL
         const productImages = order?.items?.slice(0, 3).map(item => {
             let imageUrl = item.image || null;
 
-            // Add API_BASE_URL if the image is a relative path
             if (imageUrl && !imageUrl.startsWith('http') && !imageUrl.startsWith('file://')) {
                 imageUrl = `${API_BASE_URL}${imageUrl.startsWith('/') ? imageUrl : '/' + imageUrl}`;
             }
@@ -151,9 +156,9 @@ export default function MyOrderScreen() {
                 onPress={() => handleOrderPress(order)}
             >
                 <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
-                {/* Order Header - New Design */}
+
+                {/* Order Header */}
                 <View style={styles.orderHeader}>
-                    {/* Left Side Icon */}
                     <View style={styles.orderIconContainer}>
                         <Image
                             source={require("../../assets/icons/order.png")}
@@ -161,7 +166,6 @@ export default function MyOrderScreen() {
                         />
                     </View>
 
-                    {/* Order Info - Two Lines */}
                     <View style={styles.orderInfo}>
                         <Text style={styles.orderNumber}>
                             {(order.orderNumber || order._id?.substring(18) || 'N/A').substring(0, 18)}...
@@ -176,7 +180,6 @@ export default function MyOrderScreen() {
                         </View>
                     </View>
 
-                    {/* Three Dot Icon */}
                     <TouchableOpacity
                         style={styles.threeDotButton}
                         onPress={(e) => handleThreeDotMenu(order, e)}
@@ -188,7 +191,7 @@ export default function MyOrderScreen() {
                     </TouchableOpacity>
                 </View>
 
-                {/* Product Images - No Changes */}
+                {/* Product Images */}
                 <View style={styles.imagesContainer}>
                     {productImages.length > 0 ? (
                         productImages.map((image, imgIndex) => (
@@ -215,7 +218,7 @@ export default function MyOrderScreen() {
                     )}
                 </View>
 
-                {/* Order Footer - Text Only Buttons */}
+                {/* Order Footer */}
                 <View style={styles.orderFooter}>
                     <View style={styles.actionButtons}>
                         <TouchableOpacity
@@ -228,17 +231,19 @@ export default function MyOrderScreen() {
                             <Text style={styles.textButtonText}>Reorder</Text>
                         </TouchableOpacity>
 
-                        {/*{(order.status === 'delivered' || order.status === 'completed') && (*/}
+                        {(order.status === 'delivered' || order.status === 'completed') && (
                             <TouchableOpacity
                                 style={styles.textButton}
                                 onPress={(e) => {
                                     e.stopPropagation?.();
-                                    handleRateOrder(order);
+                                    if (order.items && order.items.length > 0) {
+                                        handleRateProduct(order.items[0], order);
+                                    }
                                 }}
                             >
                                 <Text style={styles.textButtonText}>Rate Order</Text>
                             </TouchableOpacity>
-                        {/*)}*/}
+                        )}
                     </View>
                 </View>
             </TouchableOpacity>
@@ -254,27 +259,83 @@ export default function MyOrderScreen() {
         const shipping = order?.totals?.shipping || order?.priceBreakdown?.shipping || 0;
         const discount = order?.totals?.discount || order?.priceBreakdown?.discount || 0;
 
+        const timeline = order.timeline || generateDefaultTimeline(order);
+
+        function generateDefaultTimeline(orderData) {
+            const baseTimeline = [
+                {event: "Order Placed", completed: true, date: orderData.placedAt},
+                {event: "Order Confirmed", completed: true, date: orderData.placedAt},
+                {
+                    event: "Shipped",
+                    completed: orderData.status === 'shipped' || orderData.status === 'delivered' || orderData.status === 'completed',
+                    date: null
+                },
+                {
+                    event: "Out for Delivery",
+                    completed: orderData.status === 'delivered' || orderData.status === 'completed',
+                    date: null
+                },
+                {
+                    event: "Delivered",
+                    completed: orderData.status === 'delivered' || orderData.status === 'completed',
+                    date: null
+                }
+            ];
+
+            return baseTimeline;
+        }
+
+        const TimelineItem = ({item, isLast, index}) => {
+            return (
+                <View style={styles.timelineItem}>
+                    <View style={styles.timelineLeft}>
+                        {!isLast && (
+                            <View style={[
+                                styles.timelineLine,
+                                item.completed ? styles.timelineLineCompleted : styles.timelineLineIncomplete
+                            ]}/>
+                        )}
+                        <View style={[
+                            styles.timelineDot,
+                            item.completed ? styles.timelineDotCompleted : styles.timelineDotIncomplete
+                        ]}/>
+                    </View>
+
+                    <View style={styles.timelineContent}>
+                        <Text style={[
+                            styles.timelineEvent,
+                            item.completed ? styles.timelineEventCompleted : styles.timelineEventIncomplete
+                        ]}>
+                            {item.event}
+                        </Text>
+                        <Text style={styles.timelineDate}>
+                            {item.date ? formatDate(item.date) : 'Pending'}
+                        </Text>
+                    </View>
+                </View>
+            );
+        };
+
         return (
             <Modal
                 visible={visible}
                 animationType="slide"
-                presentationStyle="pageSheet"
+                statusBarTranslucent={true}
                 onRequestClose={onClose}
             >
-                <View style={styles.modalContainer}>
-                    {/* Modal Header */}
-                    <View style={styles.modalHeader}>
+                <SafeAreaView style={styles.fullScreenModalContainer}>
+                    <View style={styles.fullScreenModalHeader}>
                         <TouchableOpacity onPress={onClose} style={styles.closeButton}>
                             <Image
                                 source={require("../../assets/icons/back_icon.png")}
                                 style={styles.closeIcon}
                             />
                         </TouchableOpacity>
-                        <Text style={styles.modalTitle}>Order Details</Text>
-                        <View style={styles.placeholder} />
+                        <Text style={styles.fullScreenModalTitle}>Order Details</Text>
+                        <View style={styles.placeholder}/>
                     </View>
 
-                    <ScrollView style={styles.modalContent}>
+                    <ScrollView style={styles.fullScreenModalContent} showsVerticalScrollIndicator={false}>
                         {/* Order Summary */}
                         <View style={styles.detailSection}>
                             <Text style={styles.sectionTitle}>Order Summary</Text>
@@ -302,9 +363,9 @@ export default function MyOrderScreen() {
 
                         {/* Items */}
                         <View style={styles.detailSection}>
-                            <Text style={styles.sectionTitle}>Items ({order.totalItems || order.items?.length || 0})</Text>
+                            <Text style={styles.sectionTitle}>Items
+                                ({order.totalItems || order.items?.length || 0})</Text>
                             {order.items?.map((item, index) => {
-                                // Process image URL for each item
                                 let itemImage = item.image;
                                 if (itemImage && !itemImage.startsWith('http') && !itemImage.startsWith('file://')) {
                                     itemImage = `${API_BASE_URL}${itemImage.startsWith('/') ? itemImage : '/' + itemImage}`;
@@ -336,6 +397,18 @@ export default function MyOrderScreen() {
                                         <Text style={styles.itemTotal}>
                                             {formatCurrency(item.finalPrice || (item.unitPrice * item.quantity) || 0)}
                                         </Text>
+
+                                        {(order.status === 'delivered' || order.status === 'completed') && (
+                                            <TouchableOpacity
+                                                style={styles.rateProductButton}
+                                                onPress={() => {
+                                                    onClose();
+                                                    handleRateProduct(item, order);
+                                                }}
+                                            >
+                                                <Text style={styles.rateProductText}>Rate</Text>
+                                            </TouchableOpacity>
+                                        )}
                                     </View>
                                 );
                             })}
@@ -351,7 +424,8 @@ export default function MyOrderScreen() {
                             {discount > 0 && (
                                 <View style={styles.priceRow}>
                                     <Text style={styles.priceLabel}>Discount:</Text>
-                                    <Text style={[styles.priceValue, styles.discountText]}>-{formatCurrency(discount)}</Text>
+                                    <Text
+                                        style={[styles.priceValue, styles.discountText]}>-{formatCurrency(discount)}</Text>
                                 </View>
                             )}
                             <View style={styles.priceRow}>
@@ -365,6 +439,21 @@ export default function MyOrderScreen() {
                             <View style={styles.totalRow}>
                                 <Text style={styles.totalLabel}>Total Amount:</Text>
                                 <Text style={styles.totalValue}>{formatCurrency(totalAmount)}</Text>
+                            </View>
+                        </View>
+
+                        {/* Order Timeline */}
+                        <View style={styles.detailSection}>
+                            <Text style={styles.sectionTitle}>Order Timeline</Text>
+                            <View style={styles.timelineContainer}>
+                                {timeline.map((timelineItem, index) => (
+                                    <TimelineItem
+                                        key={index}
+                                        item={timelineItem}
+                                        isLast={index === timeline.length - 1}
+                                        index={index}
+                                    />
+                                ))}
                             </View>
                         </View>
 
@@ -412,45 +501,24 @@ export default function MyOrderScreen() {
                                 </Text>
                             </View>
                         )}
-
-                        {/* Order Timeline */}
-                        {order.timeline && order.timeline.length > 0 && (
-                            <View style={styles.detailSection}>
-                                <Text style={styles.sectionTitle}>Order Timeline</Text>
-                                {order.timeline.map((timelineItem, index) => (
-                                    <View key={index} style={styles.timelineItem}>
-                                        <View style={[
-                                            styles.timelineDot,
-                                            {backgroundColor: timelineItem.completed ? '#4CAD73' : '#E5E5E5'}
-                                        ]} />
-                                        <View style={styles.timelineContent}>
-                                            <Text style={styles.timelineEvent}>
-                                                {timelineItem.event}
-                                            </Text>
-                                            <Text style={styles.timelineDate}>
-                                                {timelineItem.date ? formatDate(timelineItem.date) : 'Pending'}
-                                            </Text>
-                                        </View>
-                                    </View>
-                                ))}
-                            </View>
-                        )}
                     </ScrollView>
-                </View>
+                </SafeAreaView>
             </Modal>
         );
     };
 
     if (loading) {
         return (
-            <View style={styles.container}>
-                <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
-                <AppHeader title="My Orders"/>
-                <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#4CAD73"/>
-                    <Text style={styles.loadingText}>Loading your orders...</Text>
+            <SafeAreaView style={{ flex: 1 }}>
+                <View style={styles.container}>
+                    <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
+                    <AppHeader title="My Orders"/>
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color="#4CAD73"/>
+                        <Text style={styles.loadingText}>Loading your orders...</Text>
+                    </View>
                 </View>
-            </View>
+            </SafeAreaView>
         );
     }
 
@@ -542,7 +610,7 @@ export default function MyOrderScreen() {
                                     deliveryInfo: 'Delivered',
                                 })
                             };
-                            router.push({ pathname: '/screens/ReturnReplacementScreen', params: payload });
+                            router.push({pathname: '/screens/ReturnReplacementScreen', params: payload});
                             break;
                         case 'details':
                             setSelectedOrderDetail(selectedOrder);
@@ -559,6 +627,7 @@ export default function MyOrderScreen() {
                 onClose={() => setDetailModalVisible(false)}
             />
         </View>
+
     );
 }
 
@@ -627,11 +696,27 @@ const styles = StyleSheet.create({
         padding: 16,
         gap: 16,
     },
-    statusContainer: {
+    fullScreenModalContainer: {
+        flex: 1,
+        backgroundColor: "#FFFFFF",
+    },
+    fullScreenModalHeader: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        marginBottom: 12,
+        padding: 20,
+        paddingTop: 60,
+        borderBottomWidth: 1,
+        borderBottomColor: "#F5F5F5",
+    },
+    fullScreenModalTitle: {
+        fontSize: 20,
+        fontWeight: "600",
+        color: "#000000",
+    },
+    fullScreenModalContent: {
+        flex: 1,
+        padding: 16,
     },
     statusBadge: {
         paddingHorizontal: 12,
@@ -644,48 +729,12 @@ const styles = StyleSheet.create({
         fontWeight: "500",
         color: "#FFFFFF",
     },
-    orderTotal: {
-        fontSize: 16,
-        fontFamily: "Poppins",
-        fontWeight: "600",
-        color: "#4CAD73",
-    },
-    reorderButton: {
-        flex: 1,
-        backgroundColor: "#4CAD73",
-        paddingVertical: 10,
-        borderRadius: 8,
-        alignItems: "center",
-    },
-    reorderText: {
-        color: "#FFFFFF",
-        fontSize: 14,
-        fontWeight: "600",
-    },
-    rateButton: {
-        flex: 1,
-        backgroundColor: "#FFFFFF",
-        borderWidth: 1,
-        borderColor: "#4CAD73",
-        paddingVertical: 10,
-        borderRadius: 8,
-        alignItems: "center",
-    },
-    rateText: {
-        color: "#4CAD73",
-        fontSize: 14,
-        fontWeight: "600",
-    },
-
-
-
-
     orderCard: {
         backgroundColor: "#FFFFFF",
         borderRadius: 12,
         padding: 16,
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
+        shadowOffset: {width: 0, height: 2},
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 3,
@@ -793,19 +842,6 @@ const styles = StyleSheet.create({
         fontWeight: "600",
         fontFamily: "Poppins",
     },
-    // Modal Styles
-    modalContainer: {
-        flex: 1,
-        backgroundColor: "#FFFFFF",
-    },
-    modalHeader: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        padding: 20,
-        borderBottomWidth: 1,
-        borderBottomColor: "#F5F5F5",
-    },
     closeButton: {
         padding: 4,
     },
@@ -813,17 +849,8 @@ const styles = StyleSheet.create({
         width: 24,
         height: 24,
     },
-    modalTitle: {
-        fontSize: 18,
-        fontWeight: "600",
-        color: "#000000",
-    },
     placeholder: {
         width: 24,
-    },
-    modalContent: {
-        flex: 1,
-        padding: 16,
     },
     detailSection: {
         marginBottom: 24,
@@ -933,29 +960,74 @@ const styles = StyleSheet.create({
         color: "#000000",
         marginBottom: 4,
     },
+    timelineContainer: {
+        marginLeft: 8,
+    },
     timelineItem: {
         flexDirection: "row",
         alignItems: "flex-start",
-        marginBottom: 12,
+        marginBottom: 20,
+    },
+    timelineLeft: {
+        width: 24,
+        alignItems: "center",
+        marginRight: 12,
+    },
+    timelineLine: {
+        width: 2,
+        flex: 1,
+        marginTop: 4,
+        marginBottom: 4,
+    },
+    timelineLineCompleted: {
+        backgroundColor: "#4CAD73",
+    },
+    timelineLineIncomplete: {
+        backgroundColor: "#E5E5E5",
     },
     timelineDot: {
         width: 12,
         height: 12,
         borderRadius: 6,
-        marginRight: 12,
-        marginTop: 2,
+        borderWidth: 2,
+    },
+    timelineDotCompleted: {
+        backgroundColor: "#4CAD73",
+        borderColor: "#4CAD73",
+    },
+    timelineDotIncomplete: {
+        backgroundColor: "#FFFFFF",
+        borderColor: "#E5E5E5",
     },
     timelineContent: {
         flex: 1,
+        paddingTop: 0,
     },
     timelineEvent: {
         fontSize: 14,
         fontWeight: "500",
-        color: "#000000",
         marginBottom: 2,
+    },
+    timelineEventCompleted: {
+        color: "#000000",
+    },
+    timelineEventIncomplete: {
+        color: "#868889",
     },
     timelineDate: {
         fontSize: 12,
         color: "#868889",
+    },
+    rateProductButton: {
+        backgroundColor: "#4CAD73",
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 6,
+        marginLeft: 8,
+    },
+    rateProductText: {
+        color: "#FFFFFF",
+        fontSize: 12,
+        fontWeight: "600",
     },
 });

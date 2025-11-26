@@ -58,26 +58,18 @@ export default function AccountScreen() {
         }, [])
     );
 
-
     const handleLogout = async () => {
         if (loggingOut) return;
         setLoggingOut(true);
+
         try {
-            await logoutUser().catch(() => {
-            });
+            await logoutUser();
+            router.replace("/screens/LoginScreen");
+            setLoggingOut(false);
+
         } catch (e) {
             console.error("Logout failed", e);
         } finally {
-            try {
-                await AsyncStorage.removeItem("userData");
-                await AsyncStorage.removeItem("token");
-                await SecureStore.deleteItemAsync("accessToken").catch(() => {
-                });
-                await SecureStore.deleteItemAsync("refreshToken").catch(() => {
-                });
-            } catch (e) {
-            }
-            router.replace("/screens/LoginScreen");
             setLoggingOut(false);
         }
     };

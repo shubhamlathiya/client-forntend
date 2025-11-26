@@ -1,4 +1,4 @@
-import apiClient from '../utils/apiClient';
+import apiClient, {clearMemoryTokens} from '../utils/apiClient';
 import { AUTH_ENDPOINTS } from '../config/apiConfig';
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -79,25 +79,49 @@ export const resetPassword = async ({ type = 'email', contact, token, newPasswor
 
 export const logoutUser = async () => {
   try {
-    // 1. Clear all AsyncStorage
-    const keys = await AsyncStorage.getAllKeys();
-    if (keys.length > 0) {
-      await AsyncStorage.multiRemove(keys);
+    console.log("🔴 Logging out user…");
+    // ---------------------------
+    // 1. Clear AsyncStorage
+    // ---------------------------
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      if (keys.length > 0) {
+        await AsyncStorage.multiRemove(keys);
+      }
+    } catch (err) {
+      console.log("AsyncStorage clear failed:", err);
     }
 
-    // 2. Remove SecureStore keys
-    const secureKeys = ["accessToken", "refreshToken", "userData", "loginType", "sessionId_individual"];
+    // ---------------------------
+    // 2. Clear SecureStore
+    // ---------------------------
+    const secureKeys = [
+      "accessToken",
+      "refreshToken",
+      "userData",
+      "loginType",
+      "sessionId_individual",
+      "sessionId_business"
+    ];
+
     for (const key of secureKeys) {
       try {
         await SecureStore.deleteItemAsync(key);
       } catch {}
     }
 
-    // 3. Logout API call (non-blocking for safety)
+    // ---------------------------
+    // 3. Remove in-memory tokens
+    // ---------------------------
+    clearMemoryTokens();
+
+    // ---------------------------
+    // 4. Backend logout (optional)
+    // ---------------------------
     try {
       await apiClient.post("/api/auth/logout");
     } catch {
-      // Even if backend logout fails, user should still be logged out locally
+      console.log("Backend logout failed (ignored)");
     }
 
     return { success: true };
@@ -107,3 +131,5 @@ export const logoutUser = async () => {
     return { success: false, error: err.message };
   }
 };
+
+

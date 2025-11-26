@@ -1,75 +1,95 @@
-import axios from 'axios';
-import * as SecureStore from 'expo-secure-store';
-import { router } from 'expo-router';
-import { API_BASE_URL } from '../config/apiConfig';
+import axios from "axios";
+import * as SecureStore from "expo-secure-store";
+import { router } from "expo-router";
+import { API_BASE_URL } from "../config/apiConfig";
 
-// In-memory token to avoid async race conditions
+// ---------------------------
+// In-memory tokens
+// ---------------------------
 let accessTokenInMemory = null;
+
 export const setAccessToken = (token) => {
     accessTokenInMemory = token;
 };
 
-const clearAuthDataAndLogout = async () => {
-    console.log('🔴 Logging out and redirecting to login screen...');
+export const clearMemoryTokens = () => {
     accessTokenInMemory = null;
-    try {
-        await SecureStore.deleteItemAsync('accessToken');
-        await SecureStore.deleteItemAsync('refreshToken');
-        await SecureStore.deleteItemAsync('user');
-    } catch (e) {
-        console.error('Error clearing secure store items:', e);
-    }
-    router.replace('/screens/LoginScreen');
 };
 
+// ---------------------------
+// Global logout (safe)
+// ---------------------------
+export const clearAuthAndLogout = async () => {
+    console.log("🔴 Logging out…");
+
+    accessTokenInMemory = null;
+
+    try {
+        await SecureStore.deleteItemAsync("accessToken");
+        await SecureStore.deleteItemAsync("refreshToken");
+        await SecureStore.deleteItemAsync("user");
+    } catch (err) {
+        console.log("Failed to clean tokens:", err);
+    }
+
+    router.replace("/screens/LoginScreen");
+};
+
+// ---------------------------
+// Axios client
+// ---------------------------
 const apiClient = axios.create({
     baseURL: API_BASE_URL,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { "Content-Type": "application/json" },
     timeout: 15000,
 });
 
-apiClient.interceptors.request.use(async (config) => {
-    // Use in-memory token first
-    if (!accessTokenInMemory) {
-        accessTokenInMemory = await SecureStore.getItemAsync('accessToken');
-    }
-
-    if (accessTokenInMemory) {
-        config.headers.Authorization = `Bearer ${accessTokenInMemory}`;
-    } else {
-        if (!config.url.includes('/login')) {
-            clearAuthDataAndLogout();
-            return Promise.reject(new axios.Cancel('Access Token Not Found. Redirecting to Login.'));
+// ---------------------------
+// Inject token into requests
+// ---------------------------
+apiClient.interceptors.request.use(
+    async (config) => {
+        // Load token only once
+        if (!accessTokenInMemory) {
+            accessTokenInMemory = await SecureStore.getItemAsync("accessToken");
         }
-    }
 
-    console.log(`🔵 Request → ${config.method?.toUpperCase()} ${config.url}`);
-    console.log('   Headers:', config.headers);
-    return config;
-});
+        if (accessTokenInMemory) {
+            config.headers.Authorization = `Bearer ${accessTokenInMemory}`;
+        } else {
+            // Block all API calls if no token
+            if (!config.url.includes("/login")) {
+                await clearAuthAndLogout();
+                throw new axios.Cancel("Missing token → logout");
+            }
+        }
 
+        console.log("🔵 Request:", config.method?.toUpperCase(), config.url);
+        return config;
+    },
+    (err) => Promise.reject(err)
+);
+
+// ---------------------------
+// Handle token errors
+// ---------------------------
 apiClient.interceptors.response.use(
     (response) => {
-        console.log(`✅ Response → ${response.status} ${response.config.url}`);
+        console.log("✅ Response:", response.status, response.config.url);
         return response;
     },
     async (error) => {
-        if (axios.isCancel(error)) {
-            console.log('Request cancelled:', error.message);
-            return Promise.reject(error);
-        }
+        const status = error?.response?.status || 0;
+        const msg = error?.response?.data?.message || "";
 
-        const status = error?.response?.status;
-        const msg = error?.response?.data?.message || '';
-        const errData = error?.response?.data;
+        const tokenExpired =
+            status === 401 ||
+            msg.toLowerCase().includes("expired") ||
+            JSON.stringify(error?.response?.data).toLowerCase().includes("expired");
 
-        const isTokenExpired =
-            (status === 401 && msg.toLowerCase().includes('expired')) ||
-            (status === 500 && JSON.stringify(errData).toLowerCase().includes('jwt expired'));
-
-        if (isTokenExpired || status === 401) {
-            console.log(`🔴 Token expired or unauthorized (Status: ${status})`);
-            await clearAuthDataAndLogout();
+        if (tokenExpired) {
+            console.log("🔴 Token expired");
+            await clearAuthAndLogout();
         }
 
         return Promise.reject(error);

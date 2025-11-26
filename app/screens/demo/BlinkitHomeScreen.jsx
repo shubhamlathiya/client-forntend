@@ -1103,11 +1103,11 @@ export default function BlinkitHomeScreen() {
                         >
                             Search "ice-cream"
                         </Animated.Text>
-                        <View style={styles.separator}/>
-                        <Image
-                            source={require('../../../assets/icons/mic.png')}
-                            style={styles.micIcon}
-                        />
+                        {/*<View style={styles.separator}/>*/}
+                        {/*<Image*/}
+                        {/*    source={require('../../../assets/icons/mic.png')}*/}
+                        {/*    style={styles.micIcon}*/}
+                        {/*/>*/}
                     </Animated.View>
                 </TouchableOpacity>
             </View>
@@ -1566,7 +1566,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: '#FFFFFF',
-        height: 37,
+        height: 40,
         borderRadius: 10,
         borderWidth: 1,
         borderColor: '#C5C5C5',
@@ -1839,7 +1839,7 @@ const styles = StyleSheet.create({
         paddingTop: 10,
         paddingBottom: 4,
         flexDirection: 'row',
-        justifyContent: 'flex-end',
+        justifyContent: 'flex-start',
         alignItems: 'center',
     }, cartPopupContainer: {
         position: 'absolute', bottom: 100, left: 0, right: 0, alignItems: 'center', zIndex: 1000,

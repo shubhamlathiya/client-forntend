@@ -43,6 +43,7 @@ export default function RootLayout() {
             <Stack.Screen name="screens/AllProductsScreen" options={{headerShown: false}}/>
             <Stack.Screen name="screens/FeedbackScreen" options={{headerShown: false}}/>
             <Stack.Screen name="screens/AllCategoriesScreen" options={{headerShown: false}}/>
+            <Stack.Screen name="screens/WishlistScreen" options={{headerShown: false}}/>
 
         </Stack>
         </LoginTypeProvider>

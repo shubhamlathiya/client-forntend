@@ -17,6 +17,7 @@ import {
     applyTierPricing,
 } from '../../api/cartApi';
 import { API_BASE_URL } from '../../config/apiConfig';
+import { getWishlist, removeFromWishlist } from '../../api/catalogApi';
 import {getOrCreateSessionId, getUserType} from "../../api/sessionManager";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -74,36 +75,7 @@ export default function CartScreen() {
         }
     ];
 
-    const [wishlistItems] = useState([
-        {
-            id: '1',
-            name: 'Organic Apples',
-            price: 299,
-            image: require('../../assets/Rectangle 24904.png'),
-            unit: '1kg'
-        },
-        {
-            id: '2',
-            name: 'Fresh Milk',
-            price: 65,
-            image: require('../../assets/Rectangle 24904.png'),
-            unit: '1L'
-        },
-        {
-            id: '3',
-            name: 'Whole Wheat Bread',
-            price: 45,
-            image: require('../../assets/Rectangle 24904.png'),
-            unit: '400g'
-        },
-        {
-            id: '4',
-            name: 'Eggs',
-            price: 90,
-            image: require('../../assets/Rectangle 24904.png'),
-            unit: '6pcs'
-        }
-    ]);
+    const [wishlistItems, setWishlistItems] = useState([]);
 
     // Initialize session and user type
     const initializeSession = async () => {
@@ -170,7 +142,33 @@ export default function CartScreen() {
         initializeSession();
         loadCartData();
         loadSelectedAddress();
+        loadWishlist();
     }, []));
+
+    const parseUserId = (u) => u?._id || u?.id || u?.userId || null;
+    const loadWishlist = async () => {
+        try {
+            const raw = await AsyncStorage.getItem('userData');
+            const user = raw ? JSON.parse(raw) : null;
+            const uid = parseUserId(user);
+            if (!uid) { setWishlistItems([]); return; }
+            const res = await getWishlist(uid);
+            const payload = res?.data ?? res;
+            const items = Array.isArray(payload) ? payload : (payload?.items || []);
+            const mapped = items.map((p, idx) => {
+                const id = String(p?._id || p?.id || idx);
+                const name = p?.title || p?.name || 'Product';
+                const price = Number(p?.finalPrice ?? p?.price ?? 0);
+                const thumb = p?.thumbnail || (Array.isArray(p?.images) ? (p.images[0]?.url || p.images[0]) : null);
+                const image = thumb ? { uri: `${API_BASE_URL}${thumb}` } : require('../../assets/Rectangle 24904.png');
+                const unit = p?.unit || '';
+                return { id, name, price, image, unit, productId: p?._id || p?.id };
+            });
+            setWishlistItems(mapped);
+        } catch (e) {
+            setWishlistItems([]);
+        }
+    };
 
     // Load cart data with proper error handling
     const loadCartData = useCallback(async (showLoading = true) => {
@@ -440,22 +438,24 @@ export default function CartScreen() {
     };
 
     const renderWishlistItem = ({ item }) => (
-        <TouchableOpacity style={styles.wishlistCard}>
+        <View style={styles.wishlistCard}>
             <Image source={item.image} style={styles.wishlistImage} />
+            <TouchableOpacity style={styles.wishlistRemove} onPress={async () => {
+                try {
+                    const raw = await AsyncStorage.getItem('userData');
+                    const user = raw ? JSON.parse(raw) : null;
+                    const uid = parseUserId(user);
+                    if (!uid) return;
+                    await removeFromWishlist(uid, item.productId);
+                    setWishlistItems(prev => prev.filter(w => String(w.id) !== String(item.id)));
+                } catch (_) {}
+            }}>
+                <Image source={require('../../assets/icons/deleteIcon.png')} style={styles.wishlistRemoveIcon} />
+            </TouchableOpacity>
             <View style={styles.wishlistContent}>
                 <Text style={styles.wishlistName} numberOfLines={2}>{item.name}</Text>
-                <Text style={styles.wishlistUnit}>{item.unit}</Text>
-                <View style={styles.wishlistBottom}>
-                    <Text style={styles.wishlistPrice}>₹{item.price}</Text>
-                    <TouchableOpacity
-                        style={styles.addButton}
-                        onPress={() => handleAddToCart(item)}
-                    >
-                        <Text style={styles.addButtonText}>ADD</Text>
-                    </TouchableOpacity>
-                </View>
             </View>
-        </TouchableOpacity>
+        </View>
     );
 
     const renderCartItem = useCallback((item) => (
@@ -656,14 +656,18 @@ export default function CartScreen() {
                             <Text style={styles.seeAllText}>See all</Text>
                         </TouchableOpacity>
                     </View>
-                    <FlatList
-                        data={wishlistItems}
-                        renderItem={renderWishlistItem}
-                        keyExtractor={item => item.id}
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.wishlistContainer}
-                    />
+                    {wishlistItems.length === 0 ? (
+                        <View style={styles.emptyWishlist}><Text style={styles.emptyWishlistText}>No wishlist items found.</Text></View>
+                    ) : (
+                        <FlatList
+                            data={wishlistItems}
+                            renderItem={renderWishlistItem}
+                            keyExtractor={item => String(item.id)}
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={styles.wishlistContainer}
+                        />
+                    )}
                 </View>
 
 
@@ -821,80 +825,97 @@ export default function CartScreen() {
                 )}
             </ScrollView>
 
-            {/* Negotiation Modal */}
             <Modal
                 visible={negotiationModalVisible}
                 animationType="slide"
                 transparent={true}
                 onRequestClose={() => setNegotiationModalVisible(false)}
             >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Request Better Price</Text>
+                <KeyboardAvoidingView
+                    style={{ flex: 1 }}
+                    behavior={Platform.OS === "ios" ? "padding" : "height"}
+                    keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
+                >
+                    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                        <View style={styles.modalOverlay}>
+                            <View style={styles.modalContent}>
+                                <Text style={styles.modalTitle}>Request Better Price</Text>
 
-                        {selectedProductForNegotiation && (
-                            <View style={styles.negotiationProduct}>
-                                <Image
-                                    source={selectedProductForNegotiation.imageUrl ?
-                                        { uri: `${API_BASE_URL}${selectedProductForNegotiation.imageUrl}` } :
-                                        require("../../assets/sample-product.png")}
-                                    style={styles.negotiationImage}
+                                {selectedProductForNegotiation && (
+                                    <View style={styles.negotiationProduct}>
+                                        <Image
+                                            source={
+                                                selectedProductForNegotiation.imageUrl
+                                                    ? { uri: `${API_BASE_URL}${selectedProductForNegotiation.imageUrl}` }
+                                                    : require("../../assets/sample-product.png")
+                                            }
+                                            style={styles.negotiationImage}
+                                        />
+                                        <View style={styles.negotiationProductInfo}>
+                                            <Text style={styles.negotiationProductName}>
+                                                {selectedProductForNegotiation.name}
+                                            </Text>
+                                            <Text style={styles.negotiationProductDesc}>
+                                                {selectedProductForNegotiation.description}
+                                            </Text>
+                                            <Text style={styles.currentPrice}>
+                                                Current Price: ₹{selectedProductForNegotiation.finalPrice.toFixed(2)}
+                                            </Text>
+                                            <Text style={styles.currentQuantity}>
+                                                Quantity: {selectedProductForNegotiation.quantity}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                )}
+
+                                <Text style={styles.modalLabel}>Your Proposed Price (per unit)</Text>
+
+                                <TextInput
+                                    style={styles.priceInput}
+                                    value={proposedPrice}
+                                    onChangeText={setProposedPrice}
+                                    placeholder="Enter your proposed price"
+                                    keyboardType="numeric"
+                                    placeholderTextColor="#999"
                                 />
-                                <View style={styles.negotiationProductInfo}>
-                                    <Text style={styles.negotiationProductName}>
-                                        {selectedProductForNegotiation.name}
-                                    </Text>
-                                    <Text style={styles.negotiationProductDesc}>
-                                        {selectedProductForNegotiation.description}
-                                    </Text>
-                                    <Text style={styles.currentPrice}>
-                                        Current Price: ₹{selectedProductForNegotiation.finalPrice.toFixed(2)}
-                                    </Text>
-                                    <Text style={styles.currentQuantity}>
-                                        Quantity: {selectedProductForNegotiation.quantity}
-                                    </Text>
+
+                                {proposedPrice && selectedProductForNegotiation && (
+                                    <View style={styles.totalCalculation}>
+                                        <Text style={styles.totalCalculationText}>
+                                            Total: ₹
+                                            {(parseFloat(proposedPrice) * selectedProductForNegotiation.quantity).toFixed(2)}
+                                        </Text>
+                                    </View>
+                                )}
+
+                                <View style={styles.modalButtons}>
+                                    <TouchableOpacity
+                                        style={[styles.modalButton, styles.cancelButton]}
+                                        onPress={() => setNegotiationModalVisible(false)}
+                                    >
+                                        <Text style={styles.cancelButtonText}>Cancel</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.modalButton,
+                                            styles.submitButton,
+                                            (!proposedPrice || negotiationLoading) && styles.disabledButton,
+                                        ]}
+                                        onPress={submitNegotiation}
+                                        disabled={!proposedPrice || negotiationLoading}
+                                    >
+                                        <Text style={styles.submitButtonText}>
+                                            {negotiationLoading ? "Submitting..." : "Submit Request"}
+                                        </Text>
+                                    </TouchableOpacity>
                                 </View>
                             </View>
-                        )}
-
-                        <Text style={styles.modalLabel}>Your Proposed Price (per unit)</Text>
-                        <TextInput
-                            style={styles.priceInput}
-                            value={proposedPrice}
-                            onChangeText={setProposedPrice}
-                            placeholder="Enter your proposed price"
-                            keyboardType="numeric"
-                            placeholderTextColor="#999"
-                        />
-
-                        {proposedPrice && selectedProductForNegotiation && (
-                            <View style={styles.totalCalculation}>
-                                <Text style={styles.totalCalculationText}>
-                                    Total: ₹{(parseFloat(proposedPrice) * selectedProductForNegotiation.quantity).toFixed(2)}
-                                </Text>
-                            </View>
-                        )}
-
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity
-                                style={[styles.modalButton, styles.cancelButton]}
-                                onPress={() => setNegotiationModalVisible(false)}
-                            >
-                                <Text style={styles.cancelButtonText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.modalButton, styles.submitButton, (!proposedPrice || negotiationLoading) && styles.disabledButton]}
-                                onPress={submitNegotiation}
-                                disabled={!proposedPrice || negotiationLoading}
-                            >
-                                <Text style={styles.submitButtonText}>
-                                    {negotiationLoading ? 'Submitting...' : 'Submit Request'}
-                                </Text>
-                            </TouchableOpacity>
                         </View>
-                    </View>
-                </View>
+                    </TouchableWithoutFeedback>
+                </KeyboardAvoidingView>
             </Modal>
+
         </View>
     );
 }
@@ -1447,6 +1468,8 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         marginBottom: 8,
     },
+    wishlistRemove: { position: 'absolute', top: 8, right: 8, backgroundColor: '#FFFFFF', padding: 4, borderRadius: 12 },
+    wishlistRemoveIcon: { width: 16, height: 16 },
     wishlistContent: {
         flex: 1,
     },

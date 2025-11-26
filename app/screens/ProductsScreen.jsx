@@ -17,7 +17,7 @@ import {
     SafeAreaView
 } from "react-native";
 import {addCartItem, getCart, removeCartItem, updateCartItem} from '../../api/cartApi';
-import {getProducts, getCategories} from '../../api/catalogApi';
+import {getProducts, getCategories, toggleWishlist, checkWishlist} from '../../api/catalogApi';
 import {API_BASE_URL} from '../../config/apiConfig';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -37,6 +37,7 @@ export default function ProductsScreen() {
     const [showVariantModal, setShowVariantModal] = useState(false);
     const [selectedProductForVariant, setSelectedProductForVariant] = useState(null);
     const [updatingItems, setUpdatingItems] = useState({});
+    const [likedMap, setLikedMap] = useState({});
 
     // Auto refresh when screen comes into focus
     useFocusEffect(
@@ -123,6 +124,29 @@ export default function ProductsScreen() {
             mounted = false;
         };
     }, [selectedCategory]);
+
+    useEffect(() => {
+        let mounted = true;
+        (async () => {
+            try {
+                const raw = await AsyncStorage.getItem('userData');
+                const user = raw ? JSON.parse(raw) : null;
+                const uid = user?._id || user?.id || user?.userId || null;
+                if (!uid) return;
+                const ids = products.map(p => String(getProductId(p))).filter(Boolean);
+                const updates = {};
+                for (const pid of ids) {
+                    try {
+                        const res = await checkWishlist(uid, pid);
+                        const liked = Boolean(res?.liked ?? res?.data?.liked ?? res?.inWishlist ?? res?.data?.inWishlist);
+                        updates[pid] = liked;
+                    } catch (_) {}
+                }
+                if (mounted) setLikedMap(updates);
+            } catch (_) {}
+        })();
+        return () => { mounted = false; };
+    }, [products]);
 
     // Filter products when category or search query changes
     useEffect(() => {
@@ -419,6 +443,23 @@ export default function ProductsScreen() {
             <View style={styles.productCard}>
                 <TouchableOpacity onPress={() => handleProductClick(productId)}>
                     <View style={styles.imageContainer}>
+                        <TouchableOpacity style={styles.heartButton} onPress={async () => {
+                            try {
+                                const raw = await AsyncStorage.getItem('userData');
+                                const user = raw ? JSON.parse(raw) : null;
+                                const uid = user?._id || user?.id || user?.userId || null;
+                                if (!uid || !productId) return;
+                                const res = await toggleWishlist(uid, String(productId));
+                                const liked = Boolean(res?.data?.liked ?? res?.liked);
+                                setLikedMap(prev => ({ ...prev, [String(productId)]: liked }));
+                            } catch (_) {}
+                        }}>
+                            <Image
+                                source={require("../../assets/icons/heart.png")}
+                                style={[styles.heartIcon, likedMap[String(productId)] ? styles.heartLiked : styles.heartUnliked]}
+                                resizeMode="contain"
+                            />
+                        </TouchableOpacity>
                         <Image
                             style={styles.image}
                             source={item?.thumbnail ? {uri: `${API_BASE_URL}${item.thumbnail}`} : require("../../assets/icons/fruit.png")}
@@ -809,6 +850,23 @@ const styles = StyleSheet.create({
         marginBottom: 8,
         backgroundColor: '#F8F9FA',
     },
+    heartButton: {
+        position: 'absolute',
+        top: 8,
+        right: 8,
+        zIndex: 10,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        padding: 6,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    heartIcon: { width: 16, height: 16 },
+    heartLiked: { tintColor: '#DC1010' },
+    heartUnliked: { tintColor: '#1B1B1B' },
     image: {
         width: '100%',
         height: '100%',

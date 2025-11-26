@@ -3,7 +3,8 @@ import {
     View, Text, StyleSheet, ScrollView, Image, TextInput, TouchableOpacity, ActivityIndicator, FlatList, StatusBar,
 } from 'react-native';
 import {useLocalSearchParams, useRouter} from 'expo-router';
-import {getProducts, searchProducts} from '../../api/catalogApi';
+import {getProducts, searchProducts, toggleWishlist, checkWishlist} from '../../api/catalogApi';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {API_BASE_URL} from '../../config/apiConfig';
 
 export default function SearchScreen() {
@@ -15,11 +16,33 @@ export default function SearchScreen() {
     const [filteredProducts, setFilteredProducts] = useState([]);
     const [loading, setLoading] = useState(false);
     const [searchLoading, setSearchLoading] = useState(false);
+    const [likedMap, setLikedMap] = useState({});
 
     // Load all products on component mount
     useEffect(() => {
         loadAllProducts();
     }, []);
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const raw = await AsyncStorage.getItem('userData');
+                const user = raw ? JSON.parse(raw) : null;
+                const uid = user?._id || user?.id || user?.userId || null;
+                if (!uid) return;
+                const ids = products.map(p => String(p._id || p.id)).filter(Boolean);
+                const updates = {};
+                for (const pid of ids) {
+                    try {
+                        const res = await checkWishlist(uid, pid);
+                        const liked = Boolean(res?.liked ?? res?.data?.liked ?? res?.inWishlist ?? res?.data?.inWishlist);
+                        updates[pid] = liked;
+                    } catch (_) {}
+                }
+                setLikedMap(updates);
+            } catch (_) {}
+        })();
+    }, [products]);
 
     // Filter products when query changes
     useEffect(() => {
@@ -148,6 +171,19 @@ export default function SearchScreen() {
                     style={styles.productImage}
                     resizeMode="cover"
                 />
+                <TouchableOpacity style={styles.heartButton} onPress={async () => {
+                    try {
+                        const raw = await AsyncStorage.getItem('userData');
+                        const user = raw ? JSON.parse(raw) : null;
+                        const uid = user?._id || user?.id || user?.userId || null;
+                        if (!uid || !productId) return;
+                        const res = await toggleWishlist(uid, String(productId));
+                        const liked = Boolean(res?.data?.liked ?? res?.liked);
+                        setLikedMap(prev => ({ ...prev, [String(productId)]: liked }));
+                    } catch (_) {}
+                }}>
+                    <Image source={require('../../assets/icons/heart.png')} style={[styles.heartIcon, likedMap[String(productId)] ? styles.heartLiked : styles.heartUnliked]} />
+                </TouchableOpacity>
 
                 <View style={styles.productInfo}>
                     <Text style={styles.productName} numberOfLines={2}>
@@ -314,7 +350,11 @@ const styles = StyleSheet.create({
         borderColor: '#F0F0F0',
     }, productImage: {
         width: 80, height: 80, borderRadius: 8, marginRight: 12, backgroundColor: '#F8F9FA',
-    }, productInfo: {
+    }, heartButton: { position: 'absolute', top: 8, right: 8, backgroundColor: '#FFFFFF', padding: 6, borderRadius: 14 },
+    heartIcon: { width: 16, height: 16 },
+    heartLiked: { tintColor: '#DC1010' },
+    heartUnliked: { tintColor: '#1B1B1B' },
+    productInfo: {
         flex: 1, justifyContent: 'space-between',
     }, productName: {
         fontFamily: 'Poppins', fontSize: 14, fontWeight: '600', color: '#1B1B1B', marginBottom: 6, lineHeight: 18,

@@ -1,17 +1,16 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {useFocusEffect, useRouter} from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import React, {useCallback, useEffect, useRef, useState} from "react";
+import React, {useCallback, useRef, useState} from "react";
 import {
     Animated,
     Image,
     StatusBar,
     StyleSheet,
-    Switch,
     Text,
     TouchableOpacity,
     View,
-    Platform,
+    Platform, Share,
 } from "react-native";
 import {LinearGradient} from "expo-linear-gradient";
 import {logoutUser} from "../../api/authApi";
@@ -138,6 +137,16 @@ export default function AccountScreen() {
         outputRange: [0, 1],
         extrapolate: "clamp",
     });
+
+    const handleShareApp = async () => {
+        try {
+            await Share.share({
+                message: "Check out this app! Download now.",
+            });
+        } catch (error) {
+            console.log("Share error:", error);
+        }
+    };
 
     return (
         <View style={styles.container}>
@@ -308,7 +317,10 @@ export default function AccountScreen() {
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Your information</Text>
 
-                    <TouchableOpacity style={styles.menuItem}>
+                    <TouchableOpacity
+                        style={styles.menuItem}
+                        onPress={() => router.push("/screens/AddressListScreen")}
+                    >
                         <View style={styles.leftRow}>
                             <Image
                                 source={require("../../assets/icons/address-book.png")}
@@ -322,10 +334,13 @@ export default function AccountScreen() {
                         />
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.menuItem}>
+                    <TouchableOpacity
+                        style={styles.menuItem}
+                        onPress={() => router.push('/screens/WishlistScreen')}
+                    >
                         <View style={styles.leftRow}>
                             <Image
-                                source={require("../../assets/icons/heart.png")}
+                                source={require("../../assets/icons/heart_empty.png")}
                                 style={styles.menuIcon}
                             />
                             <Text style={styles.menuLabel}>Your wishlist</Text>
@@ -369,7 +384,10 @@ export default function AccountScreen() {
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Other Information</Text>
 
-                    <TouchableOpacity style={styles.menuItem}>
+                    <TouchableOpacity
+                        style={styles.menuItem}
+                        onPress={handleShareApp}
+                    >
                         <View style={styles.leftRow}>
                             <Image
                                 source={require("../../assets/icons/share.png")}
@@ -382,6 +400,7 @@ export default function AccountScreen() {
                             style={styles.arrowIcon}
                         />
                     </TouchableOpacity>
+
 
                     <TouchableOpacity style={styles.menuItem}>
                         <View style={styles.leftRow}>

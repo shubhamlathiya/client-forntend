@@ -12,7 +12,7 @@ import {
     Dimensions
 } from "react-native";
 import { addCartItem } from '../../api/cartApi';
-import { getProductById, getProductFaqs } from '../../api/catalogApi';
+import { getProductById, getProductFaqs, toggleWishlist, checkWishlist } from '../../api/catalogApi';
 import { API_BASE_URL } from '../../config/apiConfig';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getOrCreateSessionId } from "../../api/sessionManager";
@@ -35,6 +35,8 @@ export default function ProductDetailScreen() {
     const [faqs, setFaqs] = useState([]);
     const [reviews, setReviews] = useState([]);
     const [activeImageIndex, setActiveImageIndex] = useState(0);
+    const [isLiked, setIsLiked] = useState(false);
+    const [userId, setUserId] = useState(null);
 
     // Navigation handlers
     const handleBack = () => {
@@ -125,6 +127,29 @@ export default function ProductDetailScreen() {
         };
     }, [id, productParam]);
 
+    useEffect(() => {
+        let mounted = true;
+        (async () => {
+            try {
+                const raw = await AsyncStorage.getItem('userData');
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    const uid = parsed?._id || parsed?.id || parsed?.userId || null;
+                    if (mounted) setUserId(uid);
+                    const pid = String(product?._id || product?.id || id || '');
+                    if (uid && pid) {
+                        try {
+                            const res = await checkWishlist(uid, pid);
+                            const liked = Boolean(res?.liked ?? res?.data?.liked ?? res?.inWishlist ?? res?.data?.inWishlist);
+                            if (mounted) setIsLiked(liked);
+                        } catch (_) {}
+                    }
+                }
+            } catch (_) {}
+        })();
+        return () => { mounted = false; };
+    }, [id, product]);
+
     // Image scroll handler
     const handleImageScroll = (event) => {
         const contentOffsetX = event.nativeEvent.contentOffset.x;
@@ -161,6 +186,16 @@ export default function ProductDetailScreen() {
             console.warn('Add to Cart Error:', error);
             // You might want to show an error message to the user here
         }
+    };
+
+    const handleWishlist = async () => {
+        try {
+            const pid = String(product?._id || product?.id || id || '');
+            if (!userId || !pid) return;
+            const res = await toggleWishlist(userId, pid);
+            const liked = Boolean(res?.data?.liked ?? res?.liked);
+            setIsLiked(liked);
+        } catch (_) {}
     };
 
     // Utility functions
@@ -254,6 +289,22 @@ export default function ProductDetailScreen() {
             >
                 {/* Product Images Section - Clean without header overlap */}
                 <View style={styles.imageSection}>
+                    <TouchableOpacity
+                        style={styles.wishlistButton}
+                        onPress={handleWishlist}
+                        activeOpacity={0.8}
+                    >
+                        <Image
+                            source={
+                                isLiked
+                                    ? require("../../assets/icons/heart_filled.png")   // when liked
+                                    : require("../../assets/icons/heart_empty.png")    // when not liked
+                            }
+                            style={styles.wishlistIcon}
+                            resizeMode="contain"
+                        />
+                    </TouchableOpacity>
+
                     <ScrollView
                         horizontal
                         pagingEnabled
@@ -677,6 +728,30 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: 'bold',
         fontFamily: 'Poppins',
+    },
+    wishlistButton: {
+        position: 'absolute',
+        top: 70,
+        right: 20,
+        zIndex: 20,
+        backgroundColor: '#FFFFFF',
+        padding: 8,
+        borderRadius: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    wishlistIcon: {
+        width: 30,
+        height: 30,
+    },
+    wishlistIconLiked: {
+        tintColor: '#DC1010',
+    },
+    wishlistIconUnliked: {
+        tintColor: '#1B1B1B',
     },
     detailsSection: {
         backgroundColor: "#FFFFFF",

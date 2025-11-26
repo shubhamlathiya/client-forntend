@@ -7,9 +7,9 @@ import {setAccessToken} from "./apiClient"; // if you have it
 
 WebBrowser.maybeCompleteAuthSession();
 
-// const APP_REDIRECT = "exp://192.168.1.15:8081/--/auth/callback";
+const APP_REDIRECT = "exp://192.168.1.15:8081/--/auth/callback";
 // const APP_REDIRECT = "exp://10.244.170.75:8081/--/auth/callback";
-const APP_REDIRECT = "clientforntend://auth/callback";
+// const APP_REDIRECT = "clientforntend://auth/callback";
 
 export async function googleLogin(router, setGoogleLoading) {
     try {

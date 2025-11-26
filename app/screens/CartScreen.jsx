@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useState, useCallback } from "react";
 import {
     Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Dimensions,
-    FlatList, Modal
+    FlatList, Modal, KeyboardAvoidingView, TouchableWithoutFeedback,Platform,Keyboard
 } from "react-native";
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -1692,4 +1692,16 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontFamily: 'Poppins-SemiBold',
     },
+    emptyWishlist: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+        paddingHorizontal: 20
+    },
+    emptyWishlistText: {
+        fontSize: 16,
+        color: "#555",
+        textAlign: "center",
+        marginTop: 10
+    }
 });

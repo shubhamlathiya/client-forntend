@@ -7,11 +7,7 @@ import { fonts } from '../../constants/fonts';
 import { globalStyles } from '../../constants/globalStyles';
 
 import { registerUser } from '../../api/authApi';
-import * as Linking from "expo-linking";
-import {BASE_URL} from "../../config/apiConfig";
-import * as WebBrowser from "expo-web-browser";
-import * as SecureStore from "expo-secure-store";
-import {mergeGuestCart} from "../../api/cartApi";
+import {googleLogin} from "../../utils/googleLoginHelper";
 
 export default function SignUpScreen() {
     const router = useRouter();
@@ -55,59 +51,6 @@ export default function SignUpScreen() {
         }
     };
 
-    async function handleGoogleLogin() {
-        if (googleLoading) return;
-        setGoogleLoading(true);
-        try {
-            const redirectUrl = Linking.createURL('/');
-            const authUrl = `${BASE_URL}/api/auth/social/google?redirect_uri=${encodeURIComponent(redirectUrl)}`;
-            const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
-
-            if (result.type === 'success' && result.url) {
-                const finalUrl = result.url;
-                const fragment = finalUrl.includes('#') ? finalUrl.split('#')[1] : '';
-                const query = finalUrl.includes('?') ? finalUrl.split('?')[1] : '';
-                const raw = fragment || query || '';
-
-                const params = new URLSearchParams(raw);
-                const accessToken = params.get('accessToken') || params.get('access_token') || params.get('token');
-                const refreshToken = params.get('refreshToken') || params.get('refresh_token');
-                const userParam = params.get('user');
-
-                if (accessToken) {
-                    await SecureStore.setItemAsync('accessToken', String(accessToken));
-                }
-                if (refreshToken) {
-                    await SecureStore.setItemAsync('refreshToken', String(refreshToken));
-                }
-
-                if (userParam) {
-                    try {
-                        const decoded = decodeURIComponent(userParam);
-                        await SecureStore.setItemAsync('user', decoded);
-                    } catch (_) {
-                        await SecureStore.setItemAsync('user', String(userParam));
-                    }
-                }
-
-                Alert.alert('Success', 'Logged in with Google');
-                try {
-                    await mergeGuestCart();
-                } catch (_) {
-                }
-                router.replace('/screens/LoginTypeSelectionScreen');
-            } else if (result.type === 'cancel') {
-                Alert.alert('Cancelled', 'Google login was cancelled');
-            } else {
-                Alert.alert('Error', 'Google login did not complete');
-            }
-        } catch (error) {
-            const message = error?.message || 'Failed to login with Google';
-            Alert.alert('Error', message);
-        } finally {
-            setGoogleLoading(false);
-        }
-    }
 
     const togglePasswordVisibility = () => {
         setShowPassword(!showPassword);
@@ -209,7 +152,7 @@ export default function SignUpScreen() {
                 </View>
 
                 {/* Google Button */}
-                <TouchableOpacity style={globalStyles.socialBtn}  onPress={handleGoogleLogin} disabled={googleLoading}>
+                <TouchableOpacity style={globalStyles.socialBtn}  onPress={() => googleLogin(router, setGoogleLoading)} disabled={googleLoading}>
                     <Image
                         source={require("../../assets/google_logo.png")}
                         style={globalStyles.socialIcon}

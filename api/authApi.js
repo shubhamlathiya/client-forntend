@@ -79,27 +79,31 @@ export const resetPassword = async ({ type = 'email', contact, token, newPasswor
 
 export const logoutUser = async () => {
   try {
-
-    // Clear AsyncStorage
+    // 1. Clear all AsyncStorage
     const keys = await AsyncStorage.getAllKeys();
     if (keys.length > 0) {
       await AsyncStorage.multiRemove(keys);
     }
 
-    // Clear common SecureStore keys
-    const secureKeys = ["accessToken", "refreshToken", "userData"];
+    // 2. Remove SecureStore keys
+    const secureKeys = ["accessToken", "refreshToken", "userData", "loginType", "sessionId_individual"];
     for (const key of secureKeys) {
       try {
         await SecureStore.deleteItemAsync(key);
-      } catch (e) {
-
-      }
+      } catch {}
     }
-    const res = await apiClient.post('/api/auth/logout');
-    return res.data;
 
-  } catch (error) {
-    console.log("❌ Quick cleanup failed:", error);
-    return { success: false, error: error.message };
+    // 3. Logout API call (non-blocking for safety)
+    try {
+      await apiClient.post("/api/auth/logout");
+    } catch {
+      // Even if backend logout fails, user should still be logged out locally
+    }
+
+    return { success: true };
+
+  } catch (err) {
+    console.log("Logout error:", err);
+    return { success: false, error: err.message };
   }
 };

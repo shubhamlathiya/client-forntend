@@ -2,11 +2,13 @@ import * as WebBrowser from "expo-web-browser";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Alert } from "react-native";
 import { API_BASE_URL } from "../config/apiConfig";
-import { mergeGuestCart } from "../api/cartApi"; // if you have it
+import { mergeGuestCart } from "../api/cartApi";
+import {setAccessToken} from "./apiClient"; // if you have it
 
 WebBrowser.maybeCompleteAuthSession();
 
 // const APP_REDIRECT = "exp://192.168.1.15:8081/--/auth/callback";
+// const APP_REDIRECT = "exp://10.244.170.75:8081/--/auth/callback";
 const APP_REDIRECT = "clientforntend://auth/callback";
 
 export async function googleLogin(router, setGoogleLoading) {
@@ -18,22 +20,21 @@ export async function googleLogin(router, setGoogleLoading) {
         )}&source=mobile-app`;
 
         console.log("AUTH URL →", authUrl);
-        console.log("APP REDIRECT →", APP_REDIRECT);
 
         const result = await WebBrowser.openAuthSessionAsync(authUrl, APP_REDIRECT);
-
         console.log("Google Auth Result →", result);
 
         if (result.type !== "success" || !result.url) {
-            if (result.type === "cancel") {
-                Alert.alert("Cancelled", "Google login was cancelled");
-            } else {
-                Alert.alert("Error", "Google login did not complete");
-            }
+            Alert.alert(
+                result.type === "cancel" ? "Cancelled" : "Error",
+                result.type === "cancel"
+                    ? "Google login was cancelled"
+                    : "Google login did not complete"
+            );
             return false;
         }
 
-        // Extract values
+        // Parse query parameters
         const query = result.url.split("?")[1] || "";
         const params = new URLSearchParams(query);
 
@@ -41,40 +42,42 @@ export async function googleLogin(router, setGoogleLoading) {
         const refreshToken = params.get("refreshToken");
         const userParam = params.get("user");
 
-        if (accessToken) {
-            await AsyncStorage.setItem("accessToken", accessToken);
+        if (!accessToken || !refreshToken || !userParam) {
+            Alert.alert("Error", "Missing login credentials from Google");
+            return false;
         }
 
-        if (refreshToken) {
-            await AsyncStorage.setItem("refreshToken", refreshToken);
-        }
+        // Store tokens
+        await AsyncStorage.setItem("accessToken", accessToken);
+        await AsyncStorage.setItem("refreshToken", refreshToken);
+        setAccessToken(accessToken); // in-memory token for immediate use
 
-        if (userParam) {
-            try {
-                const decoded = decodeURIComponent(userParam);
-                const userObject = JSON.parse(decoded);
-                await AsyncStorage.setItem("userData", JSON.stringify(userObject));
-            } catch (err) {
-                console.log("User decode error:", err);
-            }
+        // Decode and store user data
+        try {
+            const decoded = decodeURIComponent(userParam);
+            const userObject = JSON.parse(decoded);
+            await AsyncStorage.setItem("userData", JSON.stringify(userObject));
+            console.log("User stored:", userObject);
+        } catch (err) {
+            console.error("Failed to decode user param:", err);
         }
 
         Alert.alert("Success", "Logged in with Google");
 
-        // Optional cart merge
+        // Optional: merge guest cart if any
         try {
             await mergeGuestCart();
-        } catch (_) {}
+        } catch (_) {
+            console.log("Merge Cart Skipped: no access token");
+        }
 
+        // Redirect to next screen
         router.replace("/screens/LoginTypeSelectionScreen");
-
         return true;
-
     } catch (error) {
-        const message = error?.message || "Failed to login with Google";
-        Alert.alert("Error", message);
+        console.error("Google login error:", error);
+        Alert.alert("Error", error?.message || "Failed to login with Google");
         return false;
-
     } finally {
         setGoogleLoading(false);
     }

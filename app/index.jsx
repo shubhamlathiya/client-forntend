@@ -19,7 +19,7 @@ export default function Index() {
                     getOrCreateSessionId().catch(() => {});
 
                     const token = await SecureStore.getItemAsync('accessToken');
-
+                    console.log("hy 1",token)
                     if (token) {
                         const lt = await AsyncStorage.getItem('loginType');
 

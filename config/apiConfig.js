@@ -10,6 +10,7 @@ const getBaseURL = () => {
     // Android emulator loopback
     return 'https://e-commerce-rho-nine-36.vercel.app';
     // return 'http://192.168.1.15:8000';
+    // return 'http://10.244.170.75:8000';
 
   }
   if (Platform.OS === 'ios') {

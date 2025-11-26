@@ -20,7 +20,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {getCategories, getProducts, getProductsByCategory, getSaleCategories} from "../../../api/catalogApi";
 import {API_BASE_URL} from "../../../config/apiConfig";
 import {getAddresses} from "../../../api/addressApi";
-import {addCartItem, getCart, updateCartItem, removeCartItem, getTierPricing} from "../../../api/cartApi";
+import {addCartItem, getCart, updateCartItem, removeCartItem, getTierPricing, clearCart} from "../../../api/cartApi";
+import {getCurrentSessionId} from "../../../api/sessionManager";
 
 const {width, height} = Dimensions.get('window');
 

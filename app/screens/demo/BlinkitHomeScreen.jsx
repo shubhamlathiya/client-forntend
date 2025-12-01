@@ -13,7 +13,7 @@ import {
     Alert,
     FlatList,
     Modal,
-    Animated
+    Animated, Platform
 } from 'react-native';
 import {useFocusEffect, useRouter} from "expo-router";
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -22,6 +22,7 @@ import {API_BASE_URL} from "../../../config/apiConfig";
 import {getAddresses} from "../../../api/addressApi";
 import {addCartItem, getCart, updateCartItem, removeCartItem, getTierPricing, clearCart} from "../../../api/cartApi";
 import {getCurrentSessionId} from "../../../api/sessionManager";
+import * as Notifications from "expo-notifications";
 
 const {width, height} = Dimensions.get('window');
 
@@ -78,7 +79,35 @@ export default function BlinkitHomeScreen() {
     const searchAnim = useState(new Animated.Value(0))[0];
     const placeholderAnim = useState(new Animated.Value(1))[0];
 
+
+    const requestNotificationPermission = async () => {
+        // iOS + Android (API 33+)
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+
+        if (existingStatus !== "granted") {
+            const { status } = await Notifications.requestPermissionsAsync();
+            finalStatus = status;
+        }
+
+        if (finalStatus !== "granted") {
+            Alert.alert("Permission Needed", "Please enable notifications.");
+            return;
+        }
+
+        // Create Android channel (important)
+        if (Platform.OS === "android") {
+            await Notifications.setNotificationChannelAsync("default", {
+                name: "Default",
+                importance: Notifications.AndroidImportance.MAX,
+            });
+        }
+
+        console.log("Notification permission granted");
+    };
+
     useEffect(() => {
+        requestNotificationPermission();
         // Run on initial mount
         checkUserType();
         loadUserData();

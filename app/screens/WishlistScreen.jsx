@@ -7,19 +7,55 @@ import {
     Image,
     FlatList,
     ActivityIndicator,
-    Alert
+    Alert,
+    Dimensions,
+    Platform,
+    StatusBar,
+    SafeAreaView,
+    RefreshControl
 } from 'react-native';
 import { useRouter } from 'expo-router';
-
 import { API_BASE_URL } from '../../config/apiConfig';
-import {getWishlist, removeFromWishlist} from "../../api/catalogApi";
+import { getWishlist, toggleWishlist } from "../../api/catalogApi";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+// Responsive size calculator
+const responsiveSize = (size) => {
+    const scale = screenWidth / 375; // 375 is standard iPhone width
+    return Math.round(size * scale);
+};
+
+// Responsive percentage width
+const responsiveWidth = (percentage) => {
+    return (screenWidth * percentage) / 100;
+};
+
+// Responsive percentage height
+const responsiveHeight = (percentage) => {
+    return (screenHeight * percentage) / 100;
+};
+
+// Check if device is tablet
+const isTablet = screenWidth >= 768;
+const isLargeTablet = screenWidth >= 1024;
 
 export default function WishlistScreen() {
     const router = useRouter();
     const [wishlistItems, setWishlistItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [wishlistUpdating, setWishlistUpdating] = useState({});
+
+    // Calculate columns based on screen size
+    const getColumns = () => {
+        if (screenWidth >= 1024) return 2; // Large tablets/desktop
+        if (screenWidth >= 768) return 2;  // Tablets
+        return 1; // Phones
+    };
+
+    const columns = getColumns();
 
     // Fetch wishlist data
     const fetchWishlist = async () => {
@@ -29,10 +65,52 @@ export default function WishlistScreen() {
             const user = raw ? JSON.parse(raw) : null;
             const parseUserId = (u) => u?._id || u?.id || u?.userId || null;
             const uid = parseUserId(user);
-            if (!uid) { setWishlistItems([]); return; }
+
+            if (!uid) {
+                setWishlistItems([]);
+                return;
+            }
+
             const response = await getWishlist(uid);
-            const items = response?.data || response?.items || response || [];
-            setWishlistItems(Array.isArray(items) ? items : []);
+
+            // Handle different response formats
+            let items = [];
+            if (response?.success) {
+                if (response.data?.data) {
+                    items = response.data.data;
+                } else if (response.data?.items) {
+                    items = response.data.items;
+                } else if (Array.isArray(response.data)) {
+                    items = response.data;
+                }
+            } else if (response?.data) {
+                items = response.data;
+            } else if (Array.isArray(response)) {
+                items = response;
+            } else if (response?.items) {
+                items = response.items;
+            }
+
+            // Ensure items have product data
+            const formattedItems = items.map(item => {
+                // If item has productId as an object, use it as product
+                if (item.productId && typeof item.productId === 'object') {
+                    return {
+                        ...item,
+                        product: item.productId
+                    };
+                }
+                // If item is the product itself
+                if (item.title || item.name) {
+                    return {
+                        _id: item._id || item.id,
+                        product: item
+                    };
+                }
+                return item;
+            });
+
+            setWishlistItems(formattedItems.filter(Boolean));
         } catch (error) {
             console.error('Error fetching wishlist:', error);
             Alert.alert('Error', 'Failed to load wishlist');
@@ -46,23 +124,55 @@ export default function WishlistScreen() {
         fetchWishlist();
     }, []);
 
-    // Remove item from wishlist
-    const handleRemoveItem = async (itemId) => {
+    // Toggle wishlist item (remove from wishlist)
+    const toggleWishlistForProduct = async (productId) => {
         try {
-            await removeFromWishlist(itemId);
-            // Remove item from local state
-            setWishlistItems(prev => prev.filter(item => item._id !== itemId));
-            Alert.alert('Success', 'Item removed from wishlist');
+            const userData = await AsyncStorage.getItem('userData');
+            const user = userData ? JSON.parse(userData) : null;
+            const userId = user?._id || user?.id || user?.userId || null;
+
+            if (!userId) {
+                Alert.alert('Login Required', 'Please login to manage wishlist');
+                router.push('/screens/LoginScreen');
+                return;
+            }
+
+            // Set updating state
+            setWishlistUpdating(prev => ({ ...prev, [productId]: true }));
+
+            // Call API to remove from wishlist
+            const res = await toggleWishlist(userId, String(productId));
+
+            // Check if successful
+            const success = res?.success || res?.data?.success ||
+                (res?.inWishlist === false) ||
+                (res?.data?.inWishlist === false);
+
+            if (success) {
+                // Remove item from local state
+                setWishlistItems(prev =>
+                    prev.filter(item => {
+                        const itemProductId = item.product?._id || item.product?.id || item._id;
+                        return itemProductId !== productId;
+                    })
+                );
+                Alert.alert('Success', 'Removed from wishlist');
+            } else {
+                Alert.alert('Error', 'Failed to remove from wishlist');
+            }
         } catch (error) {
             console.error('Error removing from wishlist:', error);
-            Alert.alert('Error', 'Failed to remove item from wishlist');
+            Alert.alert('Error', 'Failed to update wishlist');
+        } finally {
+            // Clear updating state
+            setWishlistUpdating(prev => ({ ...prev, [productId]: false }));
         }
     };
 
     // Navigate to product detail
     const handleProductPress = (product) => {
         router.push({
-            pathname: '/ProductDetailScreen',
+            pathname: '/screens/ProductDetailScreen',
             params: {
                 id: product._id || product.id,
                 product: JSON.stringify(product)
@@ -70,67 +180,217 @@ export default function WishlistScreen() {
         });
     };
 
-    // Move item to cart
-    const handleMoveToCart = async (product) => {
-        try {
-            // First remove from wishlist
-            await handleRemoveItem(product._id || product.id);
-            // Then navigate to cart or add to cart directly
-            // You might want to implement addToCart functionality here
-            Alert.alert('Success', 'Item moved to cart');
-        } catch (error) {
-            console.error('Error moving to cart:', error);
-            Alert.alert('Error', 'Failed to move item to cart');
-        }
-    };
-
-    // Render wishlist item
-    const renderWishlistItem = ({ item }) => {
-        const product = item.productId || item;
-        const productImage = product.images?.[0]?.url || product.thumbnail;
-        const productPrice = product.finalPrice || product.basePrice || product.price || 0;
+    // Render wishlist item in grid view
+    const renderGridItem = ({ item }) => {
+        const product = item.product || item;
+        const productImage = product.images?.[0]?.url || product.thumbnail || product.image;
         const productName = product.title || product.name || 'Product';
-        const brandName = product.brandId?.name || '';
+        const brandName = product.brandId?.name || product.brand || '';
+        const isOutOfStock = product.stock === 0;
+        const productId = product._id || product.id;
+        const isUpdating = wishlistUpdating[productId] || false;
+
+        const cardWidth = (screenWidth - responsiveSize(48)) / columns;
+        const imageHeight = responsiveHeight(columns === 2 ? 15 : 20);
 
         return (
-            <View style={styles.wishlistItem}>
+            <View style={[
+                styles.gridItem,
+                { width: cardWidth }
+            ]}>
+                {/* Product Image with Remove Button */}
+                <View style={[
+                    styles.imageContainer,
+                    { height: imageHeight }
+                ]}>
+                    <TouchableOpacity
+                        onPress={() => handleProductPress(product)}
+                        activeOpacity={0.8}
+                        disabled={isUpdating}
+                    >
+                        <Image
+                            source={
+                                productImage
+                                    ? { uri: `${API_BASE_URL}${productImage}` }
+                                    : require('../../assets/icons/fruit.png')
+                            }
+                            style={styles.productImage}
+                            resizeMode="cover"
+                        />
+                    </TouchableOpacity>
+
+                    {/* Remove Button - Heart Icon */}
+                    <TouchableOpacity
+                        style={[
+                            styles.heartButton,
+                            {
+                                width: responsiveSize(32),
+                                height: responsiveSize(32),
+                                borderRadius: responsiveSize(16),
+                            }
+                        ]}
+                        onPress={() => toggleWishlistForProduct(productId)}
+                        disabled={isUpdating}
+                    >
+                        {isUpdating ? (
+                            <ActivityIndicator
+                                size="small"
+                                color="#FF6B6B"
+                            />
+                        ) : (
+                            <Image
+                                source={require('../../assets/icons/heart_filled.png')}
+                                style={[
+                                    styles.heartIcon,
+                                    {
+                                        width: responsiveSize(16),
+                                        height: responsiveSize(16),
+                                    }
+                                ]}
+                                resizeMode="contain"
+                            />
+                        )}
+                    </TouchableOpacity>
+                </View>
+
+                {/* Product Details */}
                 <TouchableOpacity
-                    style={styles.productInfo}
                     onPress={() => handleProductPress(product)}
+                    style={styles.productDetails}
+                    activeOpacity={0.7}
+                    disabled={isUpdating}
                 >
+                    <Text style={[
+                        styles.productName,
+                        { fontSize: responsiveSize(isTablet ? 14 : 13) }
+                    ]} numberOfLines={2}>
+                        {productName}
+                    </Text>
+
+                    {brandName ? (
+                        <Text style={[
+                            styles.brandName,
+                            { fontSize: responsiveSize(12) }
+                        ]} numberOfLines={1}>
+                            {brandName}
+                        </Text>
+                    ) : null}
+
+                    {/* Price Removed as per requirement */}
+
+                    {isOutOfStock && (
+                        <Text style={[
+                            styles.outOfStock,
+                            { fontSize: responsiveSize(11) }
+                        ]}>
+                            Out of Stock
+                        </Text>
+                    )}
+
+                    {/* "Move to Cart" button removed as per requirement */}
+                </TouchableOpacity>
+            </View>
+        );
+    };
+
+    // Render wishlist item in list view (for single column)
+    const renderListItem = ({ item }) => {
+        const product = item.product || item;
+        const productImage = product.images?.[0]?.url || product.thumbnail || product.image;
+        const productName = product.title || product.name || 'Product';
+        const brandName = product.brandId?.name || product.brand || '';
+        const isOutOfStock = product.stock === 0;
+        const productId = product._id || product.id;
+        const isUpdating = wishlistUpdating[productId] || false;
+
+        return (
+            <View style={styles.listItem}>
+                <TouchableOpacity
+                    style={styles.listItemContent}
+                    onPress={() => handleProductPress(product)}
+                    activeOpacity={0.7}
+                    disabled={isUpdating}
+                >
+                    {/* Product Image */}
                     <Image
                         source={
                             productImage
                                 ? { uri: `${API_BASE_URL}${productImage}` }
-                                : require('../../assets/sample-product.png')
+                                : require('../../assets/icons/fruit.png')
                         }
-                        style={styles.productImage}
+                        style={[
+                            styles.listItemImage,
+                            {
+                                width: responsiveSize(100),
+                                height: responsiveSize(100),
+                            }
+                        ]}
                         resizeMode="cover"
                     />
-                    <View style={styles.productDetails}>
-                        <Text style={styles.productName} numberOfLines={2}>
+
+                    {/* Product Details */}
+                    <View style={styles.listItemDetails}>
+                        <Text style={[
+                            styles.listProductName,
+                            { fontSize: responsiveSize(15) }
+                        ]} numberOfLines={2}>
                             {productName}
                         </Text>
+
                         {brandName ? (
-                            <Text style={styles.brandName}>{brandName}</Text>
+                            <Text style={[
+                                styles.listBrandName,
+                                { fontSize: responsiveSize(13) }
+                            ]} numberOfLines={1}>
+                                {brandName}
+                            </Text>
                         ) : null}
-                        {product.stock === 0 && (
-                            <Text style={styles.outOfStock}>Out of Stock</Text>
+
+                        {/* Price Removed as per requirement */}
+
+                        {isOutOfStock && (
+                            <Text style={[
+                                styles.listOutOfStock,
+                                { fontSize: responsiveSize(12) }
+                            ]}>
+                                Out of Stock
+                            </Text>
                         )}
                     </View>
                 </TouchableOpacity>
 
-                <View style={styles.actionButtons}>
-                    <TouchableOpacity
-                        style={[styles.actionButton, styles.removeButton]}
-                        onPress={() => handleRemoveItem(item._id || item.id)}
-                    >
-                        <Image
-                            source={require('../../assets/icons/deleteIcon.png')}
-                            style={styles.deleteIcon}
+                {/* Action Button - Heart for removal */}
+                <TouchableOpacity
+                    style={[
+                        styles.listHeartButton,
+                        {
+                            width: responsiveSize(40),
+                            height: responsiveSize(40),
+                            borderRadius: responsiveSize(20),
+                        }
+                    ]}
+                    onPress={() => toggleWishlistForProduct(productId)}
+                    disabled={isUpdating}
+                >
+                    {isUpdating ? (
+                        <ActivityIndicator
+                            size="small"
+                            color="#FF6B6B"
                         />
-                    </TouchableOpacity>
-                </View>
+                    ) : (
+                        <Image
+                            source={require('../../assets/icons/heart_filled.png')}
+                            style={[
+                                styles.listHeartIcon,
+                                {
+                                    width: responsiveSize(18),
+                                    height: responsiveSize(18),
+                                }
+                            ]}
+                            resizeMode="contain"
+                        />
+                    )}
+                </TouchableOpacity>
             </View>
         );
     };
@@ -140,59 +400,170 @@ export default function WishlistScreen() {
         <View style={styles.emptyState}>
             <Image
                 source={require('../../assets/icons/heart_empty.png')}
-                style={styles.emptyStateIcon}
+                style={[
+                    styles.emptyStateIcon,
+                    {
+                        width: responsiveWidth(30),
+                        height: responsiveWidth(30),
+                    }
+                ]}
+                resizeMode="contain"
             />
-            <Text style={styles.emptyStateTitle}>Your wishlist is empty</Text>
-            <Text style={styles.emptyStateText}>
+            <Text style={[
+                styles.emptyStateTitle,
+                { fontSize: responsiveSize(isTablet ? 22 : 20) }
+            ]}>
+                Your wishlist is empty
+            </Text>
+            <Text style={[
+                styles.emptyStateText,
+                {
+                    fontSize: responsiveSize(isTablet ? 16 : 14),
+                    marginHorizontal: responsiveSize(40),
+                }
+            ]}>
                 Save your favorite items here to easily find them later
             </Text>
             <TouchableOpacity
-                style={styles.shopButton}
+                style={[
+                    styles.shopButton,
+                    {
+                        paddingVertical: responsiveSize(12),
+                        paddingHorizontal: responsiveSize(32),
+                        borderRadius: responsiveSize(8),
+                        marginTop: responsiveSize(20),
+                    }
+                ]}
                 onPress={() => router.push('/Home')}
             >
-                <Text style={styles.shopButtonText}>Start Shopping</Text>
+                <Text style={[
+                    styles.shopButtonText,
+                    { fontSize: responsiveSize(16) }
+                ]}>
+                    Start Shopping
+                </Text>
             </TouchableOpacity>
         </View>
     );
 
     if (loading) {
         return (
-            <View style={styles.loaderContainer}>
-                <ActivityIndicator size="large" color="#4CAD73" />
-                <Text style={styles.loaderText}>Loading your wishlist...</Text>
-            </View>
+            <SafeAreaView style={styles.container}>
+                <StatusBar backgroundColor="#4CAD73" barStyle="light-content" />
+                <View style={styles.loaderContainer}>
+                    <ActivityIndicator
+                        size={responsiveSize(40)}
+                        color="#4CAD73"
+                    />
+                    <Text style={[
+                        styles.loaderText,
+                        {
+                            fontSize: responsiveSize(16),
+                            marginTop: responsiveSize(20),
+                        }
+                    ]}>
+                        Loading your wishlist...
+                    </Text>
+                </View>
+            </SafeAreaView>
         );
     }
 
     return (
-        <View style={styles.container}>
+        <SafeAreaView style={styles.container}>
+            <StatusBar backgroundColor="#4CAD73" barStyle="light-content" />
+
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[
+                styles.header,
+                {
+                    height: responsiveHeight(isTablet ? 8 : 10),
+                    paddingHorizontal: responsiveSize(16),
+                }
+            ]}>
                 <TouchableOpacity
-                    style={styles.backButton}
+                    style={[
+                        styles.backButton,
+                        {
+                            width: responsiveSize(40),
+                            height: responsiveSize(40),
+                        }
+                    ]}
                     onPress={() => router.back()}
                 >
                     <Image
                         source={require('../../assets/icons/back_icon.png')}
-                        style={styles.backIcon}
+                        style={[
+                            styles.backIcon,
+                            {
+                                width: responsiveSize(24),
+                                height: responsiveSize(24),
+                            }
+                        ]}
+                        resizeMode="contain"
                     />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Your Wishlist</Text>
-                <View style={styles.headerRight} />
+                <Text style={[
+                    styles.headerTitle,
+                    { fontSize: responsiveSize(isTablet ? 20 : 18) }
+                ]}>
+                    Your Wishlist
+                </Text>
+                <View style={[
+                    styles.headerRight,
+                    { width: responsiveSize(40) }
+                ]} />
             </View>
+
+            {/* Wishlist Items Count */}
+            {wishlistItems.length > 0 && (
+                <View style={[
+                    styles.itemsCountContainer,
+                    {
+                        paddingHorizontal: responsiveSize(16),
+                        paddingVertical: responsiveSize(8),
+                    }
+                ]}>
+                    <Text style={[
+                        styles.itemsCountText,
+                        { fontSize: responsiveSize(14) }
+                    ]}>
+                        {wishlistItems.length} {wishlistItems.length === 1 ? 'item' : 'items'}
+                    </Text>
+                </View>
+            )}
 
             {/* Wishlist Content */}
             <FlatList
                 data={wishlistItems}
-                renderItem={renderWishlistItem}
-                keyExtractor={(item) => item._id || item.id || Math.random().toString()}
-                contentContainerStyle={styles.listContainer}
+                renderItem={columns === 1 ? renderListItem : renderGridItem}
+                keyExtractor={(item) => item._id || item.product?._id || Math.random().toString()}
+                contentContainerStyle={[
+                    styles.listContainer,
+                    {
+                        padding: responsiveSize(columns === 1 ? 16 : 12),
+                        paddingBottom: responsiveHeight(5),
+                    }
+                ]}
                 showsVerticalScrollIndicator={false}
                 ListEmptyComponent={renderEmptyState}
-                refreshing={refreshing}
-                onRefresh={fetchWishlist}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={fetchWishlist}
+                        colors={["#4CAD73"]}
+                        tintColor="#4CAD73"
+                    />
+                }
+                numColumns={columns}
+                key={columns}
+                columnWrapperStyle={columns > 1 ? styles.columnWrapper : null}
+                removeClippedSubviews={true}
+                initialNumToRender={6}
+                maxToRenderPerBatch={10}
+                windowSize={5}
             />
-        </View>
+        </SafeAreaView>
     );
 }
 
@@ -208,171 +579,196 @@ const styles = StyleSheet.create({
         backgroundColor: '#F5F6FA',
     },
     loaderText: {
-        marginTop: 16,
-        fontSize: 16,
         color: '#666',
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins-Medium',
     },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        backgroundColor: '#FFFFFF',
-        borderBottomWidth: 1,
-        borderBottomColor: '#E6E6E6',
+        backgroundColor: '#4CAD73',
+        width: '100%',
     },
     backButton: {
-        width: 40,
-        height: 40,
         justifyContent: 'center',
         alignItems: 'center',
     },
     backIcon: {
-        width: 20,
-        height: 20,
-        resizeMode: 'contain',
+        tintColor: '#FFFFFF',
     },
     headerTitle: {
-        fontSize: 18,
-        fontFamily: 'Poppins',
-        fontWeight: '600',
-        color: '#000000',
+        fontWeight: '700',
+        color: '#FFFFFF',
+        fontFamily: 'Poppins-Bold',
+        textAlign: 'center',
+        flex: 1,
     },
     headerRight: {
-        width: 40,
+        opacity: 0,
+    },
+    itemsCountContainer: {
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E8E8E8',
+    },
+    itemsCountText: {
+        fontFamily: 'Poppins-Medium',
+        color: '#666',
     },
     listContainer: {
         flexGrow: 1,
-        padding: 16,
     },
-    wishlistItem: {
-        flexDirection: 'row',
+    columnWrapper: {
+        justifyContent: 'space-between',
+        marginBottom: responsiveSize(12),
+    },
+    // Grid View Styles
+    gridItem: {
         backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 12,
+        borderRadius: responsiveSize(12),
+        marginBottom: responsiveSize(12),
+        elevation: 2,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
         shadowRadius: 4,
-        elevation: 3,
+        overflow: 'hidden',
     },
-    productInfo: {
-        flex: 1,
-        flexDirection: 'row',
-        marginRight: 12,
+    imageContainer: {
+        position: 'relative',
+        backgroundColor: '#F8F9FA',
     },
     productImage: {
-        width: 80,
-        height: 80,
-        borderRadius: 8,
-        marginRight: 12,
+        width: '100%',
+        height: '100%',
+    },
+    heartButton: {
+        position: 'absolute',
+        top: responsiveSize(8),
+        right: responsiveSize(8),
+        backgroundColor: '#FFFFFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 3,
+    },
+    heartIcon: {
+        tintColor: '#FF6B6B',
     },
     productDetails: {
-        flex: 1,
-        justifyContent: 'space-between',
+        padding: responsiveSize(12),
     },
     productName: {
-        fontSize: 16,
-        fontFamily: 'Poppins',
-        fontWeight: '500',
-        color: '#000000',
-        marginBottom: 4,
-        lineHeight: 20,
+        fontFamily: 'Poppins-SemiBold',
+        fontWeight: '600',
+        color: '#1B1B1B',
+        marginBottom: responsiveSize(4),
+        lineHeight: responsiveSize(18),
     },
     brandName: {
-        fontSize: 14,
         fontFamily: 'Poppins',
         color: '#666',
-        marginBottom: 4,
-    },
-    productPrice: {
-        fontSize: 16,
-        fontFamily: 'Poppins',
-        fontWeight: '600',
-        color: '#4CAD73',
+        marginBottom: responsiveSize(6),
     },
     outOfStock: {
-        fontSize: 12,
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins-Medium',
         color: '#FF4444',
-        marginTop: 4,
+        marginTop: responsiveSize(4),
     },
-    actionButtons: {
-        justifyContent: 'space-between',
-        alignItems: 'flex-end',
+    // List View Styles
+    listItem: {
+        flexDirection: 'row',
+        backgroundColor: '#FFFFFF',
+        borderRadius: responsiveSize(12),
+        padding: responsiveSize(12),
+        marginBottom: responsiveSize(12),
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
     },
-    actionButton: {
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 8,
-        minWidth: 100,
-        alignItems: 'center',
+    listItemContent: {
+        flex: 1,
+        flexDirection: 'row',
     },
-    moveToCartButton: {
-        backgroundColor: '#4CAD73',
+    listItemImage: {
+        borderRadius: responsiveSize(8),
+        marginRight: responsiveSize(12),
+        backgroundColor: '#F8F9FA',
     },
-    removeButton: {
-        backgroundColor: 'transparent',
-        padding: 4,
-        minWidth: 'auto',
+    listItemDetails: {
+        flex: 1,
+        justifyContent: 'center',
     },
-    actionButtonText: {
-        fontSize: 12,
+    listProductName: {
+        fontFamily: 'Poppins-SemiBold',
+        fontWeight: '600',
+        color: '#1B1B1B',
+        marginBottom: responsiveSize(4),
+        lineHeight: responsiveSize(20),
+    },
+    listBrandName: {
         fontFamily: 'Poppins',
-        fontWeight: '500',
-        color: '#FFFFFF',
+        color: '#666',
+        marginBottom: responsiveSize(6),
     },
-    disabledButtonText: {
-        color: '#AFAFAF',
+    listOutOfStock: {
+        fontFamily: 'Poppins-Medium',
+        color: '#FF4444',
+        marginTop: responsiveSize(4),
     },
-    deleteIcon: {
-        width: 20,
-        height: 20,
-        resizeMode: 'contain',
-        tintColor: '#FF4444',
+    listHeartButton: {
+        backgroundColor: '#FFFFFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
     },
+    listHeartIcon: {
+        tintColor: '#FF6B6B',
+    },
+    // Empty State Styles
     emptyState: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        paddingVertical: 80,
-        paddingHorizontal: 40,
+        paddingVertical: responsiveSize(80),
     },
     emptyStateIcon: {
-        width: 80,
-        height: 80,
-        resizeMode: 'contain',
-        marginBottom: 24,
+        marginBottom: responsiveSize(24),
         tintColor: '#CCCCCC',
     },
     emptyStateTitle: {
-        fontSize: 20,
-        fontFamily: 'Poppins',
-        fontWeight: '600',
+        fontFamily: 'Poppins-Bold',
+        fontWeight: '700',
         color: '#333',
-        marginBottom: 8,
+        marginBottom: responsiveSize(8),
         textAlign: 'center',
     },
     emptyStateText: {
-        fontSize: 14,
         fontFamily: 'Poppins',
         color: '#666',
         textAlign: 'center',
-        lineHeight: 20,
-        marginBottom: 32,
+        lineHeight: responsiveSize(20),
+        marginBottom: responsiveSize(32),
     },
     shopButton: {
         backgroundColor: '#4CAD73',
-        paddingHorizontal: 32,
-        paddingVertical: 12,
-        borderRadius: 8,
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
     },
     shopButtonText: {
-        fontSize: 16,
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins-SemiBold',
         fontWeight: '600',
         color: '#FFFFFF',
     },

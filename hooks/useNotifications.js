@@ -1,166 +1,571 @@
-import { useState, useEffect } from 'react';
-import { Alert } from 'react-native';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {Alert, AppState, Platform} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {getUserNotifications, markAllNotificationsAsRead, markNotificationAsRead} from "../api/notificationApi";
+import { useRouter, useFocusEffect } from 'expo-router';
+import * as Notifications from 'expo-notifications';
 
+import {
+    getUserNotifications,
+    markNotificationAsRead as apiMarkAsRead,
+    markAllNotificationsAsRead as apiMarkAllAsRead,
+    deleteNotification as apiDeleteNotification,
+    createTestNotification,
+    getUnreadCount as apiGetUnreadCount
+} from '../api/notificationApi';
+
+// Configure notification behavior
+Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+    }),
+});
 
 const useNotifications = () => {
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
+    // State
+    const [notifications, setNotifications] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [error, setError] = useState(null);
+    const [permissionGranted, setPermissionGranted] = useState(false);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [lastUpdated, setLastUpdated] = useState(null);
+    const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
 
-  // Get current user ID from AsyncStorage
-  const getCurrentUserId = async () => {
-    try {
-      const userData = await AsyncStorage.getItem('userData');
-      if (userData) {
-        const parsedData = JSON.parse(userData);
-        return parsedData._id || parsedData.id;
-      }
-      return null;
-    } catch (error) {
-      console.error('Error getting user ID:', error);
-      return null;
-    }
-  };
+    const router = useRouter();
+    const notificationListener = useRef();
+    const responseListener = useRef();
+    const appStateSubscription = useRef();
+    const pollIntervalRef = useRef();
 
-  // Fetch notifications from API
-  const fetchNotifications = async (isRefreshing = false) => {
-    try {
-      if (isRefreshing) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-      setError(null);
+    // ------------------------------------------------------------
+    // 1. SEND LOCAL NOTIFICATION (Simplified)
+    // ------------------------------------------------------------
+    const sendLocalNotification = async (notificationData) => {
+        try {
+            console.log('📱 Generating notification:', notificationData.title);
 
-      const userId = await getCurrentUserId();
-      if (!userId) {
-        throw new Error('User not found. Please login again.');
-      }
+            const notificationId = `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      const response = await getUserNotifications(userId);
+            const content = {
+                title: notificationData.title,
+                body: notificationData.message,
+                data: {
+                    ...notificationData.data,
+                    notificationId: notificationId,
+                    isLocal: true,
+                    type: notificationData.type
+                },
+                sound: 'default',
+                badge: unreadCount + 1,
+            };
 
-      // Handle different response structures
-      let notificationsData = [];
-      if (Array.isArray(response)) {
-        notificationsData = response;
-      } else if (Array.isArray(response.data)) {
-        notificationsData = response.data;
-      } else if (Array.isArray(response.notifications)) {
-        notificationsData = response.notifications;
-      } else if (response.success && Array.isArray(response.data)) {
-        notificationsData = response.data;
-      }
+            // Platform specific settings
+            if (Platform.OS === 'ios') {
+                content.subtitle = notificationData.type === 'order' ? 'Order Update' : 'Notification';
+                content.categoryIdentifier = notificationData.type || 'general';
+            }
 
-      // Sort by date (newest first)
-      notificationsData.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            if (Platform.OS === 'android') {
+                content.android = {
+                    channelId: 'default',
+                    priority: 'high',
+                    vibrate: [0, 250, 250, 250],
+                    color: '#FF231F7C',
+                };
+            }
 
-      setNotifications(notificationsData);
-    } catch (err) {
-      console.error('Error fetching notifications:', err);
-      setError(err.message || 'Failed to load notifications');
+            // Schedule notification
+            await Notifications.scheduleNotificationAsync({
+                content,
+                trigger: null,
+                identifier: notificationId
+            });
 
-      // Show alert for critical errors
-      if (err.message.includes('User not found')) {
-        Alert.alert('Session Expired', 'Please login again to continue.');
-      }
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+            console.log('✅ Notification generated successfully');
 
-  // Mark one notification as read
-  const markOneAsRead = async (notificationId) => {
-    try {
-      setNotifications(prev =>
-          prev.map(notification =>
-              notification._id === notificationId || notification.id === notificationId
-                  ? { ...notification, read: true }
-                  : notification
-          )
-      );
+            // Add to local state
+            addToLocalNotifications({
+                _id: notificationId,
+                title: notificationData.title,
+                message: notificationData.message,
+                type: notificationData.type,
+                data: notificationData.data,
+                read: false,
+                isLocal: true,
+                createdAt: new Date().toISOString()
+            });
 
-      await markNotificationAsRead(notificationId);
+            return notificationId;
 
-      // Refresh to get updated data
-      await fetchNotifications();
-    } catch (err) {
-      console.error('Error marking notification as read:', err);
-      setError('Failed to mark notification as read');
+        } catch (error) {
+            console.log('❌ Error generating notification:', error.message);
+            return null;
+        }
+    };
 
-      // Revert optimistic update
-      setNotifications(prev =>
-          prev.map(notification =>
-              notification._id === notificationId || notification.id === notificationId
-                  ? { ...notification, read: false }
-                  : notification
-          )
-      );
-    }
-  };
+    // ------------------------------------------------------------
+    // 2. ADD TO LOCAL NOTIFICATIONS
+    // ------------------------------------------------------------
+    const addToLocalNotifications = (notification) => {
+        setNotifications(prev => {
+            // Check if notification already exists
+            const exists = prev.find(n => n._id === notification._id);
+            if (exists) return prev;
 
-  // Mark all notifications as read
-  const markAllAsRead = async () => {
-    try {
-      const userId = await getCurrentUserId();
-      if (!userId) {
-        throw new Error('User not found');
-      }
+            const newNotifications = [notification, ...prev];
+            return newNotifications;
+        });
+    };
 
-      // Optimistic update
-      setNotifications(prev =>
-          prev.map(notification => ({ ...notification, read: true }))
-      );
+    // ------------------------------------------------------------
+    // 3. CHECK AND GENERATE NOTIFICATIONS FOR UNREAD ITEMS
+    // ------------------------------------------------------------
+    const checkAndGenerateNotifications = async () => {
+        try {
+            const userId = await getCurrentUserId();
+            if (!userId) return;
 
-      await markAllNotificationsAsRead(userId);
+            // Fetch notifications from backend
+            console.log("shubham true")
+            const backendNotifications = await getUserNotifications(userId, { unreadOnly: true });
 
-      // Refresh to get updated data
-      await fetchNotifications();
-    } catch (err) {
-      console.error('Error marking all notifications as read:', err);
-      setError('Failed to mark all notifications as read');
 
-      // Revert optimistic update
-      await fetchNotifications();
-    }
-  };
+            let notificationsList = [];
 
-  // Refresh notifications
-  const refresh = () => {
-    fetchNotifications(true);
-  };
+            // Handle response structure
+            if (Array.isArray(backendNotifications)) {
+                notificationsList = backendNotifications;
+            } else if (backendNotifications?.data && Array.isArray(backendNotifications.data)) {
+                notificationsList = backendNotifications.data;
+            } else if (backendNotifications?.notifications && Array.isArray(backendNotifications.notifications)) {
+                notificationsList = backendNotifications.notifications;
+            }
 
-  // Calculate unread count
-  const unreadCount = notifications.filter(notification => !notification.read).length;
+            if (notificationsList.length === 0) {
+                console.log('📭 No notifications found in backend');
+                setHasUnreadNotifications(false);
+                return;
+            }
 
-  // Initial load
-  useEffect(() => {
-    fetchNotifications();
-  }, []);
+            // Check for unread notifications
+            const unreadNotifications = notificationsList.filter(n => !n.read);
 
-  // Auto-refresh every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchNotifications();
-    }, 30000); // 30 seconds
+            console.log(`📊 Found ${unreadNotifications.length} unread notifications in backend`);
 
-    return () => clearInterval(interval);
-  }, []);
+            if (unreadNotifications.length > 0) {
+                setHasUnreadNotifications(true);
 
-  return {
-    notifications,
-    unreadCount,
-    loading,
-    refreshing,
-    error,
-    refresh,
-    markOneAsRead,
-    markAllAsRead,
-    fetchNotifications
-  };
+                // Generate local notifications for unread items
+                for (const backendNotification of unreadNotifications) {
+                    // Check if this notification already exists in local state
+                    const exists = notifications.find(n => n._id === backendNotification._id);
+
+                    if (!exists) {
+                        console.log('🔄 Generating notification for:', backendNotification.title);
+
+                        // Generate local notification
+                        await sendLocalNotification({
+                            title: backendNotification.title || 'Notification',
+                            message: backendNotification.message || backendNotification.body || '',
+                            type: backendNotification.type || 'general',
+                            data: backendNotification.data || {},
+                            priority: backendNotification.priority || 'medium'
+                        });
+
+                        // Mark as read in backend after showing notification
+                        await markNotificationAsReadInBackend(backendNotification._id);
+                    }
+                }
+            } else {
+                setHasUnreadNotifications(false);
+                console.log('✅ All notifications are read');
+            }
+
+        } catch (error) {
+            console.log('❌ Error checking notifications:', error.message);
+        }
+    };
+
+    // ------------------------------------------------------------
+    // 4. MARK NOTIFICATION AS READ IN BACKEND
+    // ------------------------------------------------------------
+    const markNotificationAsReadInBackend = async (notificationId) => {
+        try {
+            await apiMarkAsRead(notificationId);
+            console.log('✅ Marked as read in backend:', notificationId);
+        } catch (error) {
+            console.log('⚠️ Error marking as read in backend:', error.message);
+        }
+    };
+
+    // ------------------------------------------------------------
+    // 5. SETUP NOTIFICATION LISTENERS
+    // ------------------------------------------------------------
+    const setupNotificationListeners = () => {
+        // Remove existing listeners
+        if (notificationListener.current) {
+            notificationListener.current.remove();
+        }
+        if (responseListener.current) {
+            responseListener.current.remove();
+        }
+
+        // User tapped notification listener
+        responseListener.current = Notifications.addNotificationResponseReceivedListener(
+            (response) => {
+                console.log('👆 User tapped notification');
+                const data = response.notification.request.content.data;
+
+                // Mark as read if it has an ID
+                if (data?.notificationId) {
+                    markAsRead(data.notificationId);
+                }
+
+                // Handle navigation
+                handleNavigation(data);
+            }
+        );
+    };
+
+    // ------------------------------------------------------------
+    // 6. GET USER ID
+    // ------------------------------------------------------------
+    const getCurrentUserId = async () => {
+        try {
+            const userData = await AsyncStorage.getItem('userData');
+            if (!userData) return null;
+            const parsed = JSON.parse(userData);
+            return parsed?.id || null;
+        } catch (error) {
+            console.log('⚠️ Get user ID error:', error.message);
+            return null;
+        }
+    };
+
+    // ------------------------------------------------------------
+    // 7. FETCH AND UPDATE NOTIFICATIONS
+    // ------------------------------------------------------------
+    const fetchAndUpdateNotifications = useCallback(async (isRefreshing = false, showLoader = true) => {
+        try {
+            if (showLoader) {
+                isRefreshing ? setRefreshing(true) : setLoading(true);
+            }
+
+            setError(null);
+
+            const userId = await getCurrentUserId();
+            if (!userId) {
+                throw new Error('Please login to view notifications');
+            }
+
+            console.log("shubham false")
+            // Fetch notifications from backend
+            const response = await getUserNotifications(userId, { unreadOnly: false });
+
+
+            let notificationsList = [];
+
+            // Handle response structure
+            if (Array.isArray(response)) {
+                notificationsList = response;
+            } else if (response?.data && Array.isArray(response.data)) {
+                notificationsList = response.data;
+            } else if (response?.notifications && Array.isArray(response.notifications)) {
+                notificationsList = response.notifications;
+            }
+
+            // Sort by date (newest first)
+            notificationsList.sort((a, b) =>
+                new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0)
+            );
+
+            setNotifications(notificationsList);
+            setLastUpdated(new Date());
+
+            // Calculate unread count
+            const unreadCount = notificationsList.filter(n => !n.read).length;
+            setUnreadCount(unreadCount);
+
+            // Update hasUnreadNotifications state
+            setHasUnreadNotifications(unreadCount > 0);
+
+            console.log(`✅ Updated ${notificationsList.length} notifications, ${unreadCount} unread`);
+
+            // Automatically generate notifications for unread items
+            if (unreadCount > 0) {
+                await checkAndGenerateNotifications();
+            }
+
+        } catch (err) {
+            setError(err.message || 'Failed to load notifications');
+            console.log('❌ Fetch error:', err.message);
+        } finally {
+            if (showLoader) {
+                setLoading(false);
+                setRefreshing(false);
+            }
+        }
+    }, []);
+
+    // ------------------------------------------------------------
+    // 8. MARK AS READ (Local and Backend)
+    // ------------------------------------------------------------
+    const markAsRead = async (notificationId) => {
+        try {
+            // Optimistic update
+            setNotifications(prev =>
+                prev.map(n => n._id === notificationId ? { ...n, read: true } : n)
+            );
+
+            // Update count
+            const newCount = Math.max(0, unreadCount - 1);
+            setUnreadCount(newCount);
+
+            // Only call API for non-local notifications
+            if (!notificationId.startsWith('local_')) {
+                await apiMarkAsRead(notificationId);
+            }
+
+            // Update hasUnread state
+            if (newCount === 0) {
+                setHasUnreadNotifications(false);
+            }
+
+            console.log('✅ Marked as read:', notificationId);
+
+        } catch (error) {
+            console.log('❌ Mark read error:', error.message);
+            fetchAndUpdateNotifications(false, false);
+        }
+    };
+
+    // ------------------------------------------------------------
+    // 9. MARK ALL AS READ
+    // ------------------------------------------------------------
+    const markAllAsRead = async () => {
+        try {
+            const userId = await getCurrentUserId();
+            if (!userId) return;
+
+            // Optimistic update
+            setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+            setUnreadCount(0);
+            setHasUnreadNotifications(false);
+
+            // API call
+            await apiMarkAllAsRead(userId);
+
+            Alert.alert('Success', 'All notifications marked as read');
+            console.log('✅ All notifications marked as read');
+
+        } catch (error) {
+            console.log('❌ Mark all error:', error.message);
+            Alert.alert('Error', 'Failed to mark all as read');
+        }
+    };
+
+    // ------------------------------------------------------------
+    // 10. DELETE NOTIFICATION
+    // ------------------------------------------------------------
+    const deleteNotification = async (notificationId) => {
+        try {
+            // Update count if unread
+            const notification = notifications.find(n => n._id === notificationId);
+            if (notification && !notification.read) {
+                const newCount = Math.max(0, unreadCount - 1);
+                setUnreadCount(newCount);
+
+                if (newCount === 0) {
+                    setHasUnreadNotifications(false);
+                }
+            }
+
+            // Optimistic removal
+            setNotifications(prev => prev.filter(n => n._id !== notificationId));
+
+            // Only call API for non-local notifications
+            if (!notificationId.startsWith('local_')) {
+                await apiDeleteNotification(notificationId);
+            }
+
+            console.log('✅ Deleted notification:', notificationId);
+
+        } catch (error) {
+            console.log('❌ Delete error:', error.message);
+            Alert.alert('Error', 'Failed to delete notification');
+        }
+    };
+
+    // ------------------------------------------------------------
+    // 11. HANDLE NOTIFICATION PRESS
+    // ------------------------------------------------------------
+    const handleNotificationPress = async (notification) => {
+        try {
+            // Mark as read
+            if (!notification.read) {
+                await markAsRead(notification._id);
+            }
+
+            // Navigate based on notification data
+            if (notification.data) {
+                handleNavigation(notification.data);
+            } else {
+                router.push('/(tabs)/notifications');
+            }
+        } catch (error) {
+            console.log('❌ Notification press error:', error.message);
+        }
+    };
+
+    const handleNavigation = useCallback((data) => {
+        if (!data?.screen) {
+            router.push('/(tabs)/notifications');
+            return;
+        }
+
+        const params = new URLSearchParams();
+        Object.entries(data).forEach(([key, value]) => {
+            if (key !== 'screen' && value !== undefined && value !== null) {
+                params.append(key, String(value));
+            }
+        });
+
+        const queryString = params.toString();
+        const url = `/screens/${data.screen}${queryString ? `?${queryString}` : ''}`;
+
+        router.replace(url);
+    }, [router]);
+
+
+    const startPolling = () => {
+        // Clear existing interval
+        if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+        }
+
+        console.log('⏱️ Starting automatic notification checking');
+
+        // Check every 15 seconds when app is active
+        pollIntervalRef.current = setInterval(() => {
+            if (AppState.currentState === 'active') {
+                console.log('🔄 Automatic check for notifications');
+                fetchAndUpdateNotifications(false, false);
+            }
+        }, 15000);
+    };
+
+    const stopPolling = () => {
+        if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+        }
+    };
+
+    const setupNotifications = async () => {
+        try {
+            // Request permissions
+            const { status } = await Notifications.getPermissionsAsync();
+            setPermissionGranted(status === 'granted');
+
+            if (status === 'granted') {
+                // Configure Android channel
+                if (Platform.OS === 'android') {
+                    await Notifications.setNotificationChannelAsync('default', {
+                        name: 'Default',
+                        importance: Notifications.AndroidImportance.MAX,
+                        vibrationPattern: [0, 250, 250, 250],
+                        lightColor: '#FF231F7C',
+                        enableVibrate: true,
+                        enableLights: true,
+                        showBadge: true,
+                        sound: 'default',
+                    });
+                }
+            }
+
+        } catch (error) {
+            console.log('ℹ️ Notification setup info:', error.message);
+        }
+    };
+
+    const handleAppStateChange = (nextAppState) => {
+        console.log('📱 App state:', nextAppState);
+
+        if (nextAppState === 'active') {
+            // When app comes to foreground, check for notifications
+            fetchAndUpdateNotifications(false, false);
+            startPolling();
+        } else if (nextAppState === 'background') {
+            // When app goes to background, stop polling
+            stopPolling();
+        }
+    };
+
+    useEffect(() => {
+        console.log('🚀 Setting up automatic notification system');
+
+        // Initial setup
+        setupNotifications();
+        setupNotificationListeners();
+
+        // App state listener
+        appStateSubscription.current = AppState.addEventListener('change', handleAppStateChange);
+
+        // Initial fetch and automatic notification generation
+        fetchAndUpdateNotifications();
+
+        // Start polling
+        startPolling();
+
+        return () => {
+            console.log('🧹 Cleaning up notification system');
+
+            // Cleanup
+            if (notificationListener.current) {
+                notificationListener.current.remove();
+            }
+            if (responseListener.current) {
+                responseListener.current.remove();
+            }
+            if (appStateSubscription.current) {
+                appStateSubscription.current.remove();
+            }
+            stopPolling();
+        };
+    }, []);
+
+    useFocusEffect(
+        useCallback(() => {
+            console.log('🎯 Notifications screen focused');
+            fetchAndUpdateNotifications(false, false);
+        }, [])
+    );
+
+    return {
+
+        notifications,
+        loading,
+        refreshing,
+        error,
+        permissionGranted,
+        unreadCount,
+        lastUpdated,
+        hasUnreadNotifications,
+
+        // Actions
+        refresh: () => fetchAndUpdateNotifications(true, true),
+        fetchNotifications: fetchAndUpdateNotifications,
+        markAsRead,
+        markAllAsRead,
+        deleteNotification,
+        handleNotificationPress,
+        handleNavigation,
+
+        // Helper functions
+        hasUnread: unreadCount > 0,
+    };
 };
 
 export default useNotifications;

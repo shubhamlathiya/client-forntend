@@ -1,5 +1,5 @@
-import React, {useState} from 'react';
-import {View, Text, StyleSheet, TouchableOpacity, Image} from 'react-native';
+import React, {useEffect, useState} from 'react';
+import {View, Text, StyleSheet, TouchableOpacity, Image, Alert, Platform} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { colors } from '../../constants/colors';
@@ -8,8 +8,39 @@ import logo from '../../assets/Logo_green.png';
 import googleIcon from '../../assets/google_logo.png';
 import facebookIcon from '../../assets/facebook.png';
 import {googleLogin} from "../../utils/googleLoginHelper";
+import * as Notifications from "expo-notifications";
 
 export default function AuthScreen() {
+
+    useEffect(() => {
+        requestNotificationPermission();
+    }, []);
+
+    const requestNotificationPermission = async () => {
+        // iOS + Android (API 33+)
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+
+        if (existingStatus !== "granted") {
+            const { status } = await Notifications.requestPermissionsAsync();
+            finalStatus = status;
+        }
+
+        if (finalStatus !== "granted") {
+            Alert.alert("Permission Needed", "Please enable notifications.");
+            return;
+        }
+
+        // Create Android channel (important)
+        if (Platform.OS === "android") {
+            await Notifications.setNotificationChannelAsync("default", {
+                name: "Default",
+                importance: Notifications.AndroidImportance.MAX,
+            });
+        }
+
+        console.log("Notification permission granted");
+    };
     const router = useRouter();
     const [googleLoading, setGoogleLoading] = useState(false);
     function handleLogin() {

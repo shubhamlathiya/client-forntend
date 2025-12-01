@@ -1064,12 +1064,12 @@ export default function BlinkitHomeScreen() {
                 </View>
             </View>
 
-            {/* Delivery Time */}
-            <View style={styles.addressRow}>
-                <Text style={styles.deliveryTimeBig}>
-                    {deliveryTime}
-                </Text>
-            </View>
+            {/*/!* Delivery Time *!/*/}
+            {/*<View style={styles.addressRow}>*/}
+            {/*    <Text style={styles.deliveryTimeBig}>*/}
+            {/*        {deliveryTime}*/}
+            {/*    </Text>*/}
+            {/*</View>*/}
 
             {/* Address Row - Clickable */}
             <TouchableOpacity style={styles.addressRow} onPress={handleAddressPress}>

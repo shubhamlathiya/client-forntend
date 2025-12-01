@@ -115,10 +115,6 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
         <div class="container">
             <div class="loading">Initializing Payment Gateway...</div>
             <div id="status"></div>
-            <div id="debug" class="debug-info" style="display: none;">
-                <div class="debug-title">Debug Information:</div>
-                <div id="debug-content"></div>
-            </div>
             <div id="error" style="color: red; margin-top: 10px; display: none;"></div>
         </div>
 

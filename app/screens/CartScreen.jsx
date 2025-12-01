@@ -596,33 +596,33 @@ export default function CartScreen() {
                 )}
 
                 {/* Special Deal Section - Single Card */}
-                <View style={styles.section}>
-                    <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionTitle}>🔥 Special Deal For You</Text>
-                    </View>
+                {/*<View style={styles.section}>*/}
+                {/*    <View style={styles.sectionHeader}>*/}
+                {/*        <Text style={styles.sectionTitle}>🔥 Special Deal For You</Text>*/}
+                {/*    </View>*/}
 
-                    <View style={styles.specialDealCard}>
-                        <View style={styles.specialDealInnerCard}>
-                            <View style={styles.dealContent}>
-                                <View style={styles.dealTextContent}>
-                                    <Text style={styles.dealTitle}>{specialDeal.title}</Text>
-                                    <Text style={styles.dealDescription}>{specialDeal.description}</Text>
-                                    <Text style={styles.dealDiscount}>{specialDeal.discount}</Text>
-                                    <Text style={styles.dealValid}>Valid until: {specialDeal.validUntil}</Text>
-                                </View>
-                                <TouchableOpacity
-                                    style={styles.dealAddButton}
-                                    onPress={handleSpecialDeal}
-                                >
-                                    <Text style={styles.dealAddButtonText}>ADD</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                        <View style={styles.dealUnlockText}>
-                            <Text style={styles.dealUnlockTextContent}>🎉 Yay! Special deal unlocked</Text>
-                        </View>
-                    </View>
-                </View>
+                {/*    <View style={styles.specialDealCard}>*/}
+                {/*        <View style={styles.specialDealInnerCard}>*/}
+                {/*            <View style={styles.dealContent}>*/}
+                {/*                <View style={styles.dealTextContent}>*/}
+                {/*                    <Text style={styles.dealTitle}>{specialDeal.title}</Text>*/}
+                {/*                    <Text style={styles.dealDescription}>{specialDeal.description}</Text>*/}
+                {/*                    <Text style={styles.dealDiscount}>{specialDeal.discount}</Text>*/}
+                {/*                    <Text style={styles.dealValid}>Valid until: {specialDeal.validUntil}</Text>*/}
+                {/*                </View>*/}
+                {/*                <TouchableOpacity*/}
+                {/*                    style={styles.dealAddButton}*/}
+                {/*                    onPress={handleSpecialDeal}*/}
+                {/*                >*/}
+                {/*                    <Text style={styles.dealAddButtonText}>ADD</Text>*/}
+                {/*                </TouchableOpacity>*/}
+                {/*            </View>*/}
+                {/*        </View>*/}
+                {/*        <View style={styles.dealUnlockText}>*/}
+                {/*            <Text style={styles.dealUnlockTextContent}>🎉 Yay! Special deal unlocked</Text>*/}
+                {/*        </View>*/}
+                {/*    </View>*/}
+                {/*</View>*/}
 
                 {/* Cart Items Section */}
                 <View style={styles.section}>
@@ -652,7 +652,7 @@ export default function CartScreen() {
                 <View style={styles.section}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>⭐ Your Wishlist</Text>
-                        <TouchableOpacity>
+                        <TouchableOpacity onPress={()=> router.push("/screens/WishlistScreen")}>
                             <Text style={styles.seeAllText}>See all</Text>
                         </TouchableOpacity>
                     </View>

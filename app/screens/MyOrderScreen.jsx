@@ -1,13 +1,68 @@
 import React, {useState, useEffect} from "react";
 import {
     View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Image, ActivityIndicator, Alert, RefreshControl,
-    Modal, SafeAreaView
+    Modal, SafeAreaView, Dimensions, Platform
 } from "react-native";
 import {useRouter} from "expo-router";
-import AppHeader from "../../components/ui/AppHeader";
-import OrderActionMenu from "../../components/ui/OrderActionMenu";
 import {getOrders} from "../../api/ordersApi";
 import {API_BASE_URL} from "../../config/apiConfig";
+import OrderActionMenu from "../../components/ui/OrderActionMenu";
+
+const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
+
+// Check if device has notch (iPhone X and above)
+const hasNotch = Platform.OS === 'ios' && (screenHeight >= 812 || screenWidth >= 812);
+
+// Safe area insets for different devices
+const getSafeAreaInsets = () => {
+    if (Platform.OS === 'ios') {
+        if (hasNotch) {
+            return {
+                top: 44, // Status bar + notch area
+                bottom: 34 // Home indicator area
+            };
+        }
+        return {
+            top: 20, // Regular status bar
+            bottom: 0
+        };
+    }
+    // Android
+    return {
+        top: StatusBar.currentHeight || 25,
+        bottom: 0
+    };
+};
+
+const safeAreaInsets = getSafeAreaInsets();
+
+// Responsive size calculator with constraints
+const RF = (size) => {
+    const scale = screenWidth / 375; // 375 is standard iPhone width
+    const normalizedSize = size * Math.min(scale, 1.5); // Max 1.5x scaling for tablets
+    return Math.round(normalizedSize);
+};
+
+const RH = (size) => {
+    const scale = screenHeight / 812; // 812 is standard iPhone height
+    return Math.round(size * Math.min(scale, 1.5));
+};
+
+// Check if device is tablet
+const isTablet = screenWidth >= 768;
+const isLargeTablet = screenWidth >= 1024;
+const isSmallPhone = screenWidth <= 320;
+
+// Responsive width percentage
+const responsiveWidth = (percentage) => {
+    return Math.round((screenWidth * percentage) / 100);
+};
+
+// Responsive height percentage (excluding safe areas)
+const responsiveHeight = (percentage) => {
+    const availableHeight = screenHeight - safeAreaInsets.top - safeAreaInsets.bottom;
+    return Math.round((availableHeight * percentage) / 100);
+};
 
 export default function MyOrderScreen() {
     const router = useRouter();
@@ -54,19 +109,22 @@ export default function MyOrderScreen() {
     }, []);
 
     const getStatusColor = (status) => {
-        switch (status?.toLowerCase()) {
+        const statusLower = status?.toLowerCase();
+        switch (statusLower) {
             case "pending":
             case "processing":
             case "confirmed":
             case "placed":
                 return "#09CA67";
             case "shipped":
+            case "out_for_delivery":
                 return "#FFA500";
             case "delivered":
             case "completed":
                 return "#4CAD73";
             case "cancelled":
             case "refunded":
+            case "returned":
                 return "#F34E4E";
             default:
                 return "#868889";
@@ -74,7 +132,8 @@ export default function MyOrderScreen() {
     };
 
     const getStatusText = (status) => {
-        switch (status?.toLowerCase()) {
+        const statusLower = status?.toLowerCase();
+        switch (statusLower) {
             case "pending":
                 return "Pending";
             case "processing":
@@ -85,6 +144,8 @@ export default function MyOrderScreen() {
                 return "Placed";
             case "shipped":
                 return "Shipped";
+            case "out_for_delivery":
+                return "Out for Delivery";
             case "delivered":
                 return "Delivered";
             case "completed":
@@ -93,21 +154,62 @@ export default function MyOrderScreen() {
                 return "Cancelled";
             case "refunded":
                 return "Refunded";
+            case "returned":
+                return "Returned";
             default:
                 return status || "Pending";
         }
+    };
+
+    // Check if order is eligible for return/replacement
+    const isOrderEligibleForReturn = (order) => {
+        if (!order) return false;
+
+        const orderStatus = order?.status?.toLowerCase();
+        const eligibleStatuses = ['delivered', 'completed'];
+
+        // Check if order is delivered/completed
+        if (!eligibleStatuses.includes(orderStatus)) {
+            return false;
+        }
+
+        // Check if it's within return period
+        const orderDate = new Date(order?.placedAt || order?.createdAt);
+        const today = new Date();
+        const daysSinceOrder = Math.floor((today - orderDate) / (1000 * 60 * 60 * 24));
+
+        // Return window based on user type
+        const returnWindow = isTablet ? 30 : 7; // Adjust based on business logic
+        return daysSinceOrder <= returnWindow;
     };
 
     const formatDate = (dateString) => {
         if (!dateString) return "Date not available";
         const date = new Date(dateString);
         return date.toLocaleDateString('en-US', {
-            year: 'numeric', month: 'short', day: 'numeric'
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    };
+
+    const formatDateTime = (dateString) => {
+        if (!dateString) return "Date not available";
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
         });
     };
 
     const formatCurrency = (amount) => {
-        return `₹${Number(amount || 0).toFixed(2)}`;
+        return `₹${Number(amount || 0).toLocaleString('en-IN', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        })}`;
     };
 
     const handleOrderPress = (order) => {
@@ -125,7 +227,6 @@ export default function MyOrderScreen() {
         showMessage('Reorder functionality will be implemented soon');
     };
 
-    // Navigate to feedback screen
     const handleRateProduct = (product, order) => {
         router.push({
             pathname: '/screens/FeedbackScreen',
@@ -138,15 +239,13 @@ export default function MyOrderScreen() {
 
     const OrderCard = ({order, index}) => {
         const totalAmount = order?.totals?.grandTotal || order?.priceBreakdown?.grandTotal || order?.total || 0;
-        const itemCount =  order?.items?.length || 0;
-
+        const itemCount = order?.items?.length || 0;
+        const isEligibleForReturn = isOrderEligibleForReturn(order);
         const productImages = order?.items?.slice(0, 3).map(item => {
             let imageUrl = item.image || null;
-
             if (imageUrl && !imageUrl.startsWith('http') && !imageUrl.startsWith('file://')) {
                 imageUrl = `${API_BASE_URL}${imageUrl.startsWith('/') ? imageUrl : '/' + imageUrl}`;
             }
-
             return imageUrl || require("../../assets/icons/order.png");
         }) || [];
 
@@ -154,9 +253,8 @@ export default function MyOrderScreen() {
             <TouchableOpacity
                 style={styles.orderCard}
                 onPress={() => handleOrderPress(order)}
+                activeOpacity={0.7}
             >
-                <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
-
                 {/* Order Header */}
                 <View style={styles.orderHeader}>
                     <View style={styles.orderIconContainer}>
@@ -167,15 +265,15 @@ export default function MyOrderScreen() {
                     </View>
 
                     <View style={styles.orderInfo}>
-                        <Text style={styles.orderNumber}>
-                            {(order.orderNumber || order._id?.substring(18) || 'N/A').substring(0, 18)}...
+                        <Text style={styles.orderNumber} numberOfLines={1}>
+                            Order #{order.orderNumber || order._id?.substring(0, 8) || 'N/A'}
                         </Text>
                         <View style={styles.orderMeta}>
                             <Text style={styles.orderAmount}>
                                 {formatCurrency(totalAmount)}
                             </Text>
                             <Text style={styles.orderDate}>
-                                • Placed on {formatDate(order.placedAt)}
+                                • {formatDate(order.placedAt)}
                             </Text>
                         </View>
                     </View>
@@ -183,6 +281,7 @@ export default function MyOrderScreen() {
                     <TouchableOpacity
                         style={styles.threeDotButton}
                         onPress={(e) => handleThreeDotMenu(order, e)}
+                        hitSlop={{top: RF(10), bottom: RF(10), left: RF(10), right: RF(10)}}
                     >
                         <Image
                             source={require('../../assets/icons/menu_dots.png')}
@@ -218,6 +317,13 @@ export default function MyOrderScreen() {
                     )}
                 </View>
 
+                {/* Status Badge */}
+                <View style={[styles.statusBadge, {backgroundColor: getStatusColor(order.status)}]}>
+                    <Text style={styles.statusText} numberOfLines={1}>
+                        {getStatusText(order.status)}
+                    </Text>
+                </View>
+
                 {/* Order Footer */}
                 <View style={styles.orderFooter}>
                     <View style={styles.actionButtons}>
@@ -227,6 +333,7 @@ export default function MyOrderScreen() {
                                 e.stopPropagation?.();
                                 handleReorder(order);
                             }}
+                            activeOpacity={0.7}
                         >
                             <Text style={styles.textButtonText}>Reorder</Text>
                         </TouchableOpacity>
@@ -240,6 +347,7 @@ export default function MyOrderScreen() {
                                         handleRateProduct(order.items[0], order);
                                     }
                                 }}
+                                activeOpacity={0.7}
                             >
                                 <Text style={styles.textButtonText}>Rate Order</Text>
                             </TouchableOpacity>
@@ -258,26 +366,28 @@ export default function MyOrderScreen() {
         const tax = order?.totals?.tax || order?.priceBreakdown?.tax || 0;
         const shipping = order?.totals?.shipping || order?.priceBreakdown?.shipping || 0;
         const discount = order?.totals?.discount || order?.priceBreakdown?.discount || 0;
+        const isEligibleForReturn = isOrderEligibleForReturn(order);
 
         const timeline = order.timeline || generateDefaultTimeline(order);
 
         function generateDefaultTimeline(orderData) {
+            const status = orderData.status?.toLowerCase();
             const baseTimeline = [
                 {event: "Order Placed", completed: true, date: orderData.placedAt},
                 {event: "Order Confirmed", completed: true, date: orderData.placedAt},
                 {
                     event: "Shipped",
-                    completed: orderData.status === 'shipped' || orderData.status === 'delivered' || orderData.status === 'completed',
+                    completed: ['shipped', 'out_for_delivery', 'delivered', 'completed'].includes(status),
                     date: null
                 },
                 {
                     event: "Out for Delivery",
-                    completed: orderData.status === 'delivered' || orderData.status === 'completed',
+                    completed: ['out_for_delivery', 'delivered', 'completed'].includes(status),
                     date: null
                 },
                 {
                     event: "Delivered",
-                    completed: orderData.status === 'delivered' || orderData.status === 'completed',
+                    completed: ['delivered', 'completed'].includes(status),
                     date: null
                 }
             ];
@@ -305,11 +415,11 @@ export default function MyOrderScreen() {
                         <Text style={[
                             styles.timelineEvent,
                             item.completed ? styles.timelineEventCompleted : styles.timelineEventIncomplete
-                        ]}>
+                        ]} numberOfLines={1}>
                             {item.event}
                         </Text>
-                        <Text style={styles.timelineDate}>
-                            {item.date ? formatDate(item.date) : 'Pending'}
+                        <Text style={styles.timelineDate} numberOfLines={1}>
+                            {item.date ? formatDateTime(item.date) : 'Pending'}
                         </Text>
                     </View>
                 </View>
@@ -324,8 +434,13 @@ export default function MyOrderScreen() {
                 onRequestClose={onClose}
             >
                 <SafeAreaView style={styles.fullScreenModalContainer}>
-                    <View style={styles.fullScreenModalHeader}>
-                        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                    <View style={[styles.fullScreenModalHeader, { paddingTop: safeAreaInsets.top }]}>
+                        <TouchableOpacity
+                            onPress={onClose}
+                            style={styles.closeButton}
+                            activeOpacity={0.7}
+                            hitSlop={{top: RF(10), bottom: RF(10), left: RF(10), right: RF(10)}}
+                        >
                             <Image
                                 source={require("../../assets/icons/back_icon.png")}
                                 style={styles.closeIcon}
@@ -335,20 +450,24 @@ export default function MyOrderScreen() {
                         <View style={styles.placeholder}/>
                     </View>
 
-                    <ScrollView style={styles.fullScreenModalContent} showsVerticalScrollIndicator={false}>
+                    <ScrollView
+                        style={styles.fullScreenModalContent}
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={{ paddingBottom: safeAreaInsets.bottom + RF(20) }}
+                    >
                         {/* Order Summary */}
                         <View style={styles.detailSection}>
                             <Text style={styles.sectionTitle}>Order Summary</Text>
                             <View style={styles.summaryRow}>
                                 <Text style={styles.summaryLabel}>Order Number:</Text>
-                                <Text style={styles.summaryValue}>
-                                    {order.orderNumber || order._id?.substring(18) || 'N/A'}
+                                <Text style={styles.summaryValue} numberOfLines={1}>
+                                    {order.orderNumber || order._id || 'N/A'}
                                 </Text>
                             </View>
                             <View style={styles.summaryRow}>
                                 <Text style={styles.summaryLabel}>Order Date:</Text>
-                                <Text style={styles.summaryValue}>
-                                    {formatDate(order.placedAt)}
+                                <Text style={styles.summaryValue} numberOfLines={1}>
+                                    {formatDateTime(order.placedAt)}
                                 </Text>
                             </View>
                             <View style={styles.summaryRow}>
@@ -363,8 +482,9 @@ export default function MyOrderScreen() {
 
                         {/* Items */}
                         <View style={styles.detailSection}>
-                            <Text style={styles.sectionTitle}>Items
-                                ({order.totalItems || order.items?.length || 0})</Text>
+                            <Text style={styles.sectionTitle}>
+                                Items ({order.totalItems || order.items?.length || 0})
+                            </Text>
                             {order.items?.map((item, index) => {
                                 let itemImage = item.image;
                                 if (itemImage && !itemImage.startsWith('http') && !itemImage.startsWith('file://')) {
@@ -379,22 +499,22 @@ export default function MyOrderScreen() {
                                             defaultSource={require("../../assets/icons/order.png")}
                                         />
                                         <View style={styles.itemInfo}>
-                                            <Text style={styles.itemName}>
+                                            <Text style={styles.itemName} numberOfLines={2}>
                                                 {item.name || 'Product'}
                                             </Text>
-                                            <Text style={styles.itemBrand}>
+                                            <Text style={styles.itemBrand} numberOfLines={1}>
                                                 {item.brand || ''}
                                             </Text>
-                                            <Text style={styles.itemPrice}>
+                                            <Text style={styles.itemPrice} numberOfLines={1}>
                                                 {formatCurrency(item.unitPrice || 0)} x {item.quantity || 1}
                                             </Text>
                                             {item.variantAttributes && (
-                                                <Text style={styles.itemVariant}>
+                                                <Text style={styles.itemVariant} numberOfLines={1}>
                                                     {item.variantAttributes}
                                                 </Text>
                                             )}
                                         </View>
-                                        <Text style={styles.itemTotal}>
+                                        <Text style={styles.itemTotal} numberOfLines={1}>
                                             {formatCurrency(item.finalPrice || (item.unitPrice * item.quantity) || 0)}
                                         </Text>
 
@@ -405,6 +525,7 @@ export default function MyOrderScreen() {
                                                     onClose();
                                                     handleRateProduct(item, order);
                                                 }}
+                                                activeOpacity={0.7}
                                             >
                                                 <Text style={styles.rateProductText}>Rate</Text>
                                             </TouchableOpacity>
@@ -424,8 +545,9 @@ export default function MyOrderScreen() {
                             {discount > 0 && (
                                 <View style={styles.priceRow}>
                                     <Text style={styles.priceLabel}>Discount:</Text>
-                                    <Text
-                                        style={[styles.priceValue, styles.discountText]}>-{formatCurrency(discount)}</Text>
+                                    <Text style={[styles.priceValue, styles.discountText]}>
+                                        -{formatCurrency(discount)}
+                                    </Text>
                                 </View>
                             )}
                             <View style={styles.priceRow}>
@@ -463,14 +585,18 @@ export default function MyOrderScreen() {
                                 <Text style={styles.sectionTitle}>Payment Information</Text>
                                 <View style={styles.summaryRow}>
                                     <Text style={styles.summaryLabel}>Payment Method:</Text>
-                                    <Text style={styles.summaryValue}>
-                                        {order.payment.method ? order.payment.method.charAt(0).toUpperCase() + order.payment.method.slice(1) : 'N/A'}
+                                    <Text style={styles.summaryValue} numberOfLines={1}>
+                                        {order.payment.method ?
+                                            order.payment.method.charAt(0).toUpperCase() + order.payment.method.slice(1) :
+                                            'N/A'}
                                     </Text>
                                 </View>
                                 <View style={styles.summaryRow}>
                                     <Text style={styles.summaryLabel}>Payment Status:</Text>
-                                    <Text style={styles.summaryValue}>
-                                        {order.payment.status ? order.payment.status.charAt(0).toUpperCase() + order.payment.status.slice(1) : 'N/A'}
+                                    <Text style={styles.summaryValue} numberOfLines={1}>
+                                        {order.payment.status ?
+                                            order.payment.status.charAt(0).toUpperCase() + order.payment.status.slice(1) :
+                                            'N/A'}
                                     </Text>
                                 </View>
                                 <View style={styles.summaryRow}>
@@ -484,21 +610,54 @@ export default function MyOrderScreen() {
                         {order.shippingAddress && (
                             <View style={styles.detailSection}>
                                 <Text style={styles.sectionTitle}>Shipping Address</Text>
-                                <Text style={styles.addressText}>
+                                <Text style={styles.addressText} numberOfLines={1}>
                                     {order.shippingAddress.name}
                                 </Text>
-                                <Text style={styles.addressText}>
+                                <Text style={styles.addressText} numberOfLines={1}>
                                     {order.shippingAddress.phone}
                                 </Text>
-                                <Text style={styles.addressText}>
+                                <Text style={styles.addressText} numberOfLines={2}>
                                     {order.shippingAddress.address}
                                 </Text>
-                                <Text style={styles.addressText}>
+                                <Text style={styles.addressText} numberOfLines={1}>
                                     {order.shippingAddress.city}, {order.shippingAddress.state} {order.shippingAddress.pincode}
                                 </Text>
-                                <Text style={styles.addressText}>
+                                <Text style={styles.addressText} numberOfLines={1}>
                                     {order.shippingAddress.country}
                                 </Text>
+                            </View>
+                        )}
+
+                        {/* Return/Replacement Button (if eligible) */}
+                        {isEligibleForReturn && (
+                            <View style={styles.detailSection}>
+                                <TouchableOpacity
+                                    style={styles.returnActionButton}
+                                    onPress={() => {
+                                        onClose();
+                                        const payload = {
+                                            orderId: String(order._id || order.id),
+                                            type: 'return',
+                                            orderDetails: JSON.stringify({
+                                                items: (Array.isArray(order?.items) ? order.items : []).map((i) => ({
+                                                    productId: i.productId,
+                                                    productName: i.name,
+                                                    quantity: i.quantity || 1,
+                                                    image: i.image,
+                                                    price: i.unitPrice || 0,
+                                                })),
+                                                totalPrice: order?.totals?.grandTotal || order?.priceBreakdown?.grandTotal || 0,
+                                                placedAt: order?.placedAt,
+                                                status: order?.status,
+                                                deliveryInfo: 'Delivered',
+                                            })
+                                        };
+                                        router.push({pathname: '/screens/ReturnReplacementScreen', params: payload});
+                                    }}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={styles.returnActionButtonText}>Request Return/Replacement</Text>
+                                </TouchableOpacity>
                             </View>
                         )}
                     </ScrollView>
@@ -509,14 +668,25 @@ export default function MyOrderScreen() {
 
     if (loading) {
         return (
-            <SafeAreaView style={{ flex: 1 }}>
-                <View style={styles.container}>
-                    <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
-                    <AppHeader title="My Orders"/>
-                    <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="large" color="#4CAD73"/>
-                        <Text style={styles.loadingText}>Loading your orders...</Text>
-                    </View>
+            <SafeAreaView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
+                <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
+                    <TouchableOpacity
+                        onPress={() => router.back()}
+                        style={styles.backButton}
+                        activeOpacity={0.7}
+                        hitSlop={{top: RF(10), bottom: RF(10), left: RF(10), right: RF(10)}}
+                    >
+                        <Image
+                            source={require("../../assets/icons/back_icon.png")}
+                            style={styles.backIcon}
+                        />
+                    </TouchableOpacity>
+                    <Text style={styles.headerTitle}>My Orders</Text>
+                    <View style={styles.headerPlaceholder} />
+                </View>
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size={isTablet ? "large" : "large"} color="#4CAD73"/>
+                    <Text style={styles.loadingText}>Loading your orders...</Text>
                 </View>
             </SafeAreaView>
         );
@@ -532,17 +702,30 @@ export default function MyOrderScreen() {
 
     return (
         <View style={styles.container}>
-            <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
+            <StatusBar
+                barStyle="dark-content"
+                backgroundColor="#FFFFFF"
+                translucent={false}
+            />
 
-            <View style={styles.topBar}>
-                <TouchableOpacity onPress={handleBack}>
-                    <Image
-                        source={require("../../assets/icons/back_icon.png")}
-                        style={styles.iconBox}
-                    />
-                </TouchableOpacity>
-                <Text style={styles.heading}>My Orders</Text>
-            </View>
+            {/* Header */}
+            <SafeAreaView style={styles.safeAreaTop} edges={['top']}>
+                <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
+                    <TouchableOpacity
+                        onPress={handleBack}
+                        style={styles.backButton}
+                        activeOpacity={0.7}
+                        hitSlop={{top: RF(10), bottom: RF(10), left: RF(10), right: RF(10)}}
+                    >
+                        <Image
+                            source={require("../../assets/icons/back_icon.png")}
+                            style={styles.backIcon}
+                        />
+                    </TouchableOpacity>
+                    <Text style={styles.headerTitle}>My Orders</Text>
+                    <View style={styles.headerPlaceholder} />
+                </View>
+            </SafeAreaView>
 
             {/* Orders List */}
             <ScrollView
@@ -554,8 +737,13 @@ export default function MyOrderScreen() {
                         onRefresh={() => loadOrders(true)}
                         colors={["#4CAD73"]}
                         tintColor="#4CAD73"
+                        progressViewOffset={safeAreaInsets.top}
                     />
                 }
+                contentContainerStyle={{
+                    paddingBottom: safeAreaInsets.bottom + RF(20),
+                    paddingTop: RF(16)
+                }}
             >
                 <View style={styles.ordersContainer}>
                     {orders.length === 0 ? (
@@ -577,7 +765,7 @@ export default function MyOrderScreen() {
                 </View>
             </ScrollView>
 
-            {/* Three Dot Menu */}
+            {/* Order Action Menu */}
             <OrderActionMenu
                 visible={menuVisible}
                 onClose={() => setMenuVisible(false)}
@@ -586,38 +774,45 @@ export default function MyOrderScreen() {
                     if (!selectedOrder) return;
 
                     switch (action) {
-                        case 'share':
-                            showMessage('Share order functionality will be implemented soon');
-                            break;
-                        case 'delete':
-                            showMessage('Delete order functionality will be implemented soon');
-                            break;
-                        case 'return':
-                            const payload = {
-                                orderId: String(selectedOrder._id || selectedOrder.id),
-                                type: 'return',
-                                orderDetails: JSON.stringify({
-                                    items: (Array.isArray(selectedOrder?.items) ? selectedOrder.items : []).map((i) => ({
-                                        productId: i.productId,
-                                        productName: i.name,
-                                        quantity: i.quantity || 1,
-                                        image: i.image,
-                                        price: i.unitPrice || 0,
-                                    })),
-                                    totalPrice: selectedOrder?.totals?.grandTotal || selectedOrder?.priceBreakdown?.grandTotal || 0,
-                                    placedAt: selectedOrder?.placedAt,
-                                    status: selectedOrder?.status,
-                                    deliveryInfo: 'Delivered',
-                                })
-                            };
-                            router.push({pathname: '/screens/ReturnReplacementScreen', params: payload});
-                            break;
                         case 'details':
                             setSelectedOrderDetail(selectedOrder);
                             setDetailModalVisible(true);
                             break;
+                        case 'return':
+                            const isEligible = isOrderEligibleForReturn(selectedOrder);
+                            if (isEligible) {
+                                const payload = {
+                                    orderId: String(selectedOrder._id || selectedOrder.id),
+                                    type: 'return',
+                                    orderDetails: JSON.stringify({
+                                        items: (Array.isArray(selectedOrder?.items) ? selectedOrder.items : []).map((i) => ({
+                                            productId: i.productId,
+                                            productName: i.name,
+                                            quantity: i.quantity || 1,
+                                            image: i.image,
+                                            price: i.unitPrice || 0,
+                                        })),
+                                        totalPrice: selectedOrder?.totals?.grandTotal || selectedOrder?.priceBreakdown?.grandTotal || 0,
+                                        placedAt: selectedOrder?.placedAt,
+                                        status: selectedOrder?.status,
+                                        deliveryInfo: 'Delivered',
+                                    })
+                                };
+                                router.push({pathname: '/screens/ReturnReplacementScreen', params: payload});
+                            } else {
+                                Alert.alert(
+                                    'Not Eligible',
+                                    'This order is not eligible for return/replacement. Orders must be delivered/completed and within the return period.'
+                                );
+                            }
+                            break;
+                        case 'track':
+                            showMessage('Track order functionality will be implemented soon');
+                            break;
                     }
                 }}
+                order={selectedOrder}
+                isEligibleForReturn={selectedOrder ? isOrderEligibleForReturn(selectedOrder) : false}
             />
 
             {/* Order Detail Modal */}
@@ -627,75 +822,239 @@ export default function MyOrderScreen() {
                 onClose={() => setDetailModalVisible(false)}
             />
         </View>
-
     );
 }
 
 const styles = StyleSheet.create({
+    // Container Styles
     container: {
         flex: 1,
         backgroundColor: "#FFFFFF",
     },
-    topBar: {
-        padding: 20,
-        marginTop: 20,
-        flexDirection: 'row',
-        justifyContent: 'flex-start',
+    safeAreaTop: {
+        backgroundColor: '#FFFFFF',
+    },
+
+    // Header Styles
+    header: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: RF(16),
+        paddingVertical: RF(12),
+        backgroundColor: "#FFFFFF",
+        borderBottomWidth: 1,
+        borderBottomColor: "#F0F0F0",
+    },
+    backButton: {
+        padding: RF(4),
+        justifyContent: 'center',
         alignItems: 'center',
     },
-    heading: {
-        fontSize: 24,
-        fontWeight: '500',
-        color: '#1B1B1B',
-        alignItems: 'center',
-        marginLeft: 20
+    backIcon: {
+        width: RF(24),
+        height: RF(24),
     },
-    iconBox: {
-        width: 32,
-        height: 32,
-        borderRadius: 8,
+    headerTitle: {
+        fontSize: RF(18),
+        fontWeight: "600",
+        color: "#1B1B1B",
+        fontFamily: "Poppins-SemiBold",
+        textAlign: "center",
+        flex: 1,
+        marginHorizontal: RF(8),
     },
+    headerPlaceholder: {
+        width: RF(32),
+    },
+
+    // Loading Styles
     loadingContainer: {
         flex: 1,
         justifyContent: "center",
         alignItems: "center",
-        gap: 16,
+        paddingBottom: RH(20),
     },
     loadingText: {
-        fontSize: 16,
-        fontFamily: "Poppins",
+        fontSize: RF(14),
+        fontFamily: "Poppins-Medium",
         color: "#868889",
+        marginTop: RF(12),
     },
+
+    // Empty State Styles
     emptyContainer: {
         alignItems: "center",
         justifyContent: "center",
-        paddingVertical: 60,
-        gap: 16,
+        paddingVertical: RH(20),
+        paddingHorizontal: RF(20),
     },
     emptyIcon: {
-        width: 100,
-        height: 100,
+        width: RF(80),
+        height: RF(80),
         opacity: 0.5,
+        marginBottom: RF(16),
     },
     emptyTitle: {
-        fontSize: 18,
-        fontFamily: "Poppins",
-        fontWeight: "500",
-        color: "#868889",
+        fontSize: RF(18),
+        fontFamily: "Poppins-SemiBold",
+        color: "#1B1B1B",
+        marginBottom: RF(8),
     },
     emptyText: {
-        fontSize: 14,
-        fontFamily: "Poppins",
+        fontSize: RF(14),
+        fontFamily: "Poppins-Regular",
         color: "#868889",
         textAlign: "center",
+        lineHeight: RF(20),
     },
+
+    // ScrollView Styles
     scrollView: {
         flex: 1,
     },
     ordersContainer: {
-        padding: 16,
-        gap: 16,
+        paddingHorizontal: RF(16),
+        gap: RF(16),
     },
+
+    // Order Card Styles
+    orderCard: {
+        backgroundColor: "#FFFFFF",
+        borderRadius: RF(12),
+        padding: RF(16),
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: RF(2) },
+        shadowOpacity: 0.1,
+        shadowRadius: RF(4),
+        elevation: 3,
+    },
+    orderHeader: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        marginBottom: RF(16),
+    },
+    orderIconContainer: {
+        marginRight: RF(12),
+    },
+    orderIcon: {
+        width: RF(40),
+        height: RF(40),
+        borderRadius: RF(20),
+        backgroundColor: "#EDF8E7",
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    orderInfo: {
+        flex: 1,
+        gap: RF(4),
+    },
+    orderNumber: {
+        fontSize: RF(16),
+        fontFamily: "Poppins-SemiBold",
+        color: "#1B1B1B",
+        lineHeight: RF(20),
+    },
+    orderMeta: {
+        flexDirection: "row",
+        alignItems: "center",
+        flexWrap: 'wrap',
+        gap: RF(4),
+    },
+    orderAmount: {
+        fontSize: RF(14),
+        fontFamily: "Poppins-SemiBold",
+        color: "#4CAD73",
+    },
+    orderDate: {
+        fontSize: RF(12),
+        fontFamily: "Poppins-Regular",
+    },
+    threeDotButton: {
+        padding: RF(4),
+    },
+    threeDotIcon: {
+        width: RF(20),
+        height: RF(20),
+    },
+
+    // Image Styles
+    imagesContainer: {
+        flexDirection: "row",
+        marginBottom: RF(12),
+    },
+    productImage: {
+        width: RF(60),
+        height: RF(60),
+        borderRadius: RF(8),
+        backgroundColor: "#F5F5F5",
+        borderWidth: 2,
+        borderColor: "#FFFFFF",
+    },
+    overlappingImage: {
+        marginLeft: RF(-10),
+    },
+    moreItemsBadge: {
+        width: RF(60),
+        height: RF(60),
+        borderRadius: RF(8),
+        backgroundColor: "rgba(0,0,0,0.6)",
+        justifyContent: "center",
+        alignItems: "center",
+        borderWidth: 2,
+        borderColor: "#FFFFFF",
+    },
+    moreItemsText: {
+        color: "#FFFFFF",
+        fontSize: RF(14),
+        fontFamily: "Poppins-SemiBold",
+    },
+
+    // Status Badge
+    statusBadge: {
+        alignSelf: 'flex-start',
+        paddingHorizontal: RF(12),
+        paddingVertical: RF(6),
+        borderRadius: RF(16),
+        marginBottom: RF(12),
+    },
+    statusText: {
+        fontSize: RF(12),
+        fontFamily: "Poppins-Medium",
+        color: "#FFFFFF",
+    },
+
+    // Action Buttons
+    orderFooter: {
+        borderTopWidth: 1,
+        borderTopColor: "#F5F5F5",
+        paddingTop: RF(12),
+    },
+    actionButtons: {
+        flexDirection: "row",
+        flexWrap: 'wrap',
+        gap: RF(12),
+    },
+    textButton: {
+        paddingVertical: RF(8),
+        paddingHorizontal: RF(12),
+        borderRadius: RF(6),
+    },
+    textButtonText: {
+        fontSize: RF(14),
+        fontFamily: "Poppins-SemiBold",
+        color: "#4CAD73",
+    },
+    returnButton: {
+        backgroundColor: '#FFF0F0',
+        borderWidth: 1,
+        borderColor: '#FF6B6B',
+    },
+    returnButtonText: {
+        color: '#FF6B6B',
+    },
+
+    // Order Detail Modal Styles
     fullScreenModalContainer: {
         flex: 1,
         backgroundColor: "#FFFFFF",
@@ -704,234 +1063,143 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        padding: 20,
-        paddingTop: 60,
+        paddingHorizontal: RF(16),
+        paddingVertical: RF(12),
         borderBottomWidth: 1,
         borderBottomColor: "#F5F5F5",
     },
     fullScreenModalTitle: {
-        fontSize: 20,
-        fontWeight: "600",
-        color: "#000000",
+        fontSize: RF(18),
+        fontFamily: "Poppins-SemiBold",
+        color: "#1B1B1B",
+        textAlign: "center",
+        flex: 1,
+        marginHorizontal: RF(8),
+    },
+    closeButton: {
+        padding: RF(4),
+    },
+    closeIcon: {
+        width: RF(24),
+        height: RF(24),
+    },
+    placeholder: {
+        width: RF(32),
     },
     fullScreenModalContent: {
         flex: 1,
-        padding: 16,
+        paddingHorizontal: RF(16),
     },
-    statusBadge: {
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 16,
-    },
-    statusText: {
-        fontSize: 12,
-        fontFamily: "Poppins",
-        fontWeight: "500",
-        color: "#FFFFFF",
-    },
-    orderCard: {
-        backgroundColor: "#FFFFFF",
-        borderRadius: 12,
-        padding: 16,
-        shadowColor: "#000",
-        shadowOffset: {width: 0, height: 2},
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
-        marginBottom: 12,
-    },
-    orderHeader: {
-        flexDirection: "row",
-        alignItems: "flex-start",
-        marginBottom: 16,
-    },
-    orderIconContainer: {
-        marginRight: 12,
-    },
-    orderIcon: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: "#EDF8E7",
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    orderInfo: {
-        flex: 1,
-        gap: 4,
-    },
-    orderNumber: {
-        fontSize: 16,
-        fontFamily: "Poppins",
-        fontWeight: "600",
-        color: "#000000",
-        lineHeight: 20,
-    },
-    orderMeta: {
-        flexDirection: "row",
-        alignItems: "center",
-        flexWrap: 'wrap',
-        gap: 4,
-    },
-    orderAmount: {
-        fontSize: 14,
-        fontFamily: "Poppins",
-        fontWeight: "600",
-        color: "#4CAD73",
-    },
-    orderDate: {
-        fontSize: 12,
-        fontFamily: "Poppins",
-        fontWeight: "400",
-        color: "#868889",
-    },
-    threeDotButton: {
-        padding: 4,
-        marginLeft: 8,
-    },
-    threeDotIcon: {
-        width: 20,
-        height: 20,
-    },
-    imagesContainer: {
-        flexDirection: "row",
-        marginBottom: 16,
-        position: "relative",
-    },
-    productImage: {
-        width: 60,
-        height: 60,
-        borderRadius: 8,
-        backgroundColor: "#F5F5F5",
-    },
-    overlappingImage: {
-        marginLeft: -10,
-    },
-    moreItemsBadge: {
-        width: 60,
-        height: 60,
-        borderRadius: 8,
-        backgroundColor: "rgba(0,0,0,0.6)",
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    moreItemsText: {
-        color: "#FFFFFF",
-        fontSize: 14,
-        fontWeight: "600",
-    },
-    orderFooter: {
-        width: "auto",
-        borderTopWidth: 1,
-        borderTopColor: "#F5F5F5",
-        paddingTop: 12,
-    },
-    actionButtons: {
-        flexDirection: "row",
-        gap: 20,
-    },
-    textButton: {
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        paddingVertical: 4,
-    },
-    textButtonText: {
-        color: "#4CAD73",
-        fontSize: 14,
-        fontWeight: "600",
-        fontFamily: "Poppins",
-    },
-    closeButton: {
-        padding: 4,
-    },
-    closeIcon: {
-        width: 24,
-        height: 24,
-    },
-    placeholder: {
-        width: 24,
-    },
+
+    // Detail Section Styles
     detailSection: {
-        marginBottom: 24,
+        marginBottom: RF(24),
     },
     sectionTitle: {
-        fontSize: 16,
-        fontWeight: "600",
-        color: "#000000",
-        marginBottom: 12,
+        fontSize: RF(16),
+        fontFamily: "Poppins-SemiBold",
+        color: "#1B1B1B",
+        marginBottom: RF(12),
     },
     summaryRow: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        marginBottom: 8,
+        marginBottom: RF(8),
     },
     summaryLabel: {
-        fontSize: 14,
+        fontSize: RF(14),
+        fontFamily: "Poppins-Regular",
         color: "#868889",
     },
     summaryValue: {
-        fontSize: 14,
-        fontWeight: "500",
-        color: "#000000",
+        fontSize: RF(14),
+        fontFamily: "Poppins-Medium",
+        color: "#1B1B1B",
+        flex: 1,
+        textAlign: 'right',
+        marginLeft: RF(8),
     },
+
+    // Item Row Styles
     itemRow: {
         flexDirection: "row",
         alignItems: "center",
-        marginBottom: 12,
-        padding: 8,
+        marginBottom: RF(12),
+        padding: RF(12),
         backgroundColor: "#F9F9F9",
-        borderRadius: 8,
+        borderRadius: RF(8),
     },
     itemImage: {
-        width: 50,
-        height: 50,
-        borderRadius: 6,
-        marginRight: 12,
+        width: RF(50),
+        height: RF(50),
+        borderRadius: RF(6),
+        marginRight: RF(12),
+        backgroundColor: "#F5F5F5",
     },
     itemInfo: {
         flex: 1,
+        marginRight: RF(8),
     },
     itemName: {
-        fontSize: 14,
-        fontWeight: "500",
-        color: "#000000",
-        marginBottom: 2,
+        fontSize: RF(14),
+        fontFamily: "Poppins-Medium",
+        color: "#1B1B1B",
+        marginBottom: RF(2),
+        lineHeight: RF(18),
     },
     itemBrand: {
-        fontSize: 12,
+        fontSize: RF(12),
+        fontFamily: "Poppins-Regular",
         color: "#868889",
-        marginBottom: 2,
+        marginBottom: RF(2),
     },
     itemPrice: {
-        fontSize: 12,
+        fontSize: RF(12),
+        fontFamily: "Poppins-Regular",
         color: "#868889",
-        marginBottom: 2,
+        marginBottom: RF(2),
     },
     itemVariant: {
-        fontSize: 11,
+        fontSize: RF(11),
+        fontFamily: "Poppins-Regular",
         color: "#666666",
         fontStyle: 'italic',
     },
     itemTotal: {
-        fontSize: 14,
-        fontWeight: "600",
-        color: "#000000",
+        fontSize: RF(14),
+        fontFamily: "Poppins-SemiBold",
+        color: "#1B1B1B",
+        marginRight: RF(8),
     },
+    rateProductButton: {
+        backgroundColor: "#4CAD73",
+        paddingHorizontal: RF(12),
+        paddingVertical: RF(6),
+        borderRadius: RF(6),
+    },
+    rateProductText: {
+        color: "#FFFFFF",
+        fontSize: RF(12),
+        fontFamily: "Poppins-SemiBold",
+    },
+
+    // Price Breakdown Styles
     priceRow: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        marginBottom: 8,
+        marginBottom: RF(8),
     },
     priceLabel: {
-        fontSize: 14,
+        fontSize: RF(14),
+        fontFamily: "Poppins-Regular",
         color: "#868889",
     },
     priceValue: {
-        fontSize: 14,
-        color: "#000000",
+        fontSize: RF(14),
+        fontFamily: "Poppins-Medium",
+        color: "#1B1B1B",
     },
     discountText: {
         color: "#F34E4E",
@@ -940,44 +1208,50 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        marginTop: 8,
-        paddingTop: 8,
+        marginTop: RF(12),
+        paddingTop: RF(12),
         borderTopWidth: 1,
         borderTopColor: "#F5F5F5",
     },
     totalLabel: {
-        fontSize: 16,
-        fontWeight: "600",
-        color: "#000000",
+        fontSize: RF(16),
+        fontFamily: "Poppins-SemiBold",
+        color: "#1B1B1B",
     },
     totalValue: {
-        fontSize: 16,
-        fontWeight: "600",
+        fontSize: RF(16),
+        fontFamily: "Poppins-SemiBold",
         color: "#4CAD73",
     },
+
+    // Address Styles
     addressText: {
-        fontSize: 14,
-        color: "#000000",
-        marginBottom: 4,
+        fontSize: RF(14),
+        fontFamily: "Poppins-Regular",
+        color: "#1B1B1B",
+        marginBottom: RF(4),
+        lineHeight: RF(20),
     },
+
+    // Timeline Styles
     timelineContainer: {
-        marginLeft: 8,
+        marginLeft: RF(8),
     },
     timelineItem: {
         flexDirection: "row",
         alignItems: "flex-start",
-        marginBottom: 20,
+        marginBottom: RF(20),
     },
     timelineLeft: {
-        width: 24,
+        width: RF(24),
         alignItems: "center",
-        marginRight: 12,
+        marginRight: RF(12),
     },
     timelineLine: {
-        width: 2,
+        width: RF(2),
         flex: 1,
-        marginTop: 4,
-        marginBottom: 4,
+        marginTop: RF(4),
+        marginBottom: RF(4),
     },
     timelineLineCompleted: {
         backgroundColor: "#4CAD73",
@@ -986,10 +1260,10 @@ const styles = StyleSheet.create({
         backgroundColor: "#E5E5E5",
     },
     timelineDot: {
-        width: 12,
-        height: 12,
-        borderRadius: 6,
-        borderWidth: 2,
+        width: RF(12),
+        height: RF(12),
+        borderRadius: RF(6),
+        borderWidth: RF(2),
     },
     timelineDotCompleted: {
         backgroundColor: "#4CAD73",
@@ -1004,30 +1278,103 @@ const styles = StyleSheet.create({
         paddingTop: 0,
     },
     timelineEvent: {
-        fontSize: 14,
-        fontWeight: "500",
-        marginBottom: 2,
+        fontSize: RF(14),
+        fontFamily: "Poppins-Medium",
+        marginBottom: RF(2),
     },
     timelineEventCompleted: {
-        color: "#000000",
+        color: "#1B1B1B",
     },
     timelineEventIncomplete: {
         color: "#868889",
     },
     timelineDate: {
-        fontSize: 12,
+        fontSize: RF(12),
+        fontFamily: "Poppins-Regular",
         color: "#868889",
     },
-    rateProductButton: {
-        backgroundColor: "#4CAD73",
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 6,
-        marginLeft: 8,
+
+    // Return Action Button
+    returnActionButton: {
+        backgroundColor: "#FF6B6B",
+        paddingVertical: RF(14),
+        borderRadius: RF(8),
+        alignItems: "center",
+        marginTop: RF(8),
     },
-    rateProductText: {
+    returnActionButtonText: {
         color: "#FFFFFF",
-        fontSize: 12,
-        fontWeight: "600",
+        fontSize: RF(14),
+        fontFamily: "Poppins-SemiBold",
+    },
+
+    // Order Action Menu Styles
+    overlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'flex-end',
+    },
+    backdrop: {
+        ...StyleSheet.absoluteFillObject,
+    },
+    sheet: {
+        backgroundColor: '#FFFFFF',
+        borderTopLeftRadius: RF(20),
+        borderTopRightRadius: RF(20),
+        paddingHorizontal: RF(16),
+        paddingTop: RF(8),
+        elevation: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+    },
+    handleContainer: {
+        alignItems: 'center',
+        marginBottom: RF(8),
+    },
+    handle: {
+        width: RF(40),
+        height: RF(4),
+        backgroundColor: '#DADADA',
+        borderRadius: RF(2),
+    },
+    menuTitle: {
+        fontSize: RF(16),
+        fontFamily: 'Poppins-SemiBold',
+        color: '#1B1B1B',
+        marginBottom: RF(16),
+        textAlign: 'center',
+    },
+    optionsContainer: {
+        marginBottom: RF(16),
+    },
+    optionItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: RF(12),
+        borderBottomWidth: 1,
+        borderBottomColor: '#F5F5F5',
+    },
+    optionIcon: {
+        width: RF(20),
+        height: RF(20),
+        marginRight: RF(12),
+    },
+    optionLabel: {
+        fontSize: RF(15),
+        fontFamily: 'Poppins-Regular',
+    },
+    cancelButton: {
+        paddingVertical: RF(14),
+        borderRadius: RF(8),
+        backgroundColor: '#F5F5F5',
+        alignItems: 'center',
+        marginBottom: RF(8),
+    },
+    cancelText: {
+        fontSize: RF(14),
+        fontFamily: 'Poppins-SemiBold',
+        color: '#666666',
     },
 });

@@ -1,90 +1,44 @@
-import { API_BASE_URL } from '../config/apiConfig';
+import apiClient from "../utils/apiClient";
+import {Platform} from "react-native";
 
-// Get user notifications
-export const getUserNotifications = async (userId) => {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/notifications/user/${userId}`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        console.error('Error fetching notifications:', error);
-        throw error;
-    }
+export const getUserNotifications = async (userId, params = {}) => {
+    const res = await apiClient.get(`/api/notifications`, { params });
+    return res.data.notifications;
 };
 
-// Mark notification as read
-export const markNotificationAsRead = async (notificationId) => {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/notifications/read/${notificationId}`, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        console.error('Error marking notification as read:', error);
-        throw error;
-    }
+export const getUserUnReadNotifications = async (userId, params = {}) => {
+    const res = await apiClient.get(`/api/notifications`, { params });
+    console.log(res.data.notifications[0])
+    return res.data.notifications;
 };
 
-// Mark all notifications as read for user
-export const markAllNotificationsAsRead = async (userId) => {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/notifications/read-all/${userId}`, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        console.error('Error marking all notifications as read:', error);
-        throw error;
-    }
+export const markNotificationAsRead = async (id) => {
+    const res = await apiClient.patch(`/api/notifications/${id}/read`);
+    console.log(res.data);
+    return res.data;
 };
 
-// Create new notification (for testing or admin use)
-export const createNotification = async (notificationData) => {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/notifications/create`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(notificationData),
-        });
+export const markAllNotificationsAsRead = async () => {
+    const res = await apiClient.patch(`/api/notifications/read`);
+    console.log(res.data);
+    return res.data;
+};
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+export const getUnreadCount = async () => {
+    const res = await apiClient.get(`/api/notifications/unread-count`);
+    console.log(res.data.count);
+    return res.data.count;
+};
 
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        console.error('Error creating notification:', error);
-        throw error;
-    }
+export const deleteNotification = async (id) => {
+    const res = await apiClient.delete(`/api/notifications/${id}`);
+    console.log(res.data);
+    return res.data;
+};
+
+export const createTestNotification = async (data) => {
+    const res = await apiClient.post(`/api/notifications/test`, data);
+    console.log(res.data);
+    return res.data;
 };

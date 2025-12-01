@@ -10,6 +10,7 @@ import {
     StatusBar,
     Dimensions,
     Platform,
+    ActivityIndicator, Pressable
 } from 'react-native';
 import {useRouter} from 'expo-router';
 import {getCategories} from "../../api/catalogApi";
@@ -17,10 +18,37 @@ import {API_BASE_URL} from "../../config/apiConfig";
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 
-// Responsive size calculator
-const responsiveSize = (size) => {
+// Check if device has notch (iPhone X and above)
+const hasNotch = Platform.OS === 'ios' && (screenHeight >= 812 || screenWidth >= 812);
+
+// Safe area insets for different devices
+const getSafeAreaInsets = () => {
+    if (Platform.OS === 'ios') {
+        if (hasNotch) {
+            return {
+                top: 44, // Status bar + notch area
+                bottom: 34 // Home indicator area
+            };
+        }
+        return {
+            top: 20, // Regular status bar
+            bottom: 0
+        };
+    }
+    // Android
+    return {
+        top: StatusBar.currentHeight || 25,
+        bottom: 0
+    };
+};
+
+const safeAreaInsets = getSafeAreaInsets();
+
+// Responsive size calculator with constraints
+const RF = (size) => {
     const scale = screenWidth / 375; // 375 is standard iPhone width
-    return Math.round(size * scale);
+    const normalizedSize = size * Math.min(scale, 1.5); // Max 1.5x scaling for tablets
+    return Math.round(normalizedSize);
 };
 
 // Check if device is tablet
@@ -82,7 +110,6 @@ export default function AllCategoriesScreen() {
                 };
             });
 
-
             setCategories(finalList);
 
         } catch (err) {
@@ -93,11 +120,9 @@ export default function AllCategoriesScreen() {
         }
     };
 
-
-
     const handleCategoryPress = (item) => {
         router.push({
-            pathname: '/screens/AllProductsScreen',
+            pathname: '/screens/ProductsScreen',
             params: {
                 selectedCategory: item._id,
                 categoryName: item.name
@@ -110,7 +135,7 @@ export default function AllCategoriesScreen() {
         if (screenWidth >= 1024) return 6; // Large tablets/desktop
         if (screenWidth >= 768) return 5;  // Tablets
         if (screenWidth >= 414) return 4;  // Large phones
-        if (screenWidth >= 375) return 3;  // Medium phones
+        if (screenWidth >= 375) return 4;  // Medium phones
         return 3; // Small phones
     };
 
@@ -121,28 +146,34 @@ export default function AllCategoriesScreen() {
             ? { uri: `${API_BASE_URL}${item.image}` }
             : require('../../assets/Rectangle 24904.png');
 
-        const cardWidth = (screenWidth - responsiveSize(40)) / columnsCount;
-        const imageSize = responsiveSize(isTablet ? 70 : 50);
-        const imageContainerSize = responsiveSize(isTablet ? 90 : 78);
+        // Calculate dynamic card width with proper spacing
+        const totalHorizontalPadding = RF(10) * 2; // Container padding
+        const totalGapSpacing = RF(5) * (columnsCount - 1); // Gaps between cards
+        const availableWidth = screenWidth - totalHorizontalPadding - totalGapSpacing;
+        const cardWidth = availableWidth / columnsCount;
+
+        const imageSize = RF(isTablet ? 70 : 50);
+        const imageContainerSize = RF(isTablet ? 90 : 78);
 
         return (
-            <TouchableOpacity
+            <Pressable
                 style={[
                     styles.categoryCard,
                     {
                         width: cardWidth,
-                        marginHorizontal: responsiveSize(4.5),
+                        marginBottom: RF(15),
                     }
                 ]}
                 onPress={() => handleCategoryPress(item)}
+                activeOpacity={0.7}
             >
                 <View style={[
                     styles.categoryImageContainer,
                     {
                         width: imageContainerSize,
                         height: imageContainerSize,
-                        borderRadius: responsiveSize(10),
-                        marginBottom: responsiveSize(6),
+                        borderRadius: RF(10),
+                        marginBottom: RF(6),
                     }
                 ]}>
                     <Image
@@ -159,39 +190,18 @@ export default function AllCategoriesScreen() {
                     style={[
                         styles.categoryName,
                         {
-                            fontSize: responsiveSize(10),
-                            width: cardWidth - responsiveSize(4),
+                            fontSize: RF(10),
+                            lineHeight: RF(14),
                         }
                     ]}
                     numberOfLines={2}
+                    ellipsizeMode="tail"
                 >
                     {item.name}
                 </Text>
-            </TouchableOpacity>
+            </Pressable>
         );
     };
-
-    if (loading) {
-        return (
-            <SafeAreaView style={styles.container}>
-                <StatusBar backgroundColor="#4CAD73" barStyle="light-content"/>
-                <View style={styles.loadingContainer}>
-                    <Text style={styles.loadingText}>Loading categories...</Text>
-                </View>
-            </SafeAreaView>
-        );
-    }
-
-    if (!categories.length) {
-        return (
-            <SafeAreaView style={styles.container}>
-                <StatusBar backgroundColor="#4CAD73" barStyle="light-content"/>
-                <View style={styles.loadingContainer}>
-                    <Text style={styles.loadingText}>Categories not found</Text>
-                </View>
-            </SafeAreaView>
-        );
-    }
 
     const getSubcategoryList = (parent) => {
         if (Array.isArray(parent.subcategories) && parent.subcategories.length > 0) {
@@ -206,27 +216,71 @@ export default function AllCategoriesScreen() {
         }];
     };
 
-    return (
-        <SafeAreaView style={{flex: 1}}>
-            <View style={styles.container}>
+    // Loading state
+    if (loading) {
+        return (
+            <View style={styles.safeContainer}>
+                <StatusBar backgroundColor="#4CAD73" barStyle="light-content"/>
+                <SafeAreaView style={styles.container}>
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color="#4CAD73" />
+                        <Text style={styles.loadingText}>Loading categories...</Text>
+                    </View>
+                </SafeAreaView>
+            </View>
+        );
+    }
 
-                {/* HEADER */}
+    // Empty state
+    if (!categories.length) {
+        return (
+            <View style={styles.safeContainer}>
+                <StatusBar backgroundColor="#4CAD73" barStyle="light-content"/>
+                <SafeAreaView style={styles.container}>
+                    <View style={styles.headerPlaceholder} />
+                    <View style={styles.emptyContainer}>
+                        <Image
+                            source={require('../../assets/icons/empty-box.png')}
+                            style={styles.emptyIcon}
+                        />
+                        <Text style={styles.emptyText}>No categories found</Text>
+                        <TouchableOpacity
+                            style={styles.retryButton}
+                            onPress={fetchCategories}
+                        >
+                            <Text style={styles.retryText}>Try Again</Text>
+                        </TouchableOpacity>
+                    </View>
+                </SafeAreaView>
+            </View>
+        );
+    }
+
+    return (
+        <View style={styles.safeContainer}>
+            <StatusBar backgroundColor="#4CAD73" barStyle="light-content"/>
+
+            {/* Header with Safe Area */}
+            <SafeAreaView style={styles.headerSafeArea}>
                 <View style={[
                     styles.header,
                     {
-                        height: responsiveSize(60),
-                        paddingHorizontal: responsiveSize(16),
-                        paddingVertical: responsiveSize(12),
+                        height: RF(60) + safeAreaInsets.top,
+                        paddingTop: safeAreaInsets.top,
                     }
                 ]}>
-                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                    <TouchableOpacity
+                        onPress={() => router.back()}
+                        style={styles.backButton}
+                        hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+                    >
                         <Image
                             source={require('../../assets/icons/back_icon.png')}
                             style={[
                                 styles.backIcon,
                                 {
-                                    width: responsiveSize(24),
-                                    height: responsiveSize(24),
+                                    width: RF(24),
+                                    height: RF(24),
                                 }
                             ]}
                         />
@@ -235,23 +289,21 @@ export default function AllCategoriesScreen() {
                     <Text style={[
                         styles.headerTitle,
                         {
-                            fontSize: responsiveSize(18),
+                            fontSize: RF(18),
                         }
                     ]}>All Categories</Text>
+
+                    {/* Placeholder to balance the layout */}
                     <View style={[
                         styles.headerPlaceholder,
-                        {width: responsiveSize(40)}
+                        {width: RF(40)}
                     ]}/>
                 </View>
+            </SafeAreaView>
 
-                {/* MAIN CONTENT */}
-                <View style={[
-                    styles.mainContent,
-                    {
-                        padding: responsiveSize(10),
-                    }
-                ]}>
-                    {/* LIST PARENT + CHILDREN */}
+            {/* Main Content with bottom safe area */}
+            <SafeAreaView style={styles.contentSafeArea}>
+                <View style={styles.mainContent}>
                     <FlatList
                         data={categories}
                         keyExtractor={(item) => item._id}
@@ -262,22 +314,22 @@ export default function AllCategoriesScreen() {
                                 <View style={[
                                     styles.categorySection,
                                     {
-                                        marginBottom: responsiveSize(20),
+                                        marginBottom: RF(20),
                                     }
                                 ]}>
                                     <View style={[
                                         styles.sectionTitleContainer,
                                         {
-                                            paddingHorizontal: responsiveSize(5),
-                                            paddingTop: responsiveSize(10),
-                                            paddingBottom: responsiveSize(10),
+                                            paddingHorizontal: RF(10),
+                                            paddingTop: RF(10),
+                                            paddingBottom: RF(10),
                                         }
                                     ]}>
                                         <Text style={[
                                             styles.sectionTitle,
                                             {
-                                                fontSize: responsiveSize(14),
-                                                lineHeight: responsiveSize(21),
+                                                fontSize: RF(14),
+                                                lineHeight: RF(21),
                                             }
                                         ]}>{item.name}</Text>
                                     </View>
@@ -290,10 +342,11 @@ export default function AllCategoriesScreen() {
                                         contentContainerStyle={[
                                             styles.categoriesGrid,
                                             {
-                                                paddingHorizontal: responsiveSize(5),
+                                                paddingHorizontal: RF(5),
                                             }
                                         ]}
                                         scrollEnabled={false}
+                                        columnWrapperStyle={styles.columnWrapper}
                                     />
                                 </View>
                             );
@@ -302,18 +355,31 @@ export default function AllCategoriesScreen() {
                         contentContainerStyle={[
                             styles.mainListContent,
                             {
-                                paddingBottom: responsiveSize(20),
+                                paddingTop: RF(10),
+                                paddingBottom: safeAreaInsets.bottom + RF(20), // Add bottom safe area
                             }
                         ]}
+                        ListFooterComponent={<View style={{height: RF(20)}} />}
                     />
                 </View>
-            </View>
-        </SafeAreaView>
+            </SafeAreaView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
+    safeContainer: {
+        flex: 1,
+        backgroundColor: '#4CAD73', // Header color
+    },
     container: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+    },
+    headerSafeArea: {
+        backgroundColor: '#4CAD73',
+    },
+    contentSafeArea: {
         flex: 1,
         backgroundColor: '#FFFFFF',
     },
@@ -322,9 +388,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         backgroundColor: '#4CAD73',
+        paddingHorizontal: RF(16),
     },
     backButton: {
-        padding: responsiveSize(8)
+        padding: RF(8),
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     backIcon: {
         tintColor: '#FFFFFF'
@@ -334,19 +403,33 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontFamily: 'Poppins-Bold',
         textAlign: 'center',
+        flex: 1,
+    },
+    headerPlaceholder: {
+        opacity: 0,
     },
     mainContent: {
         flex: 1,
+        backgroundColor: '#FFFFFF',
+    },
+    sectionTitleContainer: {
+        backgroundColor: '#FFFFFF',
     },
     sectionTitle: {
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins-Bold',
         fontWeight: '700',
         color: '#000',
         letterSpacing: -0.3,
     },
+    categoriesGrid: {
+        justifyContent: 'space-between',
+    },
+    columnWrapper: {
+        justifyContent: 'space-between',
+        paddingHorizontal: RF(5),
+    },
     categoryCard: {
         alignItems: 'center',
-        marginBottom: responsiveSize(15),
     },
     categoryImageContainer: {
         backgroundColor: '#D9EBEB',
@@ -359,20 +442,54 @@ const styles = StyleSheet.create({
         shadowRadius: 2,
     },
     categoryName: {
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins-Regular',
         fontWeight: '400',
         textAlign: 'center',
-        letterSpacing: -0.3,
         color: '#000000',
     },
     loadingContainer: {
         flex: 1,
         justifyContent: 'center',
-        alignItems: 'center'
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
     },
     loadingText: {
-        fontSize: responsiveSize(16),
+        fontSize: RF(16),
         fontFamily: 'Poppins-Medium',
-        color: '#666'
-    }
+        color: '#666',
+        marginTop: RF(10),
+    },
+    emptyContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        paddingBottom: RF(100), // Adjust for bottom navigation if needed
+    },
+    emptyIcon: {
+        width: RF(100),
+        height: RF(100),
+        marginBottom: RF(20),
+        opacity: 0.5,
+    },
+    emptyText: {
+        fontSize: RF(16),
+        fontFamily: 'Poppins-Medium',
+        color: '#666',
+        marginBottom: RF(20),
+    },
+    retryButton: {
+        backgroundColor: '#4CAD73',
+        paddingHorizontal: RF(20),
+        paddingVertical: RF(10),
+        borderRadius: RF(8),
+    },
+    retryText: {
+        color: '#FFFFFF',
+        fontSize: RF(14),
+        fontFamily: 'Poppins-Medium',
+    },
+    mainListContent: {
+        flexGrow: 1,
+    },
 });

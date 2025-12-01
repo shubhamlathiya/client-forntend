@@ -1,28 +1,37 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {useFocusEffect, useRouter} from "expo-router";
-import * as SecureStore from "expo-secure-store";
-import React, {useCallback, useRef, useState} from "react";
+import React, {useCallback, useState} from "react";
 import {
-    Animated,
     Image,
     StatusBar,
     StyleSheet,
     Text,
     TouchableOpacity,
     View,
-    Platform, Share,
+    Platform,
+    Share,
+    Dimensions,
+    ScrollView,
+    SafeAreaView
 } from "react-native";
 import {LinearGradient} from "expo-linear-gradient";
 import {logoutUser} from "../../api/authApi";
 
-const HEADER_MAX_HEIGHT = 380;
-const HEADER_MIN_HEIGHT = 100;
-const PROFILE_TEXT_OPACITY = 0;
-const PROFILE_TEXT_OPACITY_VISIBLE = 1;
+const {width, height} = Dimensions.get('window');
+
+// Responsive calculations
+const RF = (size) => {
+    const scale = width / 375; // 375 is standard iPhone width
+    return Math.ceil(size * scale);
+};
+
+const RH = (size) => {
+    const scale = height / 812; // 812 is standard iPhone height
+    return Math.ceil(size * scale);
+};
 
 export default function AccountScreen() {
     const router = useRouter();
-    const scrollY = useRef(new Animated.Value(0)).current;
 
     const [hideSensitive, setHideSensitive] = useState(false);
     const [user, setUser] = useState(null);
@@ -74,62 +83,6 @@ export default function AccountScreen() {
         }
     };
 
-    // Header animations
-    const headerHeight = scrollY.interpolate({
-        inputRange: [0, HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT],
-        outputRange: [HEADER_MAX_HEIGHT, HEADER_MIN_HEIGHT],
-        extrapolate: "clamp",
-    });
-
-    const avatarScale = scrollY.interpolate({
-        inputRange: [0, HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT],
-        outputRange: [1, 0.6],
-        extrapolate: "clamp",
-    });
-
-    const avatarOpacity = scrollY.interpolate({
-        inputRange: [0, (HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT) * 0.5],
-        outputRange: [1, 0],
-        extrapolate: "clamp",
-    });
-
-    const userNameOpacity = scrollY.interpolate({
-        inputRange: [0, (HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT) * 0.5],
-        outputRange: [1, 0],
-        extrapolate: "clamp",
-    });
-
-    const infoRowOpacity = scrollY.interpolate({
-        inputRange: [0, (HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT) * 0.5],
-        outputRange: [1, 0],
-        extrapolate: "clamp",
-    });
-
-    const topButtonRowOpacity = scrollY.interpolate({
-        inputRange: [0, (HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT) * 0.5],
-        outputRange: [1, 0],
-        extrapolate: "clamp",
-    });
-
-    const profileTextOpacity = scrollY.interpolate({
-        inputRange: [0, (HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT) * 0.7],
-        outputRange: [PROFILE_TEXT_OPACITY, PROFILE_TEXT_OPACITY_VISIBLE],
-        extrapolate: "clamp",
-    });
-
-    const profileTextTranslateY = scrollY.interpolate({
-        inputRange: [0, HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT],
-        outputRange: [20, 0],
-        extrapolate: "clamp",
-    });
-
-    // Fixed top bar opacity
-    const fixedTopBarOpacity = scrollY.interpolate({
-        inputRange: [0, (HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT) * 0.7],
-        outputRange: [0, 1],
-        extrapolate: "clamp",
-    });
-
     const handleShareApp = async () => {
         try {
             await Share.share({
@@ -141,136 +94,88 @@ export default function AccountScreen() {
     };
 
     return (
-        <View style={styles.container}>
+        <SafeAreaView style={styles.container}>
             <StatusBar barStyle="dark-content" backgroundColor="#FFE59A"/>
 
-            {/* Fixed Top Bar - Appears when scrolled */}
-            <Animated.View style={[styles.fixedTopBar, { opacity: fixedTopBarOpacity }]}>
-                <View style={styles.fixedTopBarContent}>
+            {/* Fixed Header */}
+            <LinearGradient colors={["#FFE59A", "#FFD56C"]} style={styles.header}>
+                {/* Top Row with Back Button and Profile Text */}
+                <View style={styles.topHeaderRow}>
                     <TouchableOpacity onPress={() => router.back()}>
                         <Image
                             source={require("../../assets/icons/back_icon.png")}
-                            style={styles.fixedBackIcon}
+                            style={styles.backIcon}
                         />
                     </TouchableOpacity>
-                    <Text style={styles.fixedProfileText}>Profile</Text>
+
+                    <Text style={styles.profileText}>
+                        Profile
+                    </Text>
+
                     <View style={styles.placeholder} />
                 </View>
-            </Animated.View>
 
-            {/* Animated Header */}
-            <Animated.View style={[styles.animatedHeader, { height: headerHeight }]}>
-                <LinearGradient colors={["#FFE59A", "#FFD56C"]} style={styles.topSection}>
+                {/* Avatar */}
+                <View style={styles.avatarWrapper}>
+                    <Image
+                        source={require("../../assets/icons/user-avatar.png")}
+                        style={styles.avatar}
+                    />
+                </View>
 
-                    {/* Top Row with Back Button and Profile Text */}
-                    <View style={styles.topHeaderRow}>
-                        <TouchableOpacity onPress={() => router.back()}>
-                            <Image
-                                source={require("../../assets/icons/back_icon.png")}
-                                style={styles.backIcon}
-                            />
-                        </TouchableOpacity>
+                {/* User Name */}
+                <Text
+                    style={styles.userName}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                >
+                    {user?.name || "Guest User"}
+                </Text>
 
-                        <Animated.Text
-                            style={[
-                                styles.profileText,
-                                {
-                                    opacity: profileTextOpacity,
-                                    transform: [{ translateY: profileTextTranslateY }]
-                                }
-                            ]}
-                        >
-                            Profile
-                        </Animated.Text>
+                {/* Info Row */}
+                <View style={styles.infoRow}>
+                    <Text style={styles.infoText} numberOfLines={1}>
+                        {user?.phone || "No phone"}
+                    </Text>
+                    <Text style={styles.infoText} numberOfLines={1}>
+                        {user?.dob || "Not set"}
+                    </Text>
+                </View>
 
-                        <View style={styles.placeholder} />
-                    </View>
-
-                    {/* Animated Avatar */}
-                    <Animated.View
-                        style={[
-                            styles.avatarWrapper,
-                            {
-                                transform: [{ scale: avatarScale }],
-                                opacity: avatarOpacity
-                            }
-                        ]}
+                {/* Top Buttons */}
+                <View style={styles.topButtonRow}>
+                    <TouchableOpacity
+                        style={styles.topButton}
+                        onPress={() => router.push("/screens/MyOrderScreen")}
                     >
                         <Image
-                            source={require("../../assets/icons/user-avatar.png")}
-                            style={styles.avatar}
+                            source={require("../../assets/icons/empty-box.png")}
+                            style={styles.topButtonIcon}
                         />
-                    </Animated.View>
+                        <Text style={styles.topButtonLabel} numberOfLines={2}>
+                            Your orders
+                        </Text>
+                    </TouchableOpacity>
 
-                    {/* Animated User Name */}
-                    <Animated.Text
-                        style={[
-                            styles.userName,
-                            { opacity: userNameOpacity }
-                        ]}
-                    >
-                        {user?.name || "Guest User"}
-                    </Animated.Text>
+                    <TouchableOpacity style={styles.topButton} onPress={()=> router.push("/screens/NeedHelpScreen")}>
+                        <Image
+                            source={require("../../assets/icons/help.png")}
+                            style={styles.topButtonIcon}
+                        />
+                        <Text style={styles.topButtonLabel} numberOfLines={2}>
+                            Need help?
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            </LinearGradient>
 
-                    {/* Animated Info Row */}
-                    <Animated.View
-                        style={[
-                            styles.infoRow,
-                            { opacity: infoRowOpacity }
-                        ]}
-                    >
-                        <Text style={styles.infoText}>{user?.phone || "No phone"}</Text>
-                        <Text style={styles.infoText}>{user?.dob || "Not set"}</Text>
-                    </Animated.View>
-
-                    {/* Animated Top Buttons */}
-                    <Animated.View
-                        style={[
-                            styles.topButtonRow,
-                            { opacity: topButtonRowOpacity }
-                        ]}
-                    >
-                        <TouchableOpacity style={styles.topButton} onPress={() => router.push("/screens/MyOrderScreen")}>
-                            <Image
-                                source={require("../../assets/icons/empty-box.png")}
-                                style={styles.topButtonIcon}
-                            />
-                            <Text style={styles.topButtonLabel}>Your orders</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.topButton} onPress={()=> router.push("/screens/WalletScreen")}>
-                            <Image
-                                source={require("../../assets/icons/money.png")}
-                                style={styles.topButtonIcon}
-                            />
-                            <Text style={styles.topButtonLabel}>Money</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.topButton}>
-                            <Image
-                                source={require("../../assets/icons/help.png")}
-                                style={styles.topButtonIcon}
-                            />
-                            <Text style={styles.topButtonLabel}>Need help?</Text>
-                        </TouchableOpacity>
-                    </Animated.View>
-                </LinearGradient>
-            </Animated.View>
-
-            {/* Content - Scrolls behind header */}
-            <Animated.ScrollView
-                style={styles.scroll}
+            {/* Scrollable Content */}
+            <ScrollView
+                style={styles.scrollView}
                 contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
-                onScroll={Animated.event(
-                    [{nativeEvent: {contentOffset: {y: scrollY}}}],
-                    {useNativeDriver: false}
-                )}
-                scrollEventThrottle={16}
+                bounces={true}
             >
-                {/* Add padding to push content below the header */}
-                <View style={{height: HEADER_MAX_HEIGHT - 50}} />
-
                 {/* APPEARANCE ROW */}
                 <View style={styles.smallCard}>
                     <Text style={styles.smallCardLabel}>Appearance</Text>
@@ -283,93 +188,102 @@ export default function AccountScreen() {
                     </View>
                 </View>
 
-                {/* HIDE SENSITIVE CARD */}
-                {/*<View style={styles.sensitiveCard}>*/}
-                {/*    <View style={styles.sensitiveLeft}>*/}
-                {/*        <Image*/}
-                {/*            source={require("../../assets/icons/hide.png")}*/}
-                {/*            style={styles.sensitiveIcon}*/}
-                {/*        />*/}
-                {/*        <View>*/}
-                {/*            <Text style={styles.sensitiveTitle}>Hide sensitive items</Text>*/}
-                {/*            <Text style={styles.sensitiveSubtitle}>*/}
-                {/*                Sexual wellness, nicotine products and other*/}
-                {/*                sensitive items will be hidden*/}
-                {/*            </Text>*/}
-                {/*        </View>*/}
-                {/*    </View>*/}
-                {/*    <Switch*/}
-                {/*        value={hideSensitive}*/}
-                {/*        onValueChange={setHideSensitive}*/}
-                {/*        trackColor={{ false: "#BEBEBE", true: "#4CD964" }}*/}
-                {/*    />*/}
-                {/*</View>*/}
-
-                {/* Your Information Card */}
+                {/* Your Information Card - Now scrollable within this card */}
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Your information</Text>
 
-                    <TouchableOpacity
-                        style={styles.menuItem}
-                        onPress={() => router.push("/screens/AddressListScreen")}
+                    {/* Scrollable menu items inside the card */}
+                    <ScrollView
+                        style={styles.menuScroll}
+                        showsVerticalScrollIndicator={false}
+                        nestedScrollEnabled={true}
                     >
-                        <View style={styles.leftRow}>
+                        <TouchableOpacity
+                            style={styles.menuItem}
+                            onPress={() => router.push("/screens/AddressListScreen")}
+                        >
+                            <View style={styles.leftRow}>
+                                <Image
+                                    source={require("../../assets/icons/address-book.png")}
+                                    style={styles.menuIcon}
+                                />
+                                <Text style={styles.menuLabel}>Address book</Text>
+                            </View>
                             <Image
-                                source={require("../../assets/icons/address-book.png")}
-                                style={styles.menuIcon}
+                                source={require("../../assets/icons/right-arrow.png")}
+                                style={styles.arrowIcon}
                             />
-                            <Text style={styles.menuLabel}>Address book</Text>
-                        </View>
-                        <Image
-                            source={require("../../assets/icons/right-arrow.png")}
-                            style={styles.arrowIcon}
-                        />
-                    </TouchableOpacity>
+                        </TouchableOpacity>
 
-                    <TouchableOpacity
-                        style={styles.menuItem}
-                        onPress={() => router.push('/screens/WishlistScreen')}
-                    >
-                        <View style={styles.leftRow}>
+                        <TouchableOpacity
+                            style={styles.menuItem}
+                            onPress={() => router.push('/screens/WishlistScreen')}
+                        >
+                            <View style={styles.leftRow}>
+                                <Image
+                                    source={require("../../assets/icons/heart_empty.png")}
+                                    style={styles.menuIcon}
+                                />
+                                <Text style={styles.menuLabel}>Your wishlist</Text>
+                            </View>
                             <Image
-                                source={require("../../assets/icons/heart_empty.png")}
-                                style={styles.menuIcon}
+                                source={require("../../assets/icons/right-arrow.png")}
+                                style={styles.arrowIcon}
                             />
-                            <Text style={styles.menuLabel}>Your wishlist</Text>
-                        </View>
-                        <Image
-                            source={require("../../assets/icons/right-arrow.png")}
-                            style={styles.arrowIcon}
-                        />
-                    </TouchableOpacity>
+                        </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.menuItem}>
-                        <View style={styles.leftRow}>
-                            <Image
-                                source={require("../../assets/icons/gst.png")}
-                                style={styles.menuIcon}
-                            />
-                            <Text style={styles.menuLabel}>GST details</Text>
-                        </View>
-                        <Image
-                            source={require("../../assets/icons/right-arrow.png")}
-                            style={styles.arrowIcon}
-                        />
-                    </TouchableOpacity>
+                        {/* Add more menu items here that will be scrollable */}
+                        {/*<TouchableOpacity*/}
+                        {/*    style={styles.menuItem}*/}
+                        {/*    onPress={() => console.log("Settings pressed")}*/}
+                        {/*>*/}
+                        {/*    <View style={styles.leftRow}>*/}
+                        {/*        <Image*/}
+                        {/*            source={require("../../assets/icons/settings.png")}*/}
+                        {/*            style={styles.menuIcon}*/}
+                        {/*        />*/}
+                        {/*        <Text style={styles.menuLabel}>Settings</Text>*/}
+                        {/*    </View>*/}
+                        {/*    <Image*/}
+                        {/*        source={require("../../assets/icons/right-arrow.png")}*/}
+                        {/*        style={styles.arrowIcon}*/}
+                        {/*    />*/}
+                        {/*</TouchableOpacity>*/}
 
-                    <TouchableOpacity style={styles.menuItem}>
-                        <View style={styles.leftRow}>
-                            <Image
-                                source={require("../../assets/icons/gift.png")}
-                                style={styles.menuIcon}
-                            />
-                            <Text style={styles.menuLabel}>E-gift cards</Text>
-                        </View>
-                        <Image
-                            source={require("../../assets/icons/right-arrow.png")}
-                            style={styles.arrowIcon}
-                        />
-                    </TouchableOpacity>
+                        {/*<TouchableOpacity*/}
+                        {/*    style={styles.menuItem}*/}
+                        {/*    onPress={() => console.log("Privacy pressed")}*/}
+                        {/*>*/}
+                        {/*    <View style={styles.leftRow}>*/}
+                        {/*        <Image*/}
+                        {/*            source={require("../../assets/icons/privacy.png")}*/}
+                        {/*            style={styles.menuIcon}*/}
+                        {/*        />*/}
+                        {/*        <Text style={styles.menuLabel}>Privacy & Security</Text>*/}
+                        {/*    </View>*/}
+                        {/*    <Image*/}
+                        {/*        source={require("../../assets/icons/right-arrow.png")}*/}
+                        {/*        style={styles.arrowIcon}*/}
+                        {/*    />*/}
+                        {/*</TouchableOpacity>*/}
+
+                        {/*<TouchableOpacity*/}
+                        {/*    style={styles.menuItem}*/}
+                        {/*    onPress={() => console.log("About pressed")}*/}
+                        {/*>*/}
+                        {/*    <View style={styles.leftRow}>*/}
+                        {/*        <Image*/}
+                        {/*            source={require("../../assets/icons/info.png")}*/}
+                        {/*            style={styles.menuIcon}*/}
+                        {/*        />*/}
+                        {/*        <Text style={styles.menuLabel}>About us</Text>*/}
+                        {/*    </View>*/}
+                        {/*    <Image*/}
+                        {/*        source={require("../../assets/icons/right-arrow.png")}*/}
+                        {/*        style={styles.arrowIcon}*/}
+                        {/*    />*/}
+                        {/*</TouchableOpacity>*/}
+                    </ScrollView>
                 </View>
 
                 {/* Other Information Card */}
@@ -393,42 +307,13 @@ export default function AccountScreen() {
                         />
                     </TouchableOpacity>
 
-
-                    <TouchableOpacity style={styles.menuItem}>
-                        <View style={styles.leftRow}>
-                            <Image
-                                source={require("../../assets/icons/info.png")}
-                                style={styles.menuIcon}
-                            />
-                            <Text style={styles.menuLabel}>About us</Text>
-                        </View>
-                        <Image
-                            source={require("../../assets/icons/right-arrow.png")}
-                            style={styles.arrowIcon}
-                        />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={styles.menuItem}>
-                        <View style={styles.leftRow}>
-                            <Image
-                                source={require("../../assets/icons/privacy.png")}
-                                style={styles.menuIcon}
-                            />
-                            <Text style={styles.menuLabel}>Account privacy</Text>
-                        </View>
-                        <Image
-                            source={require("../../assets/icons/right-arrow.png")}
-                            style={styles.arrowIcon}
-                        />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={styles.menuItem}>
+                    <TouchableOpacity style={styles.menuItem} onPress={()=>{ router.push("/screens/NotificationScreen")}}>
                         <View style={styles.leftRow}>
                             <Image
                                 source={require("../../assets/icons/bell.png")}
                                 style={styles.menuIcon}
                             />
-                            <Text style={styles.menuLabel}>Notification preferences</Text>
+                            <Text style={styles.menuLabel}>Notifications</Text>
                         </View>
                         <Image
                             source={require("../../assets/icons/right-arrow.png")}
@@ -436,7 +321,11 @@ export default function AccountScreen() {
                         />
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
+                    <TouchableOpacity
+                        style={styles.menuItem}
+                        onPress={handleLogout}
+                        disabled={loggingOut}
+                    >
                         <View style={styles.leftRow}>
                             <Image
                                 source={require("../../assets/icons/logout.png")}
@@ -457,10 +346,6 @@ export default function AccountScreen() {
                         onPress={() => router.push("/screens/LoginTypeSelectionScreen")}
                     >
                         <View style={styles.leftRow}>
-                            {/*<Image*/}
-                            {/*    source={require("../../assets/icons/switch-provider.png")}*/}
-                            {/*    style={styles.menuIcon}*/}
-                            {/*/>*/}
                             <Text style={[styles.menuLabel, { color: "#3A7AFE" }]}>
                                 Switch provider
                             </Text>
@@ -472,10 +357,10 @@ export default function AccountScreen() {
                     </TouchableOpacity>
                 </View>
 
-                <View style={{height: Platform.OS === "ios" ? 120 : 80}}/>
-            </Animated.ScrollView>
-
-        </View>
+                {/* Bottom padding */}
+                <View style={{height: RH(40)}}/>
+            </ScrollView>
+        </SafeAreaView>
     );
 }
 
@@ -484,170 +369,135 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: "#F7F7F7"
     },
-    // Fixed Top Bar Styles
-    fixedTopBar: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: Platform.OS === 'ios' ? 100 : 100,
-        backgroundColor: "#FFE59A",
-        zIndex: 2000,
-        borderBottomLeftRadius: 24,
-        borderBottomRightRadius: 24,
-        shadowColor: "#000",
-        shadowOffset: {width: 0, height: 2},
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 4,
-    },
-    fixedTopBarContent: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        paddingTop: Platform.OS === 'ios' ? 50 : 42,
-        paddingHorizontal: 18,
-        height: '100%',
-    },
-    fixedBackIcon: {
-        width: 22,
-        height: 22,
-        tintColor: "#000"
-    },
-    fixedProfileText: {
-        fontSize: 18,
-        fontWeight: "700",
-        color: "#000",
-        fontFamily: "Poppins-Bold",
-    },
-    animatedHeader: {
+    header: {
         width: "100%",
-        overflow: "hidden",
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 1000,
-    },
-    topSection: {
-        flex: 1,
-        paddingTop: Platform.OS === 'ios' ? 50 : 42,
-        paddingBottom: 12,
-        paddingHorizontal: 18,
-        borderBottomLeftRadius: 24,
-        borderBottomRightRadius: 24,
+        paddingTop: Platform.OS === 'ios' ? RH(10) : RH(20),
+        paddingBottom: RH(20),
+        paddingHorizontal: RF(18),
+        borderBottomLeftRadius: RF(24),
+        borderBottomRightRadius: RF(24),
         shadowColor: "#FFD56C",
-        shadowOffset: {width: 0, height: 8},
+        shadowOffset: {width: 0, height: RF(8)},
         shadowOpacity: 0.25,
-        shadowRadius: 18,
+        shadowRadius: RF(18),
         elevation: 6,
     },
     topHeaderRow: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        height: 40,
+        height: RH(40),
+        marginBottom: RH(10),
     },
     backIcon: {
-        width: 22,
-        height: 22,
+        width: RF(22),
+        height: RF(22),
         tintColor: "#000"
     },
     profileText: {
-        fontSize: 18,
+        fontSize: RF(18),
         fontWeight: "700",
         color: "#000",
         fontFamily: "Poppins-Bold",
     },
     placeholder: {
-        width: 22,
+        width: RF(22),
     },
     avatarWrapper: {
         alignItems: "center",
         justifyContent: "center",
-        marginTop: 10,
+        marginTop: RH(5),
     },
     avatar: {
-        width: 100,
-        height: 100,
-        borderRadius: 50,
+        width: RF(100),
+        height: RF(100),
+        borderRadius: RF(50),
         resizeMode: "cover",
-        borderWidth: 3,
+        borderWidth: RF(3),
         borderColor: 'rgba(255,255,255,0.3)',
     },
     userName: {
         textAlign: "center",
-        marginTop: 8,
+        marginTop: RH(8),
         fontWeight: "700",
         color: "#111",
-        fontSize: 20,
+        fontSize: RF(20),
         fontFamily: "Poppins-Bold",
+        maxWidth: '90%',
+        alignSelf: 'center',
     },
     infoRow: {
         flexDirection: "row",
         justifyContent: "center",
-        marginTop: 6,
+        marginTop: RH(6),
         alignItems: "center",
+        flexWrap: 'wrap',
     },
     infoText: {
-        fontSize: 14,
+        fontSize: RF(14),
         color: "#555",
-        marginHorizontal: 6,
+        marginHorizontal: RF(6),
         fontFamily: "Poppins-Regular",
+        maxWidth: '45%',
     },
     topButtonRow: {
         flexDirection: "row",
         justifyContent: "space-between",
-        marginTop: 20,
+        marginTop: RH(20),
+        gap: RF(10),
     },
     topButton: {
-        width: "30%",
+        flex: 1,
         backgroundColor: "#FFFFFF",
-        paddingVertical: 12,
-        borderRadius: 12,
+        paddingVertical: RH(12),
+        borderRadius: RF(12),
         alignItems: "center",
         elevation: 2,
         shadowColor: "#000",
-        shadowOffset: {width: 0, height: 2},
+        shadowOffset: {width: 0, height: RF(2)},
         shadowOpacity: 0.1,
-        shadowRadius: 4,
+        shadowRadius: RF(4),
+        minHeight: RH(80),
     },
     topButtonIcon: {
-        width: 30,
-        height: 30,
-        marginBottom: 6,
+        width: RF(30),
+        height: RF(30),
+        marginBottom: RH(6),
     },
     topButtonLabel: {
-        fontSize: 12,
+        fontSize: RF(12),
         fontWeight: "600",
         fontFamily: "Poppins-SemiBold",
         textAlign: 'center',
+        paddingHorizontal: RF(4),
     },
-    scroll: {
+    scrollView: {
         flex: 1,
     },
     scrollContent: {
-        paddingHorizontal: 12,
+        paddingHorizontal: RF(12),
+        paddingTop: RH(20),
+        paddingBottom: RH(40),
         backgroundColor: "#F7F7F7",
     },
     smallCard: {
         backgroundColor: "#fff",
-        borderRadius: 12,
-        paddingHorizontal: 14,
-        paddingVertical: 12,
-        marginBottom: 14,
+        borderRadius: RF(12),
+        paddingHorizontal: RF(14),
+        paddingVertical: RH(12),
+        marginBottom: RH(14),
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
         elevation: 1,
         shadowColor: "#000",
-        shadowOffset: {width: 0, height: 1},
+        shadowOffset: {width: 0, height: RF(1)},
         shadowOpacity: 0.1,
-        shadowRadius: 2,
+        shadowRadius: RF(2),
     },
     smallCardLabel: {
         fontWeight: "600",
-        fontSize: 15,
+        fontSize: RF(15),
         fontFamily: "Poppins-SemiBold",
     },
     smallCardRight: {
@@ -657,73 +507,44 @@ const styles = StyleSheet.create({
     smallValue: {
         color: "#4D4D4D",
         fontWeight: "600",
-        marginRight: 8,
+        marginRight: RF(8),
         fontFamily: "Poppins-SemiBold",
+        fontSize: RF(14),
     },
     smallArrow: {
-        width: 14,
-        height: 14,
+        width: RF(14),
+        height: RF(14),
         tintColor: "#777"
-    },
-    sensitiveCard: {
-        backgroundColor: "#FFFFFF",
-        padding: 16,
-        borderRadius: 12,
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 20,
-        elevation: 1,
-        shadowColor: "#000",
-        shadowOffset: {width: 0, height: 1},
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-    },
-    sensitiveLeft: {
-        flexDirection: "row",
-        gap: 12,
-        flex: 1,
-    },
-    sensitiveIcon: {
-        width: 26,
-        height: 26,
-        tintColor: "#3EAF5B",
-    },
-    sensitiveTitle: {
-        fontSize: 14,
-        fontWeight: "600",
-        marginBottom: 2,
-        fontFamily: "Poppins-SemiBold",
-    },
-    sensitiveSubtitle: {
-        fontSize: 12,
-        color: "#777",
-        lineHeight: 18,
-        fontFamily: "Poppins-Regular",
     },
     card: {
         backgroundColor: "#fff",
-        borderRadius: 14,
-        paddingHorizontal: 14,
-        paddingVertical: 12,
-        marginBottom: 16,
+        borderRadius: RF(14),
+        paddingHorizontal: RF(14),
+        paddingVertical: RH(12),
+        marginBottom: RH(16),
         elevation: 1,
         shadowColor: "#000",
-        shadowOffset: {width: 0, height: 1},
+        shadowOffset: {width: 0, height: RF(1)},
         shadowOpacity: 0.1,
-        shadowRadius: 2,
+        shadowRadius: RF(2),
+    },
+    menuScroll: {
+        maxHeight: RH(300), // Set max height for scrollable area
     },
     cardTitle: {
-        fontSize: 16,
+        fontSize: RF(16),
         fontWeight: "700",
-        marginBottom: 12,
+        marginBottom: RH(12),
         fontFamily: "Poppins-Bold",
     },
     menuItem: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        paddingVertical: 12,
+        paddingVertical: RH(12),
+        minHeight: RH(50),
+        borderBottomWidth: 1,
+        borderBottomColor: "#F0F0F0",
     },
     leftRow: {
         flexDirection: "row",
@@ -731,20 +552,21 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     menuIcon: {
-        width: 22,
-        height: 22,
-        marginRight: 12,
+        width: RF(22),
+        height: RF(22),
+        marginRight: RF(12),
         tintColor: "#555"
     },
     menuLabel: {
-        fontSize: 15,
+        fontSize: RF(15),
         color: "#333",
         fontWeight: "500",
         fontFamily: "Poppins-Medium",
+        flexShrink: 1,
     },
     arrowIcon: {
-        width: 16,
-        height: 16,
+        width: RF(16),
+        height: RF(16),
         tintColor: "#777"
     },
 });

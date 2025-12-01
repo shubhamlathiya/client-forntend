@@ -20,7 +20,11 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.shubhamlathiya2004.clientforntend"
+      "package": "com.shubhamlathiya2004.clientforntend",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "output": "static",
@@ -28,14 +32,12 @@
     },
     "plugins": [
       "expo-router",
-
       [
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location."
         }
       ],
-
       [
         "expo-splash-screen",
         {
@@ -49,7 +51,6 @@
         }
       ]
     ],
-
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
@@ -57,9 +58,8 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "cde2d232-f9d8-4e88-9b7a-6fc20d5e3458"
+        "projectId": "e76a4fdc-89a2-430e-9eae-d79472ac0ee5"
       }
-    },
-    "owner": "shubhamlathiya2004"
+    }
   }
 }

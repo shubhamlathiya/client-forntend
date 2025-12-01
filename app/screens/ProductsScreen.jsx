@@ -14,14 +14,53 @@ import {
     View,
     Modal,
     FlatList,
-    SafeAreaView
+    SafeAreaView,
+    ActivityIndicator,
+    StatusBar
 } from "react-native";
 import {addCartItem, getCart, removeCartItem, updateCartItem} from '../../api/cartApi';
 import {getProducts, getCategories, toggleWishlist, checkWishlist} from '../../api/catalogApi';
 import {API_BASE_URL} from '../../config/apiConfig';
 import { useFocusEffect } from '@react-navigation/native';
 
-const {width, height} = Dimensions.get("window");
+const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
+
+// Check device type and safe areas
+const isIOS = Platform.OS === 'ios';
+const isTablet = screenWidth >= 768;
+const isLargeTablet = screenWidth >= 1024;
+const isSmallPhone = screenWidth <= 375;
+
+// Get status bar height
+const statusBarHeight = Platform.select({
+    ios: isIOS ? (screenHeight >= 812 ? 44 : 20) : 0,
+    android: StatusBar.currentHeight || 24,
+});
+
+// Get bottom safe area (for iPhone X and above)
+const bottomSafeArea = isIOS ? (screenHeight >= 812 ? 34 : 0) : 0;
+
+// Responsive size calculator
+const responsiveSize = (size) => {
+    const baseWidth = 375; // iPhone 6/7/8 width
+    const scale = screenWidth / baseWidth;
+    const scaledSize = size * scale;
+
+    // Ensure minimum readable size
+    if (size <= 10) return Math.max(size, Math.round(scaledSize));
+    return Math.round(scaledSize);
+};
+
+// Responsive width percentage
+const responsiveWidth = (percentage) => {
+    return (screenWidth * percentage) / 100;
+};
+
+// Responsive height percentage (excluding status bar and safe areas)
+const responsiveHeight = (percentage) => {
+    const availableHeight = screenHeight - statusBarHeight - bottomSafeArea;
+    return (availableHeight * percentage) / 100;
+};
 
 export default function ProductsScreen() {
     const router = useRouter();
@@ -37,7 +76,21 @@ export default function ProductsScreen() {
     const [showVariantModal, setShowVariantModal] = useState(false);
     const [selectedProductForVariant, setSelectedProductForVariant] = useState(null);
     const [updatingItems, setUpdatingItems] = useState({});
-    const [likedMap, setLikedMap] = useState({});
+    const [wishlistItems, setWishlistItems] = useState({});
+    const [wishlistUpdating, setWishlistUpdating] = useState({});
+    const [orientation, setOrientation] = useState(
+        screenWidth > screenHeight ? 'landscape' : 'portrait'
+    );
+
+    // Handle orientation changes
+    useEffect(() => {
+        const subscription = Dimensions.addEventListener('change', ({ window }) => {
+            const newOrientation = window.width > window.height ? 'landscape' : 'portrait';
+            setOrientation(newOrientation);
+        });
+
+        return () => subscription?.remove();
+    }, []);
 
     // Auto refresh when screen comes into focus
     useFocusEffect(
@@ -53,13 +106,9 @@ export default function ProductsScreen() {
             try {
                 setLoading(true);
 
-                // Ensure selectedCategory is a clean ID
-                const categoryId =
-                    typeof selectedCategory === "string"
-                        ? selectedCategory
-                        : selectedCategory?._id ||
-                        selectedCategory?.id ||
-                        null;
+                const categoryId = typeof selectedCategory === "string"
+                    ? selectedCategory
+                    : selectedCategory?._id || selectedCategory?.id || null;
 
                 const requests = [
                     getProducts({categoryId}),
@@ -68,8 +117,8 @@ export default function ProductsScreen() {
                 ];
 
                 const [productsRes, categoriesRes, cartRes] = await Promise.all(requests);
-                let items = [];
 
+                let items = [];
                 if (productsRes?.success) {
                     if (productsRes.data?.data?.items) {
                         items = productsRes.data.data.items;
@@ -83,7 +132,6 @@ export default function ProductsScreen() {
                 }
 
                 let categoriesList = [];
-
                 if (categoriesRes?.success) {
                     if (categoriesRes.data?.data) {
                         categoriesList = categoriesRes.data.data;
@@ -104,6 +152,8 @@ export default function ProductsScreen() {
                     if (categoriesList.length > 0) {
                         setActiveCategory(categoriesList[0]);
                     }
+
+                    initializeWishlistStatus(items);
                 }
             } catch (e) {
                 if (mounted) {
@@ -125,34 +175,83 @@ export default function ProductsScreen() {
         };
     }, [selectedCategory]);
 
-    useEffect(() => {
-        let mounted = true;
-        (async () => {
-            try {
-                const raw = await AsyncStorage.getItem('userData');
-                const user = raw ? JSON.parse(raw) : null;
-                const uid = user?._id || user?.id || user?.userId || null;
-                if (!uid) return;
-                const ids = products.map(p => String(getProductId(p))).filter(Boolean);
-                const updates = {};
-                for (const pid of ids) {
-                    try {
-                        const res = await checkWishlist(uid, pid);
-                        const liked = Boolean(res?.liked ?? res?.data?.liked ?? res?.inWishlist ?? res?.data?.inWishlist);
-                        updates[pid] = liked;
-                    } catch (_) {}
-                }
-                if (mounted) setLikedMap(updates);
-            } catch (_) {}
-        })();
-        return () => { mounted = false; };
-    }, [products]);
+    const initializeWishlistStatus = async (productsList) => {
+        try {
+            const userData = await AsyncStorage.getItem('userData');
+            const user = userData ? JSON.parse(userData) : null;
+            const userId = user?._id || user?.id || user?.userId || null;
 
-    // Filter products when category or search query changes
+            if (!userId) return;
+
+            const wishlistStatus = {};
+            const productIds = productsList.map(product => String(getProductId(product))).filter(Boolean);
+
+            for (const productId of productIds) {
+                try {
+                    const res = await checkWishlist(userId, productId);
+                    const isInWishlist = Boolean(
+                        res?.liked ??
+                        res?.data?.liked ??
+                        res?.inWishlist ??
+                        res?.data?.inWishlist ??
+                        false
+                    );
+                    wishlistStatus[productId] = isInWishlist;
+                } catch (error) {
+                    wishlistStatus[productId] = false;
+                }
+            }
+
+            setWishlistItems(wishlistStatus);
+        } catch (error) {
+            console.log('Error initializing wishlist:', error);
+        }
+    };
+
+    const toggleWishlistForProduct = async (productId) => {
+        try {
+            const userData = await AsyncStorage.getItem('userData');
+            const user = userData ? JSON.parse(userData) : null;
+            const userId = user?._id || user?.id || user?.userId || null;
+
+            if (!userId) {
+                Alert.alert('Login Required', 'Please login to add items to wishlist');
+                router.push('/screens/LoginScreen');
+                return;
+            }
+
+            setWishlistUpdating(prev => ({ ...prev, [productId]: true }));
+            const res = await toggleWishlist(userId, String(productId));
+
+            const newWishlistState = Boolean(
+                res?.liked ??
+                res?.data?.liked ??
+                res?.inWishlist ??
+                res?.data?.inWishlist ??
+                !wishlistItems[productId]
+            );
+
+            setWishlistItems(prev => ({
+                ...prev,
+                [productId]: newWishlistState
+            }));
+            //
+            // if (Platform.OS === 'android') {
+            //     ToastAndroid.show(
+            //         newWishlistState ? 'Added to wishlist' : 'Removed from wishlist',
+            //         ToastAndroid.SHORT
+            //     );
+            // }
+        } catch (error) {
+            Alert.alert('Error', 'Failed to update wishlist. Please try again.');
+        } finally {
+            setWishlistUpdating(prev => ({ ...prev, [productId]: false }));
+        }
+    };
+
     useEffect(() => {
         let filtered = [...products];
 
-        // Filter by active category
         if (activeCategory) {
             filtered = filtered.filter(product => {
                 const matchesCategory =
@@ -168,7 +267,6 @@ export default function ProductsScreen() {
             });
         }
 
-        // Filter by search query
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
             filtered = filtered.filter(product =>
@@ -183,12 +281,11 @@ export default function ProductsScreen() {
         setFilteredProducts(filtered);
     }, [activeCategory, searchQuery, products]);
 
-    // Load cart items with real-time updates
     const loadCartItems = async () => {
         try {
             const cartData = await getCart();
-
             let items = [];
+
             if (cartData?.success) {
                 if (cartData.data?.items) {
                     items = cartData.data.items;
@@ -206,7 +303,6 @@ export default function ProductsScreen() {
         }
     };
 
-    // Load login type
     useEffect(() => {
         (async () => {
             try {
@@ -215,7 +311,7 @@ export default function ProductsScreen() {
                     setLoginType(lt);
                 }
             } catch (error) {
-                console.log('❌ Error loading login type:', error);
+                console.log('Error loading login type:', error);
             }
         })();
     }, []);
@@ -225,11 +321,9 @@ export default function ProductsScreen() {
     }
 
     function getProductId(item) {
-        const id = item?.id || item?._id || item?.productId;
-        return id;
+        return item?.id || item?._id || item?.productId;
     }
 
-    // Get cart item ID for update/remove operations
     const getCartItemId = (productId, variantId = null) => {
         const cartItem = cartItems.find(item =>
             item.productId === String(productId) &&
@@ -239,7 +333,6 @@ export default function ProductsScreen() {
     };
 
     function computeProductPrice(item) {
-        // Check if product has variants with pricing
         const variants = Array.isArray(item?.variants) ? item.variants : [];
         const firstVariant = variants[0];
 
@@ -248,7 +341,6 @@ export default function ProductsScreen() {
         let hasDiscount = false;
         let discountPercent = 0;
 
-        // Priority: Variant pricing -> Product pricing
         if (firstVariant) {
             base = Number(firstVariant?.basePrice ?? firstVariant?.price ?? 0);
             final = Number(firstVariant?.finalPrice ?? firstVariant?.price ?? base);
@@ -257,7 +349,6 @@ export default function ProductsScreen() {
             final = Number(item?.finalPrice ?? item?.price ?? base);
         }
 
-        // Calculate discount if applicable
         if (item?.discount?.type === 'percent' && item.discount.value > 0) {
             discountPercent = Number(item.discount.value);
             final = base - (base * discountPercent / 100);
@@ -270,62 +361,12 @@ export default function ProductsScreen() {
         return {base, final, hasDiscount, discountPercent};
     }
 
-    function getBusinessPriceInfo(item) {
-        const priceRange = item?.priceRange;
-        const negotiated = item?.negotiatedPrice ?? item?.businessPrice;
-        const tiers = item?.tierPricing || item?.priceTiers || item?.tiers || [];
-
-        let mainText = '';
-        if (typeof negotiated === 'number' && negotiated > 0) {
-            mainText = `₹${Number(negotiated).toFixed(2)} (Negotiated)`;
-        } else if (priceRange && (priceRange.min || priceRange.max)) {
-            const min = Number(priceRange.min ?? 0).toFixed(2);
-            const max = Number(priceRange.max ?? min).toFixed(2);
-            mainText = `₹${min} - ₹${max}`;
-        } else {
-            // Fallback to regular pricing
-            const priceInfo = computeProductPrice(item);
-            mainText = `₹${priceInfo.final.toFixed(2)}`;
-        }
-
-        let tierText = '';
-        if (Array.isArray(tiers) && tiers.length > 0) {
-            const t0 = tiers[0] || {};
-            const minQty = t0.minQty ?? t0.min ?? 0;
-            const maxQty = t0.maxQty ?? t0.max ?? null;
-            const price = t0.negotiatedPrice ?? t0.price ?? t0.unitPrice ?? null;
-            const qtyPart = maxQty ? `${minQty}-${maxQty}` : `≥${minQty}`;
-            if (price != null) tierText = `Tier: ${qtyPart} @ ₹${Number(price).toFixed(2)}`;
-        }
-
-        return {mainText, tierText};
-    }
-
-    function computeVariantPrice(variant, product) {
-        let base = Number(variant?.basePrice ?? variant?.price ?? 0);
-        let final = Number(variant?.finalPrice ?? variant?.price ?? base);
-        let hasDiscount = false;
-
-        // Apply product-level discount to variant if no variant-specific pricing
-        if (product?.discount?.type === 'percent' && product.discount.value > 0 &&
-            (!variant?.finalPrice && !variant?.basePrice)) {
-            const discountPercent = Number(product.discount.value);
-            final = base - (base * discountPercent / 100);
-            hasDiscount = true;
-        } else if (base > final) {
-            hasDiscount = true;
-        }
-
-        return {base: Number(base), final: Number(final), hasDiscount};
-    }
-
     const getCartQuantity = (productId, variantId = null) => {
         const item = cartItems.find(cartItem =>
             cartItem.productId === String(productId) &&
             cartItem.variantId === (variantId ? String(variantId) : null)
         );
-        const quantity = item ? item.quantity : 0;
-        return quantity;
+        return item ? item.quantity : 0;
     };
 
     const handleAddToCart = async (item, variant = null) => {
@@ -342,13 +383,11 @@ export default function ProductsScreen() {
                 variantId: effectiveVariantId ? String(effectiveVariantId) : null,
             };
 
-
             const tempId = `${productId}_${effectiveVariantId || 'default'}`;
             setUpdatingItems(prev => ({ ...prev, [tempId]: true }));
 
             await addCartItem(payload);
             await loadCartItems();
-
 
             if (Platform.OS === 'android') {
                 ToastAndroid.show('Added to cart', ToastAndroid.SHORT);
@@ -370,7 +409,6 @@ export default function ProductsScreen() {
             setUpdatingItems(prev => ({ ...prev, [tempId]: false }));
         }
     };
-
 
     const handleUpdateQuantity = async (productId, variantId, newQuantity) => {
         try {
@@ -417,6 +455,28 @@ export default function ProductsScreen() {
         }
     };
 
+    // Dynamic column calculation based on screen size and orientation
+    const getProductColumns = () => {
+        if (orientation === 'landscape') {
+            if (screenWidth >= 1200) return 4;
+            if (screenWidth >= 1024) return 3;
+            if (screenWidth >= 768) return 2;
+            return 2;
+        } else {
+            if (screenWidth >= 1024) return 3; // Large tablets
+            if (screenWidth >= 768) return 3;  // Tablets
+            if (screenWidth >= 414) return 2;  // Large phones
+            return 2; // Small phones
+        }
+    };
+
+    const productColumns = getProductColumns();
+
+    // Calculate dynamic widths based on orientation
+    const leftColumnWidth = orientation === 'landscape' ?
+        (isTablet ? responsiveWidth(20) : responsiveWidth(25)) :
+        (isTablet ? responsiveWidth(25) : responsiveWidth(30));
+
     const renderProductItem = ({item}) => {
         const productId = getProductId(item);
         const productPrice = computeProductPrice(item);
@@ -425,101 +485,173 @@ export default function ProductsScreen() {
         const defaultVariant = variants.find(v => (v?.stock ?? 1) > 0) || variants[0] || null;
         const selectedVariantId = selectedVariants[String(productId)];
         const selectedVariantObj = variants.find(v => String(v?._id || v?.id) === String(selectedVariantId)) || defaultVariant;
-
-        // Use variant price if available, otherwise use product price
         const displayFinalPrice = selectedVariantObj
             ? computeVariantPrice(selectedVariantObj, item).final
             : productPrice.final;
 
         const isOutOfStock = selectedVariantObj ? (selectedVariantObj?.stock === 0) : (item?.stock === 0);
-        const isBusiness = String(loginType || '').toLowerCase() === 'business';
-        const bizInfo = isBusiness ? getBusinessPriceInfo(item) : null;
         const cartQuantity = getCartQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id);
         const hasMultipleVariants = variants.length > 1;
         const tempId = `${productId}_${selectedVariantObj?._id || selectedVariantObj?.id || 'default'}`;
         const isUpdating = updatingItems[tempId];
+        const isInWishlist = wishlistItems[String(productId)] || false;
+        const isWishlistUpdating = wishlistUpdating[String(productId)] || false;
+
+        // Dynamic card width calculation
+        const cardSpacing = responsiveSize(12);
+        const availableWidth = screenWidth - leftColumnWidth - cardSpacing;
+        const cardWidth = (availableWidth / productColumns) - cardSpacing;
+        const imageHeight = responsiveHeight(orientation === 'landscape' ? 20 : 15);
 
         return (
-            <View style={styles.productCard}>
-                <TouchableOpacity onPress={() => handleProductClick(productId)}>
-                    <View style={styles.imageContainer}>
-                        <TouchableOpacity style={styles.heartButton} onPress={async () => {
-                            try {
-                                const raw = await AsyncStorage.getItem('userData');
-                                const user = raw ? JSON.parse(raw) : null;
-                                const uid = user?._id || user?.id || user?.userId || null;
-                                if (!uid || !productId) return;
-                                const res = await toggleWishlist(uid, String(productId));
-                                const liked = Boolean(res?.data?.liked ?? res?.liked);
-                                setLikedMap(prev => ({ ...prev, [String(productId)]: liked }));
-                            } catch (_) {}
-                        }}>
-                            <Image
-                                source={require("../../assets/icons/heart.png")}
-                                style={[styles.heartIcon, likedMap[String(productId)] ? styles.heartLiked : styles.heartUnliked]}
-                                resizeMode="contain"
-                            />
+            <View style={[
+                styles.productCard,
+                {
+                    width: cardWidth,
+                    margin: responsiveSize(6),
+                    padding: responsiveSize(8),
+                }
+            ]}>
+                <TouchableOpacity onPress={() => handleProductClick(productId)} activeOpacity={0.7}>
+                    <View style={[
+                        styles.imageContainer,
+                        {
+                            height: imageHeight,
+                            borderRadius: responsiveSize(8)
+                        }
+                    ]}>
+                        <TouchableOpacity
+                            style={[
+                                styles.wishlistButton,
+                                {
+                                    width: responsiveSize(32),
+                                    height: responsiveSize(32),
+                                    borderRadius: responsiveSize(16),
+                                }
+                            ]}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                toggleWishlistForProduct(productId);
+                            }}
+                            disabled={isWishlistUpdating}
+                        >
+                            {isWishlistUpdating ? (
+                                <ActivityIndicator
+                                    size="small"
+                                    color={isInWishlist ? "#FF6B6B" : "#666"}
+                                />
+                            ) : (
+                                <Image
+                                    source={
+                                        isInWishlist
+                                            ? require("../../assets/icons/heart_filled.png")
+                                            : require("../../assets/icons/heart_empty.png")
+                                    }
+                                    style={[
+                                        styles.wishlistIcon,
+                                        {
+                                            width: responsiveSize(16),
+                                            height: responsiveSize(16),
+                                        }
+                                    ]}
+                                    resizeMode="contain"
+                                />
+                            )}
                         </TouchableOpacity>
+
                         <Image
                             style={styles.image}
-                            source={item?.thumbnail ? {uri: `${API_BASE_URL}${item.thumbnail}`} : require("../../assets/icons/fruit.png")}
+                            source={item?.thumbnail ?
+                                {uri: `${API_BASE_URL}${item.thumbnail}`} :
+                                require("../../assets/icons/fruit.png")}
                             defaultSource={require("../../assets/icons/fruit.png")}
                         />
                     </View>
 
                     <View style={styles.content}>
-                        <Text style={styles.name} numberOfLines={2}>
+                        <Text style={[
+                            styles.productName,
+                            {
+                                fontSize: responsiveSize(isTablet ? 14 : 12),
+                                lineHeight: responsiveSize(isTablet ? 18 : 16)
+                            }
+                        ]} numberOfLines={2}>
                             {item?.title || item?.name}
                         </Text>
 
                         {selectedVariantObj && (
-                            <Text style={styles.variantText} numberOfLines={1}>
-                                {Array.isArray(selectedVariantObj?.attributes) && selectedVariantObj.attributes.length
-                                    ? selectedVariantObj.attributes.map(a => a?.value || a?.name || '').filter(Boolean).join(' / ')
-                                    : (selectedVariantObj?.name || selectedVariantObj?.sku || 'Default')}
+                            <Text style={[
+                                styles.variantText,
+                                { fontSize: responsiveSize(10) }
+                            ]} numberOfLines={1}>
+                                {selectedVariantObj?.name || selectedVariantObj?.sku || 'Default'}
                             </Text>
                         )}
 
                         <View style={styles.priceRow}>
-                            {isBusiness ? (
-                                <>
-                                    {bizInfo?.mainText ? (
-                                        <Text style={styles.newPrice}>{bizInfo.mainText}</Text>
-                                    ) : (
-                                        <Text
-                                            style={styles.newPrice}>₹{Number(displayFinalPrice || 0).toFixed(2)}</Text>
-                                    )}
-                                </>
+                            {showDiscount ? (
+                                <View style={styles.discountContainer}>
+                                    <Text style={[
+                                        styles.oldPrice,
+                                        { fontSize: responsiveSize(11) }
+                                    ]}>
+                                        ₹{Number(productPrice.base).toFixed(2)}
+                                    </Text>
+                                    <Text style={[
+                                        styles.newPrice,
+                                        { fontSize: responsiveSize(isTablet ? 16 : 14) }
+                                    ]}>
+                                        ₹{Number(displayFinalPrice || 0).toFixed(2)}
+                                    </Text>
+                                    <Text style={[
+                                        styles.discountPercent,
+                                        {
+                                            fontSize: responsiveSize(10),
+                                            paddingHorizontal: responsiveSize(4),
+                                            paddingVertical: responsiveSize(2),
+                                        }
+                                    ]}>
+                                        {productPrice.discountPercent}% OFF
+                                    </Text>
+                                </View>
                             ) : (
-                                <>
-                                    {showDiscount ? (
-                                        <View style={styles.discountContainer}>
-                                            <Text style={styles.oldPrice}>₹{Number(productPrice.base).toFixed(2)}</Text>
-                                            <Text style={styles.newPrice}>₹{Number(displayFinalPrice || 0).toFixed(2)}</Text>
-                                            <Text style={styles.discountPercent}>{productPrice.discountPercent}% OFF</Text>
-                                        </View>
-                                    ) : (
-                                        <Text style={styles.newPrice}>₹{Number(displayFinalPrice || 0).toFixed(2)}</Text>
-                                    )}
-                                </>
+                                <Text style={[
+                                    styles.newPrice,
+                                    { fontSize: responsiveSize(isTablet ? 16 : 14) }
+                                ]}>
+                                    ₹{Number(displayFinalPrice || 0).toFixed(2)}
+                                </Text>
                             )}
                         </View>
-
                     </View>
                 </TouchableOpacity>
 
                 <View style={styles.actionContainer}>
                     {cartQuantity > 0 ? (
-                        <View style={styles.quantityControl}>
+                        <View style={[
+                            styles.quantityControl,
+                            {
+                                borderRadius: responsiveSize(20),
+                                paddingHorizontal: responsiveSize(8),
+                                paddingVertical: responsiveSize(6),
+                            }
+                        ]}>
                             <TouchableOpacity
                                 style={styles.quantityButton}
                                 onPress={() => handleUpdateQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id, cartQuantity - 1)}
                                 disabled={isUpdating}
                             >
-                                <Text style={[styles.quantityMinus, isUpdating && styles.disabledText]}>-</Text>
+                                <Text style={[
+                                    styles.quantityMinus,
+                                    { fontSize: responsiveSize(16) },
+                                    isUpdating && styles.disabledText
+                                ]}>-</Text>
                             </TouchableOpacity>
 
-                            <Text style={styles.quantityText}>
+                            <Text style={[
+                                styles.quantityText,
+                                { fontSize: responsiveSize(14) }
+                            ]}>
                                 {isUpdating ? '...' : cartQuantity}
                             </Text>
 
@@ -528,16 +660,33 @@ export default function ProductsScreen() {
                                 onPress={() => handleUpdateQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id, cartQuantity + 1)}
                                 disabled={isOutOfStock || isUpdating}
                             >
-                                <Text style={[styles.quantityPlus, (isOutOfStock || isUpdating) && styles.disabledText]}>+</Text>
+                                <Text style={[
+                                    styles.quantityPlus,
+                                    { fontSize: responsiveSize(16) },
+                                    (isOutOfStock || isUpdating) && styles.disabledText
+                                ]}>+</Text>
                             </TouchableOpacity>
                         </View>
                     ) : (
                         <TouchableOpacity
-                            style={[styles.addButton, hasMultipleVariants && styles.variantButton, (isOutOfStock || isUpdating) && styles.disabledButton]}
+                            style={[
+                                styles.addButton,
+                                hasMultipleVariants && styles.variantButton,
+                                (isOutOfStock || isUpdating) && styles.disabledButton,
+                                {
+                                    paddingVertical: responsiveSize(8),
+                                    paddingHorizontal: responsiveSize(12),
+                                    borderRadius: responsiveSize(8),
+                                }
+                            ]}
                             onPress={() => hasMultipleVariants ? handleVariantSelect(item) : handleAddToCart(item)}
                             disabled={isOutOfStock || isUpdating}
                         >
-                            <Text style={[styles.addButtonText, (isOutOfStock || isUpdating) && styles.disabledText]}>
+                            <Text style={[
+                                styles.addButtonText,
+                                { fontSize: responsiveSize(12) },
+                                (isOutOfStock || isUpdating) && styles.disabledText
+                            ]}>
                                 {isUpdating ? '...' : (hasMultipleVariants ? 'Options' : 'ADD')}
                             </Text>
                         </TouchableOpacity>
@@ -547,6 +696,23 @@ export default function ProductsScreen() {
         );
     };
 
+    function computeVariantPrice(variant, product) {
+        let base = Number(variant?.basePrice ?? variant?.price ?? 0);
+        let final = Number(variant?.finalPrice ?? variant?.price ?? base);
+        let hasDiscount = false;
+
+        if (product?.discount?.type === 'percent' && product.discount.value > 0 &&
+            (!variant?.finalPrice && !variant?.basePrice)) {
+            const discountPercent = Number(product.discount.value);
+            final = base - (base * discountPercent / 100);
+            hasDiscount = true;
+        } else if (base > final) {
+            hasDiscount = true;
+        }
+
+        return {base: Number(base), final: Number(final), hasDiscount};
+    }
+
     const renderVariantItem = ({item: variant}) => {
         const priceInfo = computeVariantPrice(variant, selectedProductForVariant);
         const isOutOfStock = variant?.stock === 0;
@@ -555,29 +721,60 @@ export default function ProductsScreen() {
         const isUpdating = updatingItems[tempId];
 
         return (
-            <View style={[styles.variantCard, isOutOfStock && styles.disabledVariant]}>
+            <View style={[
+                styles.variantCard,
+                isOutOfStock && styles.disabledVariant,
+                {
+                    padding: responsiveSize(16),
+                    borderRadius: responsiveSize(12),
+                    marginBottom: responsiveSize(12),
+                }
+            ]}>
                 <View style={styles.variantInfo}>
-                    <Text style={styles.variantName}>
-                        {Array.isArray(variant?.attributes) && variant.attributes.length
-                            ? variant.attributes.map(a => a?.value || a?.name || '').filter(Boolean).join(' / ')
-                            : (variant?.name || variant?.sku || 'Variant')}
+                    <Text style={[
+                        styles.variantName,
+                        { fontSize: responsiveSize(14) }
+                    ]}>
+                        {variant?.name || variant?.sku || 'Variant'}
                     </Text>
-                    <Text style={styles.variantPrice}>₹{priceInfo.final.toFixed(2)}</Text>
-                    <Text style={styles.variantStock}>
+                    <Text style={[
+                        styles.variantPrice,
+                        { fontSize: responsiveSize(16) }
+                    ]}>
+                        ₹{priceInfo.final.toFixed(2)}
+                    </Text>
+                    <Text style={[
+                        styles.variantStock,
+                        { fontSize: responsiveSize(12) }
+                    ]}>
                         {isOutOfStock ? 'Out of Stock' : `Stock: ${variant?.stock ?? 'Available'}`}
                     </Text>
                 </View>
 
                 {cartQuantity > 0 ? (
-                    <View style={styles.variantQuantityControl}>
+                    <View style={[
+                        styles.variantQuantityControl,
+                        {
+                            borderRadius: responsiveSize(20),
+                            paddingHorizontal: responsiveSize(8),
+                            paddingVertical: responsiveSize(6),
+                        }
+                    ]}>
                         <TouchableOpacity
                             style={styles.variantQuantityButton}
                             onPress={() => handleUpdateQuantity(getProductId(selectedProductForVariant), variant._id || variant.id, cartQuantity - 1)}
                             disabled={isUpdating}
                         >
-                            <Text style={[styles.variantQuantityText, isUpdating && styles.disabledText]}>-</Text>
+                            <Text style={[
+                                styles.variantQuantityText,
+                                { fontSize: responsiveSize(16) },
+                                isUpdating && styles.disabledText
+                            ]}>-</Text>
                         </TouchableOpacity>
-                        <Text style={styles.variantQuantity}>
+                        <Text style={[
+                            styles.variantQuantity,
+                            { fontSize: responsiveSize(14) }
+                        ]}>
                             {isUpdating ? '...' : cartQuantity}
                         </Text>
                         <TouchableOpacity
@@ -585,16 +782,32 @@ export default function ProductsScreen() {
                             onPress={() => handleUpdateQuantity(getProductId(selectedProductForVariant), variant._id || variant.id, cartQuantity + 1)}
                             disabled={isOutOfStock || isUpdating}
                         >
-                            <Text style={[styles.variantQuantityText, (isOutOfStock || isUpdating) && styles.disabledText]}>+</Text>
+                            <Text style={[
+                                styles.variantQuantityText,
+                                { fontSize: responsiveSize(16) },
+                                (isOutOfStock || isUpdating) && styles.disabledText
+                            ]}>+</Text>
                         </TouchableOpacity>
                     </View>
                 ) : (
                     <TouchableOpacity
-                        style={[styles.variantAddButton, (isOutOfStock || isUpdating) && styles.disabledButton]}
+                        style={[
+                            styles.variantAddButton,
+                            (isOutOfStock || isUpdating) && styles.disabledButton,
+                            {
+                                paddingVertical: responsiveSize(8),
+                                paddingHorizontal: responsiveSize(16),
+                                borderRadius: responsiveSize(8),
+                            }
+                        ]}
                         onPress={() => handleAddToCart(selectedProductForVariant, variant)}
                         disabled={isOutOfStock || isUpdating}
                     >
-                        <Text style={[styles.variantAddText, (isOutOfStock || isUpdating) && styles.disabledText]}>
+                        <Text style={[
+                            styles.variantAddText,
+                            { fontSize: responsiveSize(12) },
+                            (isOutOfStock || isUpdating) && styles.disabledText
+                        ]}>
                             {isUpdating ? '...' : 'ADD'}
                         </Text>
                     </TouchableOpacity>
@@ -605,141 +818,281 @@ export default function ProductsScreen() {
 
     return (
         <View style={styles.container}>
+            <StatusBar
+                backgroundColor="#4CAD73"
+                barStyle="light-content"
+                translucent={false}
+            />
 
-            <View style={styles.topBar}>
-                <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+            {/* HEADER - Properly positioned below status bar */}
+            <View style={[
+                styles.header,
+                {
+                    paddingTop: statusBarHeight,
+                    height: statusBarHeight + responsiveSize(60),
+                    paddingHorizontal: responsiveSize(16),
+                }
+            ]}>
+                <TouchableOpacity
+                    onPress={handleBack}
+                    style={styles.backButton}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
                     <Image
                         source={require("../../assets/icons/back_icon.png")}
-                        style={styles.backIcon}
+                        style={[
+                            styles.backIcon,
+                            {
+                                width: responsiveSize(24),
+                                height: responsiveSize(24),
+                            }
+                        ]}
+                        resizeMode="contain"
                     />
                 </TouchableOpacity>
-                <Text style={styles.topBarTitle}>
+
+                <Text style={[
+                    styles.headerTitle,
+                    { fontSize: responsiveSize(isTablet ? 20 : 18) }
+                ]}>
                     {activeCategory ? activeCategory.name : 'All Categories'}
                 </Text>
-                <View style={styles.backButton} />
+
+                <View style={styles.headerSpacer} />
             </View>
 
-
-            <View style={styles.twoColumnLayout}>
-
-                <View style={styles.leftColumn}>
-                    <ScrollView
-                        style={styles.categoriesList}
-                        showsVerticalScrollIndicator={false}
-                    >
-                        {categories.map((category) => {
-                            const url = category?.image || category?.icon;
-                            const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../assets/images/gifts.png");
-
-                            return (
-                                <TouchableOpacity
-                                    key={category._id || category.id}
-                                    style={[
-                                        styles.categoryItem,
-                                        activeCategory?._id === category._id && styles.activeCategoryItem
-                                    ]}
-                                    onPress={() => setActiveCategory(category)}
-                                >
-                                    <View style={styles.categoryContent}>
-                                        <Image
-                                            source={imageSource}
-                                            style={styles.categoryImage}
-                                            resizeMode="cover"
-                                            defaultSource={require("../../assets/images/gifts.png")}
-                                        />
-                                        <Text
-                                            style={[
-                                                styles.categoryName,
-                                                activeCategory?._id === category._id && styles.activeCategoryName
-                                            ]}
-                                            numberOfLines={2}
-                                        >
-                                            {category.name}
-                                        </Text>
-                                    </View>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </ScrollView>
-                </View>
-
-                <View style={styles.rightColumn}>
-                    {loading ? (
-                        <View style={styles.loadingContainer}>
-                            <Text style={styles.loadingText}>Loading products…</Text>
-                        </View>
-                    ) : filteredProducts.length === 0 ? (
-                        <View style={styles.emptyState}>
-                            <Text style={styles.emptyText}>No products found</Text>
-                            <Text style={styles.emptySubtext}>
-                                {activeCategory || searchQuery
-                                    ? 'Try changing your filters or search term'
-                                    : 'No products available at the moment'}
-                            </Text>
-                        </View>
-                    ) : (
-                        <FlatList
-                            data={filteredProducts}
-                            renderItem={renderProductItem}
-                            keyExtractor={(item) => getProductId(item)}
-                            numColumns={2}
+            {/* MAIN CONTENT - Properly positioned below header */}
+            <View style={styles.mainContent}>
+                {/* TWO COLUMN LAYOUT */}
+                <View style={styles.twoColumnLayout}>
+                    {/* LEFT COLUMN - CATEGORIES */}
+                    <View style={[
+                        styles.leftColumn,
+                        { width: leftColumnWidth }
+                    ]}>
+                        <ScrollView
+                            style={styles.categoriesList}
                             showsVerticalScrollIndicator={false}
-                            contentContainerStyle={styles.productsGrid}
-                        />
-                    )}
+                            contentContainerStyle={styles.categoriesContent}
+                        >
+                            {categories.map((category) => {
+                                const url = category?.image || category?.icon;
+                                const imageSource = url ?
+                                    {uri: `${API_BASE_URL}${url}`} :
+                                    require("../../assets/images/gifts.png");
+
+                                return (
+                                    <TouchableOpacity
+                                        key={category._id || category.id}
+                                        style={[
+                                            styles.categoryItem,
+                                            activeCategory?._id === category._id && styles.activeCategoryItem,
+                                            {
+                                                paddingVertical: responsiveSize(16),
+                                                paddingHorizontal: responsiveSize(12),
+                                            }
+                                        ]}
+                                        onPress={() => setActiveCategory(category)}
+                                    >
+                                        <View style={styles.categoryContent}>
+                                            <Image
+                                                source={imageSource}
+                                                style={[
+                                                    styles.categoryImage,
+                                                    {
+                                                        width: responsiveSize(40),
+                                                        height: responsiveSize(40),
+                                                        borderRadius: responsiveSize(20),
+                                                        marginBottom: responsiveSize(8),
+                                                    }
+                                                ]}
+                                                resizeMode="cover"
+                                                defaultSource={require("../../assets/images/gifts.png")}
+                                            />
+                                            <Text
+                                                style={[
+                                                    styles.categoryName,
+                                                    activeCategory?._id === category._id && styles.activeCategoryName,
+                                                    {
+                                                        fontSize: responsiveSize(11),
+                                                        lineHeight: responsiveSize(14),
+                                                    }
+                                                ]}
+                                                numberOfLines={2}
+                                            >
+                                                {category.name}
+                                            </Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </ScrollView>
+                    </View>
+
+                    {/* RIGHT COLUMN - PRODUCTS */}
+                    <View style={styles.rightColumn}>
+                        {loading ? (
+                            <View style={styles.loadingContainer}>
+                                <ActivityIndicator size="large" color="#4CAD73" />
+                                <Text style={[
+                                    styles.loadingText,
+                                    { fontSize: responsiveSize(14), marginTop: responsiveSize(20) }
+                                ]}>
+                                    Loading products…
+                                </Text>
+                            </View>
+                        ) : filteredProducts.length === 0 ? (
+                            <View style={styles.emptyState}>
+                                <Image
+                                    source={require('../../assets/icons/empty-box.png')}
+                                    style={{
+                                        width: responsiveWidth(40),
+                                        height: responsiveWidth(40),
+                                        marginBottom: responsiveSize(20),
+                                    }}
+                                    resizeMode="contain"
+                                />
+                                <Text style={[
+                                    styles.emptyText,
+                                    { fontSize: responsiveSize(16) }
+                                ]}>
+                                    No products found
+                                </Text>
+                                <Text style={[
+                                    styles.emptySubtext,
+                                    { fontSize: responsiveSize(14) }
+                                ]}>
+                                    {activeCategory || searchQuery
+                                        ? 'Try changing your filters or search term'
+                                        : 'No products available at the moment'}
+                                </Text>
+                            </View>
+                        ) : (
+                            <FlatList
+                                data={filteredProducts}
+                                renderItem={renderProductItem}
+                                keyExtractor={(item) => getProductId(item)}
+                                numColumns={productColumns}
+                                showsVerticalScrollIndicator={false}
+                                contentContainerStyle={[
+                                    styles.productsGrid,
+                                    { paddingBottom: bottomSafeArea + responsiveSize(20) }
+                                ]}
+                                key={`product-grid-${productColumns}-${orientation}`}
+                                removeClippedSubviews={true}
+                                initialNumToRender={6}
+                                maxToRenderPerBatch={10}
+                                windowSize={5}
+                            />
+                        )}
+                    </View>
                 </View>
             </View>
 
+            {/* VARIANT SELECTION MODAL */}
             <Modal
                 visible={showVariantModal}
                 animationType="slide"
                 transparent={true}
+                statusBarTranslucent={true}
                 onRequestClose={closeVariantModal}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContainer}>
+                    <View style={[
+                        styles.modalContainer,
+                        {
+                            height: responsiveHeight(80) + bottomSafeArea,
+                            borderTopLeftRadius: responsiveSize(20),
+                            borderTopRightRadius: responsiveSize(20),
+                        }
+                    ]}>
                         <SafeAreaView style={styles.modalContent}>
-                            {/* Modal Header */}
-                            <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>
+                            <View style={[
+                                styles.modalHeader,
+                                {
+                                    paddingHorizontal: responsiveSize(20),
+                                    paddingVertical: responsiveSize(16),
+                                    paddingTop: statusBarHeight,
+                                }
+                            ]}>
+                                <Text style={[
+                                    styles.modalTitle,
+                                    { fontSize: responsiveSize(18) }
+                                ]}>
                                     Select Variant
                                 </Text>
-                                <TouchableOpacity onPress={closeVariantModal} style={styles.closeButton}>
+                                <TouchableOpacity
+                                    onPress={closeVariantModal}
+                                    style={[
+                                        styles.closeButton,
+                                        { padding: responsiveSize(8) }
+                                    ]}
+                                >
                                     <Image
                                         source={require("../../assets/icons/deleteIcon.png")}
-                                        style={styles.closeIcon}
+                                        style={[
+                                            styles.closeIcon,
+                                            {
+                                                width: responsiveSize(20),
+                                                height: responsiveSize(20),
+                                            }
+                                        ]}
+                                        resizeMode="contain"
                                     />
                                 </TouchableOpacity>
                             </View>
 
                             {selectedProductForVariant && (
-                                <View style={styles.productHeader}>
+                                <View style={[
+                                    styles.productHeader,
+                                    {
+                                        padding: responsiveSize(16),
+                                    }
+                                ]}>
                                     <Image
                                         source={selectedProductForVariant?.thumbnail ?
                                             {uri: `${API_BASE_URL}${selectedProductForVariant.thumbnail}`} :
                                             require("../../assets/icons/fruit.png")}
-                                        style={styles.productHeaderImage}
+                                        style={[
+                                            styles.productHeaderImage,
+                                            {
+                                                width: responsiveSize(60),
+                                                height: responsiveSize(60),
+                                                borderRadius: responsiveSize(8),
+                                                marginRight: responsiveSize(12),
+                                            }
+                                        ]}
                                         defaultSource={require("../../assets/icons/fruit.png")}
                                     />
                                     <View style={styles.productHeaderInfo}>
-                                        <Text style={styles.productHeaderName} numberOfLines={2}>
+                                        <Text style={[
+                                            styles.productHeaderName,
+                                            { fontSize: responsiveSize(16) }
+                                        ]} numberOfLines={2}>
                                             {selectedProductForVariant?.title || selectedProductForVariant?.name}
                                         </Text>
-                                        <Text style={styles.productHeaderPrice}>
-                                            Starts from
-                                            ₹{computeProductPrice(selectedProductForVariant).final.toFixed(2)}
+                                        <Text style={[
+                                            styles.productHeaderPrice,
+                                            { fontSize: responsiveSize(14) }
+                                        ]}>
+                                            Starts from ₹{computeProductPrice(selectedProductForVariant).final.toFixed(2)}
                                         </Text>
                                     </View>
                                 </View>
                             )}
 
-                            {/* Variants List */}
                             <FlatList
                                 data={selectedProductForVariant?.variants || []}
                                 renderItem={renderVariantItem}
                                 keyExtractor={(variant) => variant._id || variant.id || Math.random().toString()}
                                 style={styles.variantsList}
-                                contentContainerStyle={styles.variantsContent}
+                                contentContainerStyle={[
+                                    styles.variantsContent,
+                                    {
+                                        padding: responsiveSize(16),
+                                        paddingBottom: bottomSafeArea + responsiveSize(20)
+                                    }
+                                ]}
                             />
                         </SafeAreaView>
                     </View>
@@ -754,41 +1107,47 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#FFFFFF',
     },
-    topBar: {
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        backgroundColor: '#FFFFFF',
-        borderBottomWidth: 1,
-        borderBottomColor: '#E8E8E8',
+    header: {
+        backgroundColor: '#4CAD73',
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginTop: 20,
+        width: '100%',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 100,
     },
     backButton: {
-        padding: 4,
-        width: 32,
-        height: 32,
+        justifyContent: 'center',
+        alignItems: 'center',
+        width: responsiveSize(40),
+        height: responsiveSize(40),
     },
     backIcon: {
-        width: 24,
-        height: 24,
+        tintColor: '#FFFFFF',
     },
-    topBarTitle: {
-        fontSize: 18,
+    headerTitle: {
         fontWeight: '700',
-        color: '#1B1B1B',
+        color: '#FFFFFF',
         fontFamily: 'Poppins-Bold',
         textAlign: 'center',
         flex: 1,
+    },
+    headerSpacer: {
+        width: responsiveSize(40),
+    },
+    mainContent: {
+        flex: 1,
+        marginTop: responsiveSize(90), // Header height
+        backgroundColor: '#FFFFFF',
     },
     twoColumnLayout: {
         flex: 1,
         flexDirection: 'row',
     },
-    // Left Column Styles
     leftColumn: {
-        width: '30%',
         backgroundColor: '#F8F9FA',
         borderRightWidth: 1,
         borderRightColor: '#E8E8E8',
@@ -796,15 +1155,15 @@ const styles = StyleSheet.create({
     categoriesList: {
         flex: 1,
     },
+    categoriesContent: {
+        paddingBottom: responsiveSize(20),
+    },
     categoryItem: {
-        paddingVertical: 16,
-        paddingHorizontal: 12,
         borderBottomColor: '#4CAD73',
         backgroundColor: '#FFFFFF',
     },
     activeCategoryItem: {
-        backgroundColor: '#FFF5F5',
-        borderRightWidth: 5,
+        borderRightWidth: 4,
         borderRightColor: '#4CAD73',
     },
     categoryContent: {
@@ -812,116 +1171,101 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     categoryImage: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        marginBottom: 8,
         backgroundColor: '#F5F5F5',
     },
     categoryName: {
-        fontSize: 11,
         color: '#666',
         textAlign: 'center',
         fontFamily: 'Poppins-Regular',
-        lineHeight: 14,
     },
     activeCategoryName: {
-        color: '#EC0505',
+        color: '#4CAD73',
         fontWeight: '600',
         fontFamily: 'Poppins-SemiBold',
     },
     rightColumn: {
         flex: 1,
+        backgroundColor: '#FFFFFF',
     },
     productsGrid: {
-        paddingBottom: 20,
+        paddingHorizontal: responsiveSize(8),
+        paddingTop: responsiveSize(8),
     },
     productCard: {
-        flex: 1,
         backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        margin: 4,
-        padding: 4,
-    },
-    imageContainer: {
-        height: 100,
-        borderRadius: 8,
-        overflow: 'hidden',
-        marginBottom: 8,
-        backgroundColor: '#F8F9FA',
-    },
-    heartButton: {
-        position: 'absolute',
-        top: 8,
-        right: 8,
-        zIndex: 10,
-        backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        padding: 6,
+        borderRadius: responsiveSize(12),
+        elevation: 2,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
-        shadowRadius: 3,
-        elevation: 2,
+        shadowRadius: 4,
     },
-    heartIcon: { width: 16, height: 16 },
-    heartLiked: { tintColor: '#DC1010' },
-    heartUnliked: { tintColor: '#1B1B1B' },
+    imageContainer: {
+        overflow: 'hidden',
+        marginBottom: responsiveSize(8),
+        backgroundColor: '#F8F9FA',
+        position: 'relative',
+    },
+    wishlistButton: {
+        position: 'absolute',
+        top: responsiveSize(8),
+        right: responsiveSize(8),
+        zIndex: 10,
+        backgroundColor: '#FFFFFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 3,
+    },
+    wishlistIcon: {
+        // Tint color handled by image source
+    },
     image: {
         width: '100%',
         height: '100%',
+        resizeMode: 'cover',
     },
     content: {
-        marginBottom: 12,
+        marginBottom: responsiveSize(12),
     },
-    name: {
-        fontFamily: 'Poppins',
-        fontSize: 14,
+    productName: {
+        fontFamily: 'Poppins-SemiBold',
         fontWeight: '600',
         color: '#1B1B1B',
-        marginBottom: 4,
-        lineHeight: 18,
+        marginBottom: responsiveSize(4),
     },
     variantText: {
-        fontSize: 12,
         color: '#666',
         fontFamily: 'Poppins',
-        marginBottom: 6,
+        marginBottom: responsiveSize(6),
     },
     priceRow: {
-        marginBottom: 4,
+        marginBottom: responsiveSize(4),
     },
     discountContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
+        gap: responsiveSize(6),
         flexWrap: 'wrap',
     },
     oldPrice: {
-        fontSize: 12,
         color: '#838383',
         textDecorationLine: 'line-through',
         fontFamily: 'Poppins',
     },
     newPrice: {
-        fontSize: 16,
         fontWeight: '700',
         color: '#1B1B1B',
         fontFamily: 'Poppins-Bold',
     },
     discountPercent: {
-        fontSize: 12,
         color: '#EC0505',
         backgroundColor: '#FFE8E8',
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 4,
+        borderRadius: responsiveSize(4),
         fontFamily: 'Poppins-SemiBold',
-    },
-    stockText: {
-        fontSize: 11,
-        color: '#666',
-        fontFamily: 'Poppins',
     },
     actionContainer: {
         marginTop: 'auto',
@@ -931,40 +1275,29 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         backgroundColor: '#F8F8F8',
-        borderRadius: 20,
-        paddingHorizontal: 8,
-        paddingVertical: 6,
     },
     quantityButton: {
-        padding: 4,
+        padding: responsiveSize(4),
     },
     quantityMinus: {
-        fontSize: 16,
         color: '#666',
         fontWeight: 'bold',
-        width: 20,
         textAlign: 'center',
     },
     quantityPlus: {
-        fontSize: 16,
         color: '#171717',
         fontWeight: 'bold',
-        width: 20,
         textAlign: 'center',
     },
     quantityText: {
-        fontSize: 14,
         fontWeight: '600',
         color: '#1B1B1B',
-        marginHorizontal: 12,
-        minWidth: 20,
+        marginHorizontal: responsiveSize(12),
+        minWidth: responsiveSize(20),
         textAlign: 'center',
     },
     addButton: {
         backgroundColor: '#4CAD73',
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        borderRadius: 8,
         alignItems: 'center',
     },
     variantButton: {
@@ -972,7 +1305,6 @@ const styles = StyleSheet.create({
     },
     addButtonText: {
         color: '#FFFFFF',
-        fontSize: 12,
         fontWeight: '600',
         fontFamily: 'Poppins-SemiBold',
     },
@@ -983,41 +1315,39 @@ const styles = StyleSheet.create({
         color: '#999999',
     },
     loadingContainer: {
+        flex: 1,
         alignItems: 'center',
-        paddingVertical: 40,
+        justifyContent: 'center',
+        paddingVertical: responsiveSize(40),
     },
     loadingText: {
         fontFamily: 'Poppins',
-        fontSize: 14,
         color: '#838383',
     },
     emptyState: {
+        flex: 1,
         alignItems: 'center',
-        paddingVertical: 40,
+        justifyContent: 'center',
+        paddingVertical: responsiveSize(40),
     },
     emptyText: {
-        fontFamily: 'Poppins',
-        fontSize: 16,
+        fontFamily: 'Poppins-SemiBold',
         color: '#1B1B1B',
-        marginBottom: 8,
+        marginBottom: responsiveSize(8),
     },
     emptySubtext: {
         fontFamily: 'Poppins',
-        fontSize: 14,
         color: '#838383',
         textAlign: 'center',
+        paddingHorizontal: responsiveSize(20),
     },
-    // Modal Styles
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0, 0, 0, 0.5)',
         justifyContent: 'flex-end',
     },
     modalContainer: {
-        height: height * 0.8,
         backgroundColor: '#FFFFFF',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
         overflow: 'hidden',
     },
     modalContent: {
@@ -1027,50 +1357,40 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingHorizontal: 20,
-        paddingVertical: 16,
         borderBottomWidth: 1,
         borderBottomColor: '#F0F0F0',
     },
     modalTitle: {
-        fontSize: 18,
         fontWeight: '700',
         color: '#000000',
         fontFamily: 'Poppins-Bold',
     },
     closeButton: {
-        padding: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     closeIcon: {
-        width: 20,
-        height: 20,
         tintColor: '#000000',
     },
     productHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        padding: 16,
         borderBottomWidth: 1,
         borderBottomColor: '#F0F0F0',
     },
     productHeaderImage: {
-        width: 60,
-        height: 60,
-        borderRadius: 8,
-        marginRight: 12,
+        backgroundColor: '#F5F5F5',
     },
     productHeaderInfo: {
         flex: 1,
     },
     productHeaderName: {
-        fontSize: 16,
         fontWeight: '600',
         color: '#1B1B1B',
         fontFamily: 'Poppins-SemiBold',
-        marginBottom: 4,
+        marginBottom: responsiveSize(4),
     },
     productHeaderPrice: {
-        fontSize: 14,
         color: '#4CAD73',
         fontFamily: 'Poppins-SemiBold',
     },
@@ -1078,16 +1398,13 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     variantsContent: {
-        padding: 16,
+        paddingBottom: responsiveSize(20),
     },
     variantCard: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 12,
         borderWidth: 1,
         borderColor: '#F0F0F0',
     },
@@ -1098,21 +1415,18 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     variantName: {
-        fontSize: 14,
         fontWeight: '600',
         color: '#1B1B1B',
         fontFamily: 'Poppins-SemiBold',
-        marginBottom: 4,
+        marginBottom: responsiveSize(4),
     },
     variantPrice: {
-        fontSize: 16,
         fontWeight: '700',
         color: '#4CAD73',
         fontFamily: 'Poppins-Bold',
-        marginBottom: 4,
+        marginBottom: responsiveSize(4),
     },
     variantStock: {
-        fontSize: 12,
         color: '#666',
         fontFamily: 'Poppins',
     },
@@ -1120,37 +1434,27 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: '#F8F8F8',
-        borderRadius: 20,
-        paddingHorizontal: 8,
-        paddingVertical: 6,
     },
     variantQuantityButton: {
-        padding: 4,
+        padding: responsiveSize(4),
     },
     variantQuantityText: {
-        fontSize: 16,
         color: '#666',
         fontWeight: 'bold',
-        width: 20,
         textAlign: 'center',
     },
     variantQuantity: {
-        fontSize: 14,
         fontWeight: '600',
         color: '#1B1B1B',
-        marginHorizontal: 12,
-        minWidth: 20,
+        marginHorizontal: responsiveSize(12),
+        minWidth: responsiveSize(20),
         textAlign: 'center',
     },
     variantAddButton: {
         backgroundColor: '#4CAD73',
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        borderRadius: 8,
     },
     variantAddText: {
         color: '#FFFFFF',
-        fontSize: 12,
         fontWeight: '600',
         fontFamily: 'Poppins-SemiBold',
     },

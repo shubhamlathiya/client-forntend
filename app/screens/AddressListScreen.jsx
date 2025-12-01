@@ -248,11 +248,6 @@ export default function AddressListScreen() {
                     <Text style={styles.headerTitle}>Select Delivery Address</Text>
                     <View style={styles.headerPlaceholder}/>
                 </View>
-
-                <View style={styles.deliveryInfo}>
-                    <Text style={styles.deliveryTime}>Delivery in 16 minutes</Text>
-                    <Text style={styles.changeText}>Change</Text>
-                </View>
             </View>
 
             <ScrollView

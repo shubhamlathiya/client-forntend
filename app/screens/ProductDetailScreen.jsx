@@ -314,6 +314,7 @@ export default function ProductDetailScreen() {
                     >
                         {productImages.map((img, index) => {
                             const imageUrl = typeof img === 'string' ? img : (img?.url || img?.path);
+                            console.log(`${API_BASE_URL}${imageUrl}`)
                             const source = imageUrl
                                 ? { uri: `${API_BASE_URL}${imageUrl}` }
                                 : require("../../assets/sample-product.png");

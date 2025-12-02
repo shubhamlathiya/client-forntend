@@ -5,12 +5,10 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 
 import {
-    getUserNotifications,
     markNotificationAsRead as apiMarkAsRead,
     markAllNotificationsAsRead as apiMarkAllAsRead,
     deleteNotification as apiDeleteNotification,
-    createTestNotification,
-    getUnreadCount as apiGetUnreadCount
+    getUserUnReadNotifications
 } from '../api/notificationApi';
 
 // Configure notification behavior
@@ -44,7 +42,6 @@ const useNotifications = () => {
     // ------------------------------------------------------------
     const sendLocalNotification = async (notificationData) => {
         try {
-            console.log('📱 Generating notification:', notificationData.title);
 
             const notificationId = `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -83,9 +80,7 @@ const useNotifications = () => {
                 identifier: notificationId
             });
 
-            console.log('✅ Notification generated successfully');
-
-            // Add to local state
+           // Add to local state
             addToLocalNotifications({
                 _id: notificationId,
                 title: notificationData.title,
@@ -128,8 +123,8 @@ const useNotifications = () => {
             if (!userId) return;
 
             // Fetch notifications from backend
-            console.log("shubham true")
-            const backendNotifications = await getUserNotifications(userId, { unreadOnly: true });
+
+            const backendNotifications = await getUserUnReadNotifications(userId);
 
 
             let notificationsList = [];
@@ -144,15 +139,12 @@ const useNotifications = () => {
             }
 
             if (notificationsList.length === 0) {
-                console.log('📭 No notifications found in backend');
                 setHasUnreadNotifications(false);
                 return;
             }
 
             // Check for unread notifications
             const unreadNotifications = notificationsList.filter(n => !n.read);
-
-            console.log(`📊 Found ${unreadNotifications.length} unread notifications in backend`);
 
             if (unreadNotifications.length > 0) {
                 setHasUnreadNotifications(true);
@@ -163,7 +155,6 @@ const useNotifications = () => {
                     const exists = notifications.find(n => n._id === backendNotification._id);
 
                     if (!exists) {
-                        console.log('🔄 Generating notification for:', backendNotification.title);
 
                         // Generate local notification
                         await sendLocalNotification({
@@ -180,8 +171,7 @@ const useNotifications = () => {
                 }
             } else {
                 setHasUnreadNotifications(false);
-                console.log('✅ All notifications are read');
-            }
+                  }
 
         } catch (error) {
             console.log('❌ Error checking notifications:', error.message);
@@ -194,7 +184,6 @@ const useNotifications = () => {
     const markNotificationAsReadInBackend = async (notificationId) => {
         try {
             await apiMarkAsRead(notificationId);
-            console.log('✅ Marked as read in backend:', notificationId);
         } catch (error) {
             console.log('⚠️ Error marking as read in backend:', error.message);
         }
@@ -215,7 +204,6 @@ const useNotifications = () => {
         // User tapped notification listener
         responseListener.current = Notifications.addNotificationResponseReceivedListener(
             (response) => {
-                console.log('👆 User tapped notification');
                 const data = response.notification.request.content.data;
 
                 // Mark as read if it has an ID
@@ -260,9 +248,8 @@ const useNotifications = () => {
                 throw new Error('Please login to view notifications');
             }
 
-            console.log("shubham false")
-            // Fetch notifications from backend
-            const response = await getUserNotifications(userId, { unreadOnly: false });
+
+            const response = await getUserUnReadNotifications(userId);
 
 
             let notificationsList = [];
@@ -291,7 +278,6 @@ const useNotifications = () => {
             // Update hasUnreadNotifications state
             setHasUnreadNotifications(unreadCount > 0);
 
-            console.log(`✅ Updated ${notificationsList.length} notifications, ${unreadCount} unread`);
 
             // Automatically generate notifications for unread items
             if (unreadCount > 0) {
@@ -333,7 +319,6 @@ const useNotifications = () => {
                 setHasUnreadNotifications(false);
             }
 
-            console.log('✅ Marked as read:', notificationId);
 
         } catch (error) {
             console.log('❌ Mark read error:', error.message);
@@ -358,7 +343,6 @@ const useNotifications = () => {
             await apiMarkAllAsRead(userId);
 
             Alert.alert('Success', 'All notifications marked as read');
-            console.log('✅ All notifications marked as read');
 
         } catch (error) {
             console.log('❌ Mark all error:', error.message);
@@ -390,7 +374,6 @@ const useNotifications = () => {
                 await apiDeleteNotification(notificationId);
             }
 
-            console.log('✅ Deleted notification:', notificationId);
 
         } catch (error) {
             console.log('❌ Delete error:', error.message);
@@ -408,11 +391,12 @@ const useNotifications = () => {
                 await markAsRead(notification._id);
             }
 
+            console.log(notification.data)
             // Navigate based on notification data
             if (notification.data) {
                 handleNavigation(notification.data);
             } else {
-                router.push('/(tabs)/notifications');
+                router.push('/Home');
             }
         } catch (error) {
             console.log('❌ Notification press error:', error.message);
@@ -445,7 +429,6 @@ const useNotifications = () => {
             clearInterval(pollIntervalRef.current);
         }
 
-        console.log('⏱️ Starting automatic notification checking');
 
         // Check every 15 seconds when app is active
         pollIntervalRef.current = setInterval(() => {
@@ -453,7 +436,7 @@ const useNotifications = () => {
                 console.log('🔄 Automatic check for notifications');
                 fetchAndUpdateNotifications(false, false);
             }
-        }, 15000);
+        }, 5000);
     };
 
     const stopPolling = () => {
@@ -491,7 +474,6 @@ const useNotifications = () => {
     };
 
     const handleAppStateChange = (nextAppState) => {
-        console.log('📱 App state:', nextAppState);
 
         if (nextAppState === 'active') {
             // When app comes to foreground, check for notifications
@@ -504,23 +486,19 @@ const useNotifications = () => {
     };
 
     useEffect(() => {
-        console.log('🚀 Setting up automatic notification system');
 
         // Initial setup
         setupNotifications();
         setupNotificationListeners();
 
-        // App state listener
         appStateSubscription.current = AppState.addEventListener('change', handleAppStateChange);
 
-        // Initial fetch and automatic notification generation
         fetchAndUpdateNotifications();
 
         // Start polling
         startPolling();
 
         return () => {
-            console.log('🧹 Cleaning up notification system');
 
             // Cleanup
             if (notificationListener.current) {
@@ -538,7 +516,6 @@ const useNotifications = () => {
 
     useFocusEffect(
         useCallback(() => {
-            console.log('🎯 Notifications screen focused');
             fetchAndUpdateNotifications(false, false);
         }, [])
     );

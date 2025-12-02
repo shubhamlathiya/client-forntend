@@ -515,24 +515,6 @@ export default function WishlistScreen() {
                 ]} />
             </View>
 
-            {/* Wishlist Items Count */}
-            {wishlistItems.length > 0 && (
-                <View style={[
-                    styles.itemsCountContainer,
-                    {
-                        paddingHorizontal: responsiveSize(16),
-                        paddingVertical: responsiveSize(8),
-                    }
-                ]}>
-                    <Text style={[
-                        styles.itemsCountText,
-                        { fontSize: responsiveSize(14) }
-                    ]}>
-                        {wishlistItems.length} {wishlistItems.length === 1 ? 'item' : 'items'}
-                    </Text>
-                </View>
-            )}
-
             {/* Wishlist Content */}
             <FlatList
                 data={wishlistItems}

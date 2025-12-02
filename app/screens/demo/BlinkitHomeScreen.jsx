@@ -20,8 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {getCategories, getProducts, getProductsByCategory, getSaleCategories} from "../../../api/catalogApi";
 import {API_BASE_URL} from "../../../config/apiConfig";
 import {getAddresses} from "../../../api/addressApi";
-import {addCartItem, getCart, updateCartItem, removeCartItem, getTierPricing, clearCart} from "../../../api/cartApi";
-import {getCurrentSessionId} from "../../../api/sessionManager";
+import {addCartItem, getCart, updateCartItem, removeCartItem, getTierPricing} from "../../../api/cartApi";
 import * as Notifications from "expo-notifications";
 
 const {width, height} = Dimensions.get('window');
@@ -166,6 +165,7 @@ export default function BlinkitHomeScreen() {
         if (cartItems.length > 0) {
             return cartItems.slice(0, 1).map(item => {
                 const imageUrl = item.product?.thumbnail || item.thumbnail || item.image;
+                console.log(`${API_BASE_URL}${imageUrl}`)
                 return imageUrl ? {uri: `${API_BASE_URL}${imageUrl}`} : require("../../../assets/Rectangle 24904.png");
             });
         } else {

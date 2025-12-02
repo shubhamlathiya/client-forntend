@@ -3,13 +3,12 @@ import {Platform} from "react-native";
 
 export const getUserNotifications = async (userId, params = {}) => {
     const res = await apiClient.get(`/api/notifications`, { params });
-    return res.data.notifications;
+    return res.data.data;
 };
 
 export const getUserUnReadNotifications = async (userId, params = {}) => {
-    const res = await apiClient.get(`/api/notifications`, { params });
-    console.log(res.data.notifications[0])
-    return res.data.notifications;
+    const res = await apiClient.get(`/api/notifications/unread`, { params });
+    return res.data.data;
 };
 
 

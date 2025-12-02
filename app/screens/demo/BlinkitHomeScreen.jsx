@@ -5,7 +5,7 @@ import {
     StyleSheet,
     ScrollView,
     Image,
-    TouchableOpacity,
+    Pressable,
     Dimensions,
     SafeAreaView,
     StatusBar,
@@ -13,7 +13,8 @@ import {
     Alert,
     FlatList,
     Modal,
-    Animated, Platform
+    Animated,
+    Platform,
 } from 'react-native';
 import {useFocusEffect, useRouter} from "expo-router";
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -26,23 +27,47 @@ import * as Notifications from "expo-notifications";
 const {width, height} = Dimensions.get('window');
 
 const TAB_CATEGORIES = [{
-    id: 'all', name: 'All', icon: require('../../../assets/icons/all.png'), color: '#4CAF72',
-    headerColor: '#4CAF72', lightColor: '#CFF5DE'
+    id: 'all',
+    name: 'All',
+    icon: require('../../../assets/icons/all.png'),
+    color: '#4CAF72',
+    headerColor: '#4CAF72',
+    lightColor: '#CFF5DE'
 }, {
-    id: 'wedding', name: 'Wedding', icon: require('../../../assets/icons/wedding.png'), color: '#D84F80',
-    headerColor: '#D84F80', lightColor: '#FFD6E5'
+    id: 'wedding',
+    name: 'Wedding',
+    icon: require('../../../assets/icons/wedding.png'),
+    color: '#D84F80',
+    headerColor: '#D84F80',
+    lightColor: '#FFD6E5'
 }, {
-    id: 'winter', name: 'Winter', icon: require('../../../assets/icons/winter.png'), color: '#3A9AEF',
-    headerColor: '#3A9AEF', lightColor: '#D8ECFF'
+    id: 'winter',
+    name: 'Winter',
+    icon: require('../../../assets/icons/winter.png'),
+    color: '#3A9AEF',
+    headerColor: '#3A9AEF',
+    lightColor: '#D8ECFF'
 }, {
-    id: 'electronics', name: 'Electronics', icon: require('../../../assets/icons/electronics.png'), color: '#33B5CC',
-    headerColor: '#33B5CC', lightColor: '#D6F6FF'
+    id: 'electronics',
+    name: 'Electronics',
+    icon: require('../../../assets/icons/electronics.png'),
+    color: '#33B5CC',
+    headerColor: '#33B5CC',
+    lightColor: '#D6F6FF'
 }, {
-    id: 'grocery', name: 'Grocery', icon: require('../../../assets/icons/grocery.png'), color: '#E89A23',
-    headerColor: '#E89A23', lightColor: '#FFE8C8'
+    id: 'grocery',
+    name: 'Grocery',
+    icon: require('../../../assets/icons/grocery.png'),
+    color: '#E89A23',
+    headerColor: '#E89A23',
+    lightColor: '#FFE8C8'
 }, {
-    id: 'fashion', name: 'Fashion', icon: require('../../../assets/icons/fashion.png'), color: '#A466E8',
-    headerColor: '#A466E8', lightColor: '#E8D6FF'
+    id: 'fashion',
+    name: 'Fashion',
+    icon: require('../../../assets/icons/fashion.png'),
+    color: '#A466E8',
+    headerColor: '#A466E8',
+    lightColor: '#E8D6FF'
 }];
 
 export default function BlinkitHomeScreen() {
@@ -81,11 +106,11 @@ export default function BlinkitHomeScreen() {
 
     const requestNotificationPermission = async () => {
         // iOS + Android (API 33+)
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        const {status: existingStatus} = await Notifications.getPermissionsAsync();
         let finalStatus = existingStatus;
 
         if (existingStatus !== "granted") {
-            const { status } = await Notifications.requestPermissionsAsync();
+            const {status} = await Notifications.requestPermissionsAsync();
             finalStatus = status;
         }
 
@@ -97,8 +122,7 @@ export default function BlinkitHomeScreen() {
         // Create Android channel (important)
         if (Platform.OS === "android") {
             await Notifications.setNotificationChannelAsync("default", {
-                name: "Default",
-                importance: Notifications.AndroidImportance.MAX,
+                name: "Default", importance: Notifications.AndroidImportance.MAX,
             });
         }
 
@@ -237,9 +261,7 @@ export default function BlinkitHomeScreen() {
                     }
 
                     pricingMap[productId][variantId].push({
-                        minQty: tier.minQty,
-                        maxQty: tier.maxQty || Infinity,
-                        price: tier.price
+                        minQty: tier.minQty, maxQty: tier.maxQty || Infinity, price: tier.price
                     });
                 });
 
@@ -311,12 +333,7 @@ export default function BlinkitHomeScreen() {
                     const category = p?.category?.toLowerCase() || '';
                     const description = p?.description?.toLowerCase() || '';
 
-                    return keywords.some(keyword =>
-                        title.includes(keyword) ||
-                        name.includes(keyword) ||
-                        category.includes(keyword) ||
-                        description.includes(keyword)
-                    );
+                    return keywords.some(keyword => title.includes(keyword) || name.includes(keyword) || category.includes(keyword) || description.includes(keyword));
                 });
             };
 
@@ -324,66 +341,50 @@ export default function BlinkitHomeScreen() {
 
             switch (tabId) {
                 case 'all':
-                    res = await getProducts({ page: 1, limit: 50 });
+                    res = await getProducts({page: 1, limit: 50});
                     products = extractProducts(res);
                     break;
 
                 case 'wedding':
-                    res = await getProducts({ page: 1, limit: 50 });
-                    products = filterProducts(extractProducts(res), [
-                        'gift', 'wedding', 'marriage', 'ring', 'decoration',
-                        'flower', 'bouquet', 'cake', 'card', 'invitation'
-                    ]);
+                    res = await getProducts({page: 1, limit: 50});
+                    products = filterProducts(extractProducts(res), ['gift', 'wedding', 'marriage', 'ring', 'decoration', 'flower', 'bouquet', 'cake', 'card', 'invitation']);
                     break;
 
                 case 'winter':
-                    res = await getProducts({ page: 1, limit: 50 });
-                    products = filterProducts(extractProducts(res), [
-                        'winter', 'cold', 'wool', 'sweater', 'jacket',
-                        'gloves', 'scarf', 'heater', 'blanket', 'thermal'
-                    ]);
+                    res = await getProducts({page: 1, limit: 50});
+                    products = filterProducts(extractProducts(res), ['winter', 'cold', 'wool', 'sweater', 'jacket', 'gloves', 'scarf', 'heater', 'blanket', 'thermal']);
                     break;
 
                 case 'electronics':
-                    res = await getProducts({ page: 1, limit: 50 });
-                    products = filterProducts(extractProducts(res), [
-                        'electronic', 'phone', 'mobile', 'laptop',
-                        'computer', 'device', 'gadget', 'tech', 'smart', 'wireless'
-                    ]);
+                    res = await getProducts({page: 1, limit: 50});
+                    products = filterProducts(extractProducts(res), ['electronic', 'phone', 'mobile', 'laptop', 'computer', 'device', 'gadget', 'tech', 'smart', 'wireless']);
                     break;
 
                 case 'grocery':
-                    res = await getProducts({ page: 1, limit: 50 });
-                    products = filterProducts(extractProducts(res), [
-                        'grocery', 'food', 'vegetable', 'fruit', 'rice',
-                        'atta', 'dal', 'oil', 'spice', 'kitchen'
-                    ]);
+                    res = await getProducts({page: 1, limit: 50});
+                    products = filterProducts(extractProducts(res), ['grocery', 'food', 'vegetable', 'fruit', 'rice', 'atta', 'dal', 'oil', 'spice', 'kitchen']);
                     break;
 
                 case 'fashion':
-                    res = await getProducts({ page: 1, limit: 50 });
-                    products = filterProducts(extractProducts(res), [
-                        'fashion', 'clothes', 'dress', 'shirt', 'jeans',
-                        'shoes', 'accessory', 'jewelry', 'watch', 'bag'
-                    ]);
+                    res = await getProducts({page: 1, limit: 50});
+                    products = filterProducts(extractProducts(res), ['fashion', 'clothes', 'dress', 'shirt', 'jeans', 'shoes', 'accessory', 'jewelry', 'watch', 'bag']);
                     break;
 
                 default:
-                    res = await getProducts({ page: 1, limit: 50 });
+                    res = await getProducts({page: 1, limit: 50});
                     products = extractProducts(res);
             }
 
             // 🔥 If filtered products are empty → load ALL products (but no dummy)
             if (!products.length) {
-                const allRes = await getProducts({ page: 1, limit: 50 });
+                const allRes = await getProducts({page: 1, limit: 50});
                 products = extractProducts(allRes);
             }
 
             const processedProducts = products.map(p => processProductData(p, tabId));
 
             setTabProducts(prev => ({
-                ...prev,
-                [tabId]: processedProducts
+                ...prev, [tabId]: processedProducts
             }));
 
         } catch (error) {
@@ -554,30 +555,16 @@ export default function BlinkitHomeScreen() {
 
             if (productTiers.length > 0) {
                 // Find applicable tier for the given quantity
-                const applicableTier = productTiers.find(tier =>
-                    quantity >= tier.minQty && quantity <= tier.maxQty
-                );
+                const applicableTier = productTiers.find(tier => quantity >= tier.minQty && quantity <= tier.maxQty);
 
                 if (applicableTier) {
-                    return buildResponse(
-                        applicableTier.price,
-                        applicableTier.price,
-                        null,
-                        0,
-                        applicableTier.minQty
-                    );
+                    return buildResponse(applicableTier.price, applicableTier.price, null, 0, applicableTier.minQty);
                 }
 
                 // If no tier found for quantity, use the first tier's min quantity
                 const firstTier = productTiers[0];
                 if (firstTier) {
-                    return buildResponse(
-                        firstTier.price,
-                        firstTier.price,
-                        null,
-                        0,
-                        firstTier.minQty
-                    );
+                    return buildResponse(firstTier.price, firstTier.price, null, 0, firstTier.minQty);
                 }
             }
         }
@@ -585,20 +572,10 @@ export default function BlinkitHomeScreen() {
         // Fallback to regular pricing
         if (Array.isArray(product?.variants) && product.variants.length > 0) {
             const v = product.variants[0];
-            return buildResponse(
-                v.basePrice ?? product.basePrice,
-                v.finalPrice ?? product.finalPrice ?? product.price,
-                v.discount ?? product.discount,
-                v.discountPercent ?? product.discountPercent
-            );
+            return buildResponse(v.basePrice ?? product.basePrice, v.finalPrice ?? product.finalPrice ?? product.price, v.discount ?? product.discount, v.discountPercent ?? product.discountPercent);
         }
 
-        return buildResponse(
-            product.basePrice ?? product.price,
-            product.finalPrice ?? product.price,
-            product.discount,
-            product.discountPercent
-        );
+        return buildResponse(product.basePrice ?? product.price, product.finalPrice ?? product.price, product.discount, product.discountPercent);
     };
 
 
@@ -609,7 +586,7 @@ export default function BlinkitHomeScreen() {
         const cartQuantity = getCartQuantity(productId, item.variantId);
         const imageSource = item.image?.uri ? {uri: item.image.uri} : require("../../../assets/Rectangle 24904.png");
 
-        return (<TouchableOpacity
+        return (<Pressable
             style={[styles.fragmentProductCard, index % 2 === 0 ? styles.fragmentLeftCard : styles.fragmentRightCard]}
             onPress={() => handleFragmentProductPress(item)}
         >
@@ -642,22 +619,22 @@ export default function BlinkitHomeScreen() {
                 </View>
                 <View style={styles.rowBetween}>
                     {cartQuantity > 0 ? (<View style={styles.quantityControl}>
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.quantityButton}
                             onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity - 1)}
                         >
                             <Text style={styles.quantityMinus}>-</Text>
-                        </TouchableOpacity>
+                        </Pressable>
 
                         <Text style={styles.quantityText}>{cartQuantity}</Text>
 
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.quantityButton}
                             onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity + 1)}
                         >
                             <Text style={styles.quantityPlus}>+</Text>
-                        </TouchableOpacity>
-                    </View>) : (<TouchableOpacity
+                        </Pressable>
+                    </View>) : (<Pressable
                         style={[styles.fragmentAddButton, addingToCart[productId] && styles.fragmentAddButtonDisabled]}
                         disabled={addingToCart[productId]}
                         onPress={() => handleAddToCart(item, true)}
@@ -665,10 +642,10 @@ export default function BlinkitHomeScreen() {
                         <Text style={styles.fragmentAddButtonText}>
                             {addingToCart[productId] ? "ADDING..." : "ADD"}
                         </Text>
-                    </TouchableOpacity>)}
+                    </Pressable>)}
                 </View>
             </View>
-        </TouchableOpacity>);
+        </Pressable>);
     };
 
     const getProductTierPricing = (productId, variantId = null) => {
@@ -683,17 +660,14 @@ export default function BlinkitHomeScreen() {
         const imageSource = item.image?.uri ? {uri: item.image.uri} : require("../../../assets/Rectangle 24904.png");
         const productTiers = getProductTierPricing(productId, item.variantId);
 
-        return (
-            <TouchableOpacity
+        return (<Pressable
                 style={styles.tabProductCard}
                 onPress={() => router.push(`/screens/ProductDetailScreen?id=${item.id}`)}
             >
                 {/* Business User Badge */}
-                {isBusinessUser && priceInfo.minQty > 1 && (
-                    <View style={styles.minQtyBadge}>
+                {isBusinessUser && priceInfo.minQty > 1 && (<View style={styles.minQtyBadge}>
                         <Text style={styles.minQtyText}>Min: {priceInfo.minQty}</Text>
-                    </View>
-                )}
+                    </View>)}
 
                 <Image
                     source={imageSource}
@@ -712,52 +686,43 @@ export default function BlinkitHomeScreen() {
                                 ₹{priceInfo.finalPrice}
                             </Text>
 
-                            {priceInfo.hasDiscount && (
-                                <View style={styles.discountBox}>
+                            {priceInfo.hasDiscount && (<View style={styles.discountBox}>
                                     <Text style={styles.tabProductOriginalPrice}>
                                         ₹{priceInfo.basePrice}
                                     </Text>
                                     <Text style={styles.discountBadge}>
                                         {priceInfo.discountPercent}% OFF
                                     </Text>
-                                </View>
-                            )}
+                                </View>)}
 
-                            {isBusinessUser && priceInfo.minQty > 1 && (
-                                <Text style={styles.businessMinQty}>
+                            {isBusinessUser && priceInfo.minQty > 1 && (<Text style={styles.businessMinQty}>
                                     Min. {priceInfo.minQty} units
-                                </Text>
-                            )}
+                                </Text>)}
 
                             {/* Show tier pricing info for business users */}
-                            {isBusinessUser && productTiers.length > 0 && (
-                                <Text style={styles.tierPricingInfo}>
+                            {isBusinessUser && productTiers.length > 0 && (<Text style={styles.tierPricingInfo}>
                                     {productTiers.length} tier{productTiers.length > 1 ? 's' : ''} available
-                                </Text>
-                            )}
+                                </Text>)}
                         </View>
                     </View>
                     <View style={styles.rowBetween}>
-                        {cartQuantity > 0 ? (
-                            <View style={styles.quantityControl}>
-                                <TouchableOpacity
+                        {cartQuantity > 0 ? (<View style={styles.quantityControl}>
+                                <Pressable
                                     style={styles.quantityButton}
                                     onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity - 1)}
                                 >
                                     <Text style={styles.quantityMinus}>-</Text>
-                                </TouchableOpacity>
+                                </Pressable>
 
                                 <Text style={styles.quantityText}>{cartQuantity}</Text>
 
-                                <TouchableOpacity
+                                <Pressable
                                     style={styles.quantityButton}
                                     onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity + 1)}
                                 >
                                     <Text style={styles.quantityPlus}>+</Text>
-                                </TouchableOpacity>
-                            </View>
-                        ) : (
-                            <TouchableOpacity
+                                </Pressable>
+                            </View>) : (<Pressable
                                 style={[styles.tabAddButton, addingToCart[productId] && styles.tabAddButtonDisabled]}
                                 disabled={addingToCart[productId]}
                                 onPress={() => handleAddToCart(item)}
@@ -765,12 +730,10 @@ export default function BlinkitHomeScreen() {
                                 <Text style={styles.tabAddButtonText}>
                                     {addingToCart[productId] ? "..." : "ADD"}
                                 </Text>
-                            </TouchableOpacity>
-                        )}
+                            </Pressable>)}
                     </View>
                 </View>
-            </TouchableOpacity>
-        );
+            </Pressable>);
     };
 
     // Rest of your existing functions (fetchCategories, loadUserData, etc.) remain the same
@@ -953,8 +916,7 @@ export default function BlinkitHomeScreen() {
             deliveryTime: "16 MINS",
             image: product?.thumbnail ? {uri: `${API_BASE_URL}${product.thumbnail}`} : require("../../../assets/Rectangle 24904.png"),
             variantId: product.variants?.[0]?._id || null,
-            minQty: priceInfo.minQty || 1,
-            // Add tier pricing info for business users
+            minQty: priceInfo.minQty || 1, // Add tier pricing info for business users
             tierPricing: isBusinessUser ? getProductTierPricing(id, product.variants?.[0]?._id) : []
         };
     };
@@ -1011,7 +973,7 @@ export default function BlinkitHomeScreen() {
         const cartQuantity = getCartQuantity(productId, product.variantId);
         const imageSource = product.image?.uri ? {uri: product.image.uri} : require("../../../assets/Rectangle 24904.png");
 
-        return (<TouchableOpacity
+        return (<Pressable
             key={productId}
             style={styles.productCard}
             onPress={() => handleProductPress(product)}
@@ -1048,22 +1010,22 @@ export default function BlinkitHomeScreen() {
                 {/* Quantity / Add Button at Bottom */}
                 <View style={styles.bottomQuantityContainer}>
                     {cartQuantity > 0 ? (<View style={styles.quantityControl}>
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.quantityButton}
                             onPress={() => handleUpdateQuantity(productId, product.variantId, cartQuantity - 1)}
                         >
                             <Text style={styles.quantityMinus}>-</Text>
-                        </TouchableOpacity>
+                        </Pressable>
 
                         <Text style={styles.quantityText}>{cartQuantity}</Text>
 
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.quantityButton}
                             onPress={() => handleUpdateQuantity(productId, product.variantId, cartQuantity + 1)}
                         >
                             <Text style={styles.quantityPlus}>+</Text>
-                        </TouchableOpacity>
-                    </View>) : (<TouchableOpacity
+                        </Pressable>
+                    </View>) : (<Pressable
                         style={[styles.fragmentAddButton, addingToCart[productId] && styles.fragmentAddButtonDisabled,]}
                         disabled={addingToCart[productId]}
                         onPress={() => handleAddToCart(product)}
@@ -1071,10 +1033,10 @@ export default function BlinkitHomeScreen() {
                         <Text style={styles.fragmentAddButtonText}>
                             {addingToCart[productId] ? "ADDING..." : "ADD"}
                         </Text>
-                    </TouchableOpacity>)}
+                    </Pressable>)}
                 </View>
             </View>
-        </TouchableOpacity>);
+        </Pressable>);
     };
 
     const handleCartPopupClick = () => {
@@ -1101,7 +1063,7 @@ export default function BlinkitHomeScreen() {
             {/*</View>*/}
 
             {/* Address Row - Clickable */}
-            <TouchableOpacity style={styles.addressRow} onPress={handleAddressPress}>
+            <Pressable style={styles.addressRow} onPress={handleAddressPress}>
                 <Text style={styles.homeText}>HOME</Text>
                 <Text style={styles.dash}>-</Text>
                 <Text style={styles.userAddress} numberOfLines={1}>
@@ -1111,11 +1073,11 @@ export default function BlinkitHomeScreen() {
                     source={require('../../../assets/icons/arrow-down-sign-to-navigate.png')}
                     style={styles.downArrow}
                 />
-            </TouchableOpacity>
+            </Pressable>
 
             {/* Search Bar with Animation */}
             <View style={styles.searchContainer}>
-                <TouchableOpacity
+                <Pressable
                     style={styles.searchBarTouchable}
                     onPress={() => router.push('/screens/SearchScreen')}
                 >
@@ -1139,7 +1101,7 @@ export default function BlinkitHomeScreen() {
                         {/*    style={styles.micIcon}*/}
                         {/*/>*/}
                     </Animated.View>
-                </TouchableOpacity>
+                </Pressable>
             </View>
 
             <View style={styles.tabContainer}>
@@ -1148,7 +1110,7 @@ export default function BlinkitHomeScreen() {
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.tabScrollContent}
                 >
-                    {TAB_CATEGORIES.map((tab) => (<TouchableOpacity
+                    {TAB_CATEGORIES.map((tab) => (<Pressable
                         key={tab.id}
                         style={[styles.tabItem, activeTab === tab.id && [styles.activeTabItem, {backgroundColor: tab.color}]]}
                         onPress={() => handleTabPress(tab.id)}
@@ -1167,7 +1129,7 @@ export default function BlinkitHomeScreen() {
 
                         {activeTab === tab.id && (
                             <View style={[styles.activeTabIndicator, {backgroundColor: '#FFFFFF'}]}/>)}
-                    </TouchableOpacity>))}
+                    </Pressable>))}
                 </ScrollView>
             </View>
         </View>
@@ -1199,7 +1161,7 @@ export default function BlinkitHomeScreen() {
                                 const url = category?.image || category?.icon;
                                 const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../../assets/images/gifts.png");
 
-                                return (<TouchableOpacity
+                                return (<Pressable
                                     key={category?._id || `category-${index}`}
                                     style={[styles.categoryCard, {backgroundColor: '#EAD3D3'}]}
                                     onPress={() => handleCategoryPress(category)}
@@ -1212,7 +1174,7 @@ export default function BlinkitHomeScreen() {
                                         style={styles.categoryImage}
                                         resizeMode="contain"
                                     />
-                                </TouchableOpacity>);
+                                </Pressable>);
                             })}
                         </ScrollView>
                     </View>
@@ -1226,7 +1188,7 @@ export default function BlinkitHomeScreen() {
                     <Text style={styles.sectionTitle}>
                         {TAB_CATEGORIES.find(tab => tab.id === activeTab)?.name} Products
                     </Text>
-                    <TouchableOpacity
+                    <Pressable
                         style={styles.seeAllButton}
                         onPress={() => router.push('/screens/AllProductsScreen')}
                     >
@@ -1235,7 +1197,7 @@ export default function BlinkitHomeScreen() {
                             source={require('../../../assets/icons/right-arrow.png')}
                             style={styles.seeAllArrow}
                         />
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
 
                 {loading ? (<View style={styles.loadingContainer}>
@@ -1255,7 +1217,7 @@ export default function BlinkitHomeScreen() {
             <View style={styles.productsSection}>
                 <View style={styles.sectionHeaderWithButton}>
                     <Text style={styles.sectionTitle}>Featured Products</Text>
-                    <TouchableOpacity
+                    <Pressable
                         style={styles.seeAllButton}
                         onPress={() => router.push('/screens/AllProductsScreen')}
                     >
@@ -1264,7 +1226,7 @@ export default function BlinkitHomeScreen() {
                             source={require('../../../assets/icons/right-arrow.png')}
                             style={styles.seeAllArrow}
                         />
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
 
                 <ScrollView
@@ -1280,7 +1242,7 @@ export default function BlinkitHomeScreen() {
             <View style={styles.grocerySection}>
                 <View style={styles.sectionHeaderWithButton}>
                     <Text style={styles.sectionTitle}>Grocery & Kitchen</Text>
-                    <TouchableOpacity
+                    <Pressable
                         style={styles.seeAllButton}
                         onPress={() => router.push('/screens/AllCategoriesScreen')}
                     >
@@ -1289,7 +1251,7 @@ export default function BlinkitHomeScreen() {
                             source={require('../../../assets/icons/right-arrow.png')}
                             style={styles.seeAllArrow}
                         />
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
                 <ScrollView
                     horizontal
@@ -1299,7 +1261,7 @@ export default function BlinkitHomeScreen() {
                     {groceryCategories.map((category, index) => {
                         const url = category?.image || category?.icon;
                         const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../../assets/images/gifts.png");
-                        return (<TouchableOpacity
+                        return (<Pressable
                             key={category?._id || `category-${index}`}
                             style={styles.groceryCard}
                             onPress={() => handleCategorySelected(category)}
@@ -1312,7 +1274,7 @@ export default function BlinkitHomeScreen() {
                                 />
                             </View>
                             <Text style={styles.groceryName}>{category.name}</Text>
-                        </TouchableOpacity>)
+                        </Pressable>)
                     })}
                 </ScrollView>
             </View>
@@ -1332,12 +1294,12 @@ export default function BlinkitHomeScreen() {
                 <View style={styles.halfScreenModal}>
                     <SafeAreaView style={styles.fragmentContainer}>
                         <View style={[styles.fragmentHeader]}>
-                            <TouchableOpacity onPress={closeCategoryFragment} style={styles.fragmentCloseButton}>
+                            <Pressable onPress={closeCategoryFragment} style={styles.fragmentCloseButton}>
                                 <Image
                                     source={require("../../../assets/icons/deleteIcon.png")}
                                     style={styles.fragmentCloseIcon}
                                 />
-                            </TouchableOpacity>
+                            </Pressable>
                             <Text style={styles.fragmentHeaderTitle}>
                                 {selectedCategory?.name || 'Categories'}
                             </Text>
@@ -1354,7 +1316,7 @@ export default function BlinkitHomeScreen() {
                                         const url = category?.image || category?.icon;
                                         const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../../assets/images/gifts.png");
 
-                                        return (<TouchableOpacity
+                                        return (<Pressable
                                             key={category._id}
                                             style={[styles.fragmentCategoryItem, selectedCategory?._id === category._id && styles.fragmentSelectedCategoryItem]}
                                             onPress={() => handleCategorySelect(category)}
@@ -1372,7 +1334,7 @@ export default function BlinkitHomeScreen() {
                                                     {category.name}
                                                 </Text>
                                             </View>
-                                        </TouchableOpacity>);
+                                        </Pressable>);
                                     })}
                                 </ScrollView>
                             </View>
@@ -1407,7 +1369,7 @@ export default function BlinkitHomeScreen() {
         {showCartPopup && cartItems.length > 0 && (<Animated.View
             style={[styles.cartPopupContainer, {transform: [{translateX: slideAnim}]}]}
         >
-            <TouchableOpacity
+            <Pressable
                 style={styles.cartPopup}
                 activeOpacity={0.9}
                 onPress={handleCartPopupClick}
@@ -1436,7 +1398,7 @@ export default function BlinkitHomeScreen() {
                     </View>
 
                 </View>
-            </TouchableOpacity>
+            </Pressable>
         </Animated.View>)}
 
     </SafeAreaView>);
@@ -1925,12 +1887,7 @@ const styles = StyleSheet.create({
 
     cartItemsCount: {
         fontSize: 15, fontFamily: 'Poppins-SemiBold', color: '#1B1B1B',
-    },
-    tierPricingInfo: {
-        fontSize: 9,
-        fontFamily: 'Poppins-Regular',
-        color: '#4CAD73',
-        marginTop: 2,
-        fontStyle: 'italic',
+    }, tierPricingInfo: {
+        fontSize: 9, fontFamily: 'Poppins-Regular', color: '#4CAD73', marginTop: 2, fontStyle: 'italic',
     },
 });

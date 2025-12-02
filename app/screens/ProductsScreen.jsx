@@ -10,7 +10,7 @@ import {
     StyleSheet,
     Text,
     ToastAndroid,
-    TouchableOpacity,
+    Pressable,
     View,
     Modal,
     FlatList,
@@ -215,7 +215,6 @@ export default function ProductsScreen() {
             const userId = user?._id || user?.id || user?.userId || null;
 
             if (!userId) {
-                Alert.alert('Login Required', 'Please login to add items to wishlist');
                 router.push('/screens/LoginScreen');
                 return;
             }
@@ -512,7 +511,7 @@ export default function ProductsScreen() {
                     padding: responsiveSize(8),
                 }
             ]}>
-                <TouchableOpacity onPress={() => handleProductClick(productId)} activeOpacity={0.7}>
+                <Pressable onPress={() => handleProductClick(productId)} activeOpacity={0.7}>
                     <View style={[
                         styles.imageContainer,
                         {
@@ -520,7 +519,7 @@ export default function ProductsScreen() {
                             borderRadius: responsiveSize(8)
                         }
                     ]}>
-                        <TouchableOpacity
+                        <Pressable
                             style={[
                                 styles.wishlistButton,
                                 {
@@ -557,7 +556,7 @@ export default function ProductsScreen() {
                                     resizeMode="contain"
                                 />
                             )}
-                        </TouchableOpacity>
+                        </Pressable>
 
                         <Image
                             style={styles.image}
@@ -624,7 +623,7 @@ export default function ProductsScreen() {
                             )}
                         </View>
                     </View>
-                </TouchableOpacity>
+                </Pressable>
 
                 <View style={styles.actionContainer}>
                     {cartQuantity > 0 ? (
@@ -636,7 +635,7 @@ export default function ProductsScreen() {
                                 paddingVertical: responsiveSize(6),
                             }
                         ]}>
-                            <TouchableOpacity
+                            <Pressable
                                 style={styles.quantityButton}
                                 onPress={() => handleUpdateQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id, cartQuantity - 1)}
                                 disabled={isUpdating}
@@ -646,7 +645,7 @@ export default function ProductsScreen() {
                                     { fontSize: responsiveSize(16) },
                                     isUpdating && styles.disabledText
                                 ]}>-</Text>
-                            </TouchableOpacity>
+                            </Pressable>
 
                             <Text style={[
                                 styles.quantityText,
@@ -655,7 +654,7 @@ export default function ProductsScreen() {
                                 {isUpdating ? '...' : cartQuantity}
                             </Text>
 
-                            <TouchableOpacity
+                            <Pressable
                                 style={styles.quantityButton}
                                 onPress={() => handleUpdateQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id, cartQuantity + 1)}
                                 disabled={isOutOfStock || isUpdating}
@@ -665,10 +664,10 @@ export default function ProductsScreen() {
                                     { fontSize: responsiveSize(16) },
                                     (isOutOfStock || isUpdating) && styles.disabledText
                                 ]}>+</Text>
-                            </TouchableOpacity>
+                            </Pressable>
                         </View>
                     ) : (
-                        <TouchableOpacity
+                        <Pressable
                             style={[
                                 styles.addButton,
                                 hasMultipleVariants && styles.variantButton,
@@ -689,7 +688,7 @@ export default function ProductsScreen() {
                             ]}>
                                 {isUpdating ? '...' : (hasMultipleVariants ? 'Options' : 'ADD')}
                             </Text>
-                        </TouchableOpacity>
+                        </Pressable>
                     )}
                 </View>
             </View>
@@ -760,7 +759,7 @@ export default function ProductsScreen() {
                             paddingVertical: responsiveSize(6),
                         }
                     ]}>
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.variantQuantityButton}
                             onPress={() => handleUpdateQuantity(getProductId(selectedProductForVariant), variant._id || variant.id, cartQuantity - 1)}
                             disabled={isUpdating}
@@ -770,14 +769,14 @@ export default function ProductsScreen() {
                                 { fontSize: responsiveSize(16) },
                                 isUpdating && styles.disabledText
                             ]}>-</Text>
-                        </TouchableOpacity>
+                        </Pressable>
                         <Text style={[
                             styles.variantQuantity,
                             { fontSize: responsiveSize(14) }
                         ]}>
                             {isUpdating ? '...' : cartQuantity}
                         </Text>
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.variantQuantityButton}
                             onPress={() => handleUpdateQuantity(getProductId(selectedProductForVariant), variant._id || variant.id, cartQuantity + 1)}
                             disabled={isOutOfStock || isUpdating}
@@ -787,10 +786,10 @@ export default function ProductsScreen() {
                                 { fontSize: responsiveSize(16) },
                                 (isOutOfStock || isUpdating) && styles.disabledText
                             ]}>+</Text>
-                        </TouchableOpacity>
+                        </Pressable>
                     </View>
                 ) : (
-                    <TouchableOpacity
+                    <Pressable
                         style={[
                             styles.variantAddButton,
                             (isOutOfStock || isUpdating) && styles.disabledButton,
@@ -810,7 +809,7 @@ export default function ProductsScreen() {
                         ]}>
                             {isUpdating ? '...' : 'ADD'}
                         </Text>
-                    </TouchableOpacity>
+                    </Pressable>
                 )}
             </View>
         );
@@ -833,7 +832,7 @@ export default function ProductsScreen() {
                     paddingHorizontal: responsiveSize(16),
                 }
             ]}>
-                <TouchableOpacity
+                <Pressable
                     onPress={handleBack}
                     style={styles.backButton}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -849,7 +848,7 @@ export default function ProductsScreen() {
                         ]}
                         resizeMode="contain"
                     />
-                </TouchableOpacity>
+                </Pressable>
 
                 <Text style={[
                     styles.headerTitle,
@@ -882,7 +881,7 @@ export default function ProductsScreen() {
                                     require("../../assets/images/gifts.png");
 
                                 return (
-                                    <TouchableOpacity
+                                    <Pressable
                                         key={category._id || category.id}
                                         style={[
                                             styles.categoryItem,
@@ -923,7 +922,7 @@ export default function ProductsScreen() {
                                                 {category.name}
                                             </Text>
                                         </View>
-                                    </TouchableOpacity>
+                                    </Pressable>
                                 );
                             })}
                         </ScrollView>
@@ -1021,7 +1020,7 @@ export default function ProductsScreen() {
                                 ]}>
                                     Select Variant
                                 </Text>
-                                <TouchableOpacity
+                                <Pressable
                                     onPress={closeVariantModal}
                                     style={[
                                         styles.closeButton,
@@ -1039,7 +1038,7 @@ export default function ProductsScreen() {
                                         ]}
                                         resizeMode="contain"
                                     />
-                                </TouchableOpacity>
+                                </Pressable>
                             </View>
 
                             {selectedProductForVariant && (

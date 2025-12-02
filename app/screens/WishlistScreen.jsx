@@ -132,7 +132,6 @@ export default function WishlistScreen() {
             const userId = user?._id || user?.id || user?.userId || null;
 
             if (!userId) {
-                Alert.alert('Login Required', 'Please login to manage wishlist');
                 router.push('/screens/LoginScreen');
                 return;
             }
@@ -156,7 +155,7 @@ export default function WishlistScreen() {
                         return itemProductId !== productId;
                     })
                 );
-                Alert.alert('Success', 'Removed from wishlist');
+
             } else {
                 Alert.alert('Error', 'Failed to remove from wishlist');
             }

@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, StyleSheet, Text, TextInput, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../constants/colors';
 import { fonts } from '../../constants/fonts';
@@ -64,9 +64,9 @@ export default function SignUpScreen() {
         <SafeAreaView style={styles.container}>
             {/* Back Icon and Title */}
             <View style={globalStyles.header}>
-                <TouchableOpacity style={globalStyles.backButton} onPress={handleBack}>
+                <Pressable style={globalStyles.backButton} onPress={handleBack}>
                     <Image source={require("../../assets/icons/back_icon.png")} style={globalStyles.backIcon}/>
-                </TouchableOpacity>
+                </Pressable>
                 <Text style={globalStyles.title}>Sign Up</Text>
             </View>
 
@@ -97,7 +97,7 @@ export default function SignUpScreen() {
                             onChangeText={setPassword}
                             autoCapitalize="none"
                         />
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.eyeButton}
                             onPress={togglePasswordVisibility}
                         >
@@ -109,7 +109,7 @@ export default function SignUpScreen() {
                                 }
                                 style={styles.eyeIcon}
                             />
-                        </TouchableOpacity>
+                        </Pressable>
                     </View>
                 </View>
 
@@ -125,7 +125,7 @@ export default function SignUpScreen() {
                             onChangeText={setConfirmPassword}
                             autoCapitalize="none"
                         />
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.eyeButton}
                             onPress={toggleConfirmPasswordVisibility}
                         >
@@ -137,13 +137,13 @@ export default function SignUpScreen() {
                                 }
                                 style={styles.eyeIcon}
                             />
-                        </TouchableOpacity>
+                        </Pressable>
                     </View>
                 </View>
 
-                <TouchableOpacity style={styles.signupBtn} onPress={handleSignUp} disabled={loading}>
+                <Pressable style={styles.signupBtn} onPress={handleSignUp} disabled={loading}>
                     <Text style={styles.signupBtnText}>{loading ? 'Loading...' : 'Sign Up'}</Text>
-                </TouchableOpacity>
+                </Pressable>
 
                 <View style={styles.divider}>
                     <View style={globalStyles.line}/>
@@ -152,22 +152,22 @@ export default function SignUpScreen() {
                 </View>
 
                 {/* Google Button */}
-                <TouchableOpacity style={globalStyles.socialBtn}  onPress={() => googleLogin(router, setGoogleLoading)} disabled={googleLoading}>
+                <Pressable style={globalStyles.socialBtn}  onPress={() => googleLogin(router, setGoogleLoading)} disabled={googleLoading}>
                     <Image
                         source={require("../../assets/google_logo.png")}
                         style={globalStyles.socialIcon}
                     />
                     <Text style={globalStyles.socialText}>Continue with Google</Text>
-                </TouchableOpacity>
+                </Pressable>
 
                 {/* Facebook Button */}
-                <TouchableOpacity style={globalStyles.socialBtn}>
+                <Pressable style={globalStyles.socialBtn}>
                     <Image
                         source={require("../../assets/facebook.png")}
                         style={globalStyles.socialIcon}
                     />
                     <Text style={globalStyles.socialText}>Continue with Facebook</Text>
-                </TouchableOpacity>
+                </Pressable>
             </View>
         </SafeAreaView>
     );

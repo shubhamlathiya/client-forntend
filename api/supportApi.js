@@ -7,6 +7,7 @@ export const createEnquiry = async ({ name, email, subject, message }) => {
 
 export const getMyTickets = async ({ page = 1, limit = 20 } = {}) => {
   const res = await apiClient.get('/api/support/tickets/my', { params: { page, limit } });
+  console.log(res.data)
   return res.data;
 };
 

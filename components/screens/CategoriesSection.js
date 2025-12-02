@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Image, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
+import { View, Text, Image, StyleSheet, Pressable, ActivityIndicator } from "react-native";
 
 import {useRouter} from "expo-router";
 import { getCategories } from "../../api/catalogApi";
@@ -50,9 +50,9 @@ export default function CategoriesSection() {
             {/* Header */}
             <View style={styles.header}>
                 <Text style={styles.title}>Categories</Text>
-                <TouchableOpacity>
+                <Pressable>
                     <Text style={styles.showAll} onPress={handleCategoriesShowAll}>Show All</Text>
-                </TouchableOpacity>
+                </Pressable>
             </View>
 
             {/* Categories Grid */}

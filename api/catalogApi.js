@@ -61,6 +61,7 @@ export const getProductById = async (id) => {
     if (!id) throw new Error('Product id is required');
     try {
         const response = await apiClient.get(`/api/catalog/products/${id}`);
+        console.log(response.data)
         return response.data;
     } catch (error) {
         console.error(`Failed to fetch product ${id}`, error);

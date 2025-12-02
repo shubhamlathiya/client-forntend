@@ -175,26 +175,36 @@ export default function NotificationScreen() {
     const handleNotificationPress = (notification) => {
         if (!notification) return;
 
-        // Mark as read if not already
+        // Mark as read
         if (!notification.read) handleMarkAsRead(notification._id);
 
-        // Determine target screen
         let targetScreen = '/Home';
 
         if (notification.data?.screen) {
-            if (notification.data.screen === 'OrderDetails') {
+            const screen = notification.data.screen;
+
+            // Custom rules
+            if (screen === 'OrderDetails') {
                 targetScreen = '/screens/MyOrderScreen';
-            } else {
-                targetScreen = `/screens/${notification.data.screen}`;
+            }
+            else if (screen === 'NegotiationDetails') {
+                targetScreen = '/screens/CartScreen';   // Open Cart Screen
+            }
+            else if (screen === 'ReturnDetails') {
+                targetScreen = '/screens/MyOrderScreen'; // Open Order Screen
+            }
+            else {
+                targetScreen = `/screens/${screen}`;
             }
 
-            // Append query params if any
+            // Append extra params
             const params = new URLSearchParams();
             Object.entries(notification.data).forEach(([key, value]) => {
                 if (key !== 'screen' && value !== undefined && value !== null) {
                     params.append(key, String(value));
                 }
             });
+
             const queryString = params.toString();
             const url = queryString ? `${targetScreen}?${queryString}` : targetScreen;
 

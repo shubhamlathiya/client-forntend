@@ -5,7 +5,7 @@ import {
     StyleSheet,
     ScrollView,
     Image,
-    TouchableOpacity,
+    Pressable,
     Dimensions,
     SafeAreaView,
     StatusBar,
@@ -111,7 +111,7 @@ export default function CategoryProductsScreen() {
     const cartItemCount = 0; // Replace with actual cart count
 
     const renderProduct = ({item, index}) => (
-        <TouchableOpacity
+        <Pressable
             style={[
                 styles.productCard,
                 index % 2 === 0 ? styles.leftCard : styles.rightCard
@@ -136,7 +136,7 @@ export default function CategoryProductsScreen() {
                     </Text>
                 )}
             </View>
-            <TouchableOpacity
+            <Pressable
                 style={[
                     styles.addButton,
                     addingToCart[item.id] && styles.addButtonDisabled
@@ -147,8 +147,8 @@ export default function CategoryProductsScreen() {
                 <Text style={styles.addButtonText}>
                     {addingToCart[item.id] ? 'ADDING...' : 'ADD'}
                 </Text>
-            </TouchableOpacity>
-        </TouchableOpacity>
+            </Pressable>
+        </Pressable>
     );
 
     return (
@@ -157,12 +157,12 @@ export default function CategoryProductsScreen() {
 
             {/* Header with Close Button */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+                <Pressable onPress={handleClose} style={styles.closeButton}>
                     <Image
                         source={require("../../../assets/icons/deleteIcon.png")}
                         style={styles.closeIcon}
                     />
-                </TouchableOpacity>
+                </Pressable>
                 <Text style={styles.headerTitle}>
                     {selectedCategory?.name || 'Categories'}
                 </Text>
@@ -173,7 +173,7 @@ export default function CategoryProductsScreen() {
                 {/* Left Side - Categories */}
                 <ScrollView style={styles.categoriesList}>
                     {categories.map((category) => (
-                        <TouchableOpacity
+                        <Pressable
                             key={category._id}
                             style={[
                                 styles.categoryItem,
@@ -187,7 +187,7 @@ export default function CategoryProductsScreen() {
                             ]}>
                                 {category.name}
                             </Text>
-                        </TouchableOpacity>
+                        </Pressable>
                     ))}
                 </ScrollView>
 
@@ -207,13 +207,13 @@ export default function CategoryProductsScreen() {
             {/* View Cart Button */}
             {cartItemCount > 0 && (
                 <View style={styles.cartButtonContainer}>
-                    <TouchableOpacity style={styles.cartButton} onPress={handleViewCart}>
+                    <Pressable style={styles.cartButton} onPress={handleViewCart}>
                         <View style={styles.cartBadge}>
                             <Text style={styles.cartBadgeText}>{cartItemCount}</Text>
                         </View>
                         <Text style={styles.cartButtonText}>View Cart</Text>
                         <Text style={styles.cartPrice}>₹{/* Total price */}</Text>
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
             )}
         </SafeAreaView>

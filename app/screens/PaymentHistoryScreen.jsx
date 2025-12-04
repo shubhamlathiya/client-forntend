@@ -4,7 +4,7 @@ import {
     Text,
     StyleSheet,
     ScrollView,
-    TouchableOpacity,
+    Pressable,
     RefreshControl,
     ActivityIndicator,
     SafeAreaView,
@@ -192,7 +192,7 @@ const PaymentHistoryScreen = () => {
     );
 
     const renderTransactionItem = ({ item }) => (
-        <TouchableOpacity
+        <Pressable
             style={styles.historyItem}
             onPress={() => router.push({
                 pathname: '/screens/TransactionDetailScreen',
@@ -226,7 +226,7 @@ const PaymentHistoryScreen = () => {
                     <Text style={styles.historyStatusText}>{item.status}</Text>
                 </View>
             </View>
-        </TouchableOpacity>
+        </Pressable>
     );
 
     const renderSectionHeader = ({ section: { title } }) => (
@@ -243,12 +243,12 @@ const PaymentHistoryScreen = () => {
 
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity
+                <Pressable
                     style={styles.backButton}
                     onPress={() => router.back()}
                 >
                     <Ionicons name="arrow-back" size={24} color="#333" />
-                </TouchableOpacity>
+                </Pressable>
                 <Text style={styles.headerTitle}>Payment History</Text>
                 <View style={styles.placeholder} />
             </View>
@@ -283,12 +283,12 @@ const PaymentHistoryScreen = () => {
                             <Text style={styles.emptyStateText}>
                                 You haven't made any payments yet.
                             </Text>
-                            <TouchableOpacity
+                            <Pressable
                                 style={styles.shopButton}
                                 onPress={() => router.push('/Home')}
                             >
                                 <Text style={styles.shopButtonText}>Start Shopping</Text>
-                            </TouchableOpacity>
+                            </Pressable>
                         </View>
                     }
                 />

@@ -5,7 +5,7 @@ import {
     Text,
     StyleSheet,
     ScrollView,
-    TouchableOpacity,
+    Pressable,
     Image,
     Alert,
     ActivityIndicator,
@@ -243,12 +243,12 @@ export default function OrderConfirmationScreen() {
     return (
         <View style={styles.container}>
             <View style={styles.topBar}>
-                <TouchableOpacity onPress={() => router.replace("/Home")}>
+                <Pressable onPress={() => router.replace("/Home")}>
                     <Image
                         source={require("../../assets/icons/back_icon.png")}
                         style={styles.icon}
                     />
-                </TouchableOpacity>
+                </Pressable>
                 <Text style={styles.heading}>Order Confirmation</Text>
             </View>
 
@@ -312,26 +312,26 @@ export default function OrderConfirmationScreen() {
                         <>
                             {paymentInitialized ? (
                                 <>
-                                    <TouchableOpacity
+                                    <Pressable
                                         style={styles.primaryButton}
                                         onPress={resumePayment}
                                     >
                                         <Text style={styles.primaryText}>
                                             Continue to Payment
                                         </Text>
-                                    </TouchableOpacity>
+                                    </Pressable>
 
-                                    <TouchableOpacity
+                                    <Pressable
                                         style={styles.secondaryButton}
                                         onPress={startNewPayment}
                                     >
                                         <Text style={styles.secondaryText}>
                                             Start New Payment Session
                                         </Text>
-                                    </TouchableOpacity>
+                                    </Pressable>
                                 </>
                             ) : (
-                                <TouchableOpacity
+                                <Pressable
                                     style={styles.primaryButton}
                                     onPress={initializePayment}
                                     disabled={startingPayment}
@@ -348,24 +348,24 @@ export default function OrderConfirmationScreen() {
                                             Initialize Payment - ₹{displayAmount * 100}
                                         </Text>
                                     )}
-                                </TouchableOpacity>
+                                </Pressable>
                             )}
                         </>
                     )}
 
-                    <TouchableOpacity
+                    <Pressable
                         style={styles.secondaryButton}
                         onPress={() => router.push(`/screens/OrderDetailsScreen?id=${orderId}`)}
                     >
                         <Text style={styles.secondaryText}>View Order Details</Text>
-                    </TouchableOpacity>
+                    </Pressable>
 
-                    <TouchableOpacity
+                    <Pressable
                         style={styles.primaryButton}
                         onPress={() => router.replace("/Home")}
                     >
                         <Text style={styles.primaryText}>Continue Shopping</Text>
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
             </ScrollView>
 
@@ -381,12 +381,12 @@ export default function OrderConfirmationScreen() {
                         <Text style={styles.modalTitle}>
                             Secure Payment - ₹{paymentData ? formatDisplayAmount(paymentData.amount) : '0.00'}
                         </Text>
-                        <TouchableOpacity
+                        <Pressable
                             onPress={handlePaymentClose}
                             style={styles.closeButton}
                         >
                             <Text style={styles.closeButtonText}>✕</Text>
-                        </TouchableOpacity>
+                        </Pressable>
                     </View>
                     {paymentData && (
                         <PaymentWebView

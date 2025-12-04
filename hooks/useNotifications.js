@@ -80,7 +80,7 @@ const useNotifications = () => {
                 identifier: notificationId
             });
 
-           // Add to local state
+            // Add to local state
             addToLocalNotifications({
                 _id: notificationId,
                 title: notificationData.title,
@@ -171,7 +171,7 @@ const useNotifications = () => {
                 }
             } else {
                 setHasUnreadNotifications(false);
-                  }
+            }
 
         } catch (error) {
             console.log('❌ Error checking notifications:', error.message);
@@ -225,7 +225,7 @@ const useNotifications = () => {
             const userData = await AsyncStorage.getItem('userData');
             if (!userData) return null;
             const parsed = JSON.parse(userData);
-            return parsed?.id || null;
+            return parsed?.id || parsed?._id || null;
         } catch (error) {
             console.log('⚠️ Get user ID error:', error.message);
             return null;

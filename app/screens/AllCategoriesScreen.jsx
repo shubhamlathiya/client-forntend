@@ -4,13 +4,13 @@ import {
     Text,
     StyleSheet,
     FlatList,
-    TouchableOpacity,
+    Pressable,
     Image,
     SafeAreaView,
     StatusBar,
     Dimensions,
     Platform,
-    ActivityIndicator, Pressable
+    ActivityIndicator,
 } from 'react-native';
 import {useRouter} from 'expo-router';
 import {getCategories} from "../../api/catalogApi";
@@ -244,12 +244,12 @@ export default function AllCategoriesScreen() {
                             style={styles.emptyIcon}
                         />
                         <Text style={styles.emptyText}>No categories found</Text>
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.retryButton}
                             onPress={fetchCategories}
                         >
                             <Text style={styles.retryText}>Try Again</Text>
-                        </TouchableOpacity>
+                        </Pressable>
                     </View>
                 </SafeAreaView>
             </View>
@@ -269,7 +269,7 @@ export default function AllCategoriesScreen() {
                         paddingTop: safeAreaInsets.top,
                     }
                 ]}>
-                    <TouchableOpacity
+                    <Pressable
                         onPress={() => router.back()}
                         style={styles.backButton}
                         hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
@@ -284,7 +284,7 @@ export default function AllCategoriesScreen() {
                                 }
                             ]}
                         />
-                    </TouchableOpacity>
+                    </Pressable>
 
                     <Text style={[
                         styles.headerTitle,

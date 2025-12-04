@@ -7,14 +7,14 @@ import {
     Alert,
     Image, StatusBar,
     StyleSheet,
-    Text, TextInput, TouchableOpacity,
+    Text, TextInput, Pressable,
     View
 } from "react-native";
 import {SafeAreaView} from "react-native-safe-area-context";
 import {loginUser} from '../../api/authApi';
 import {mergeGuestCart} from '../../api/cartApi';
 import {globalStyles} from '../../constants/globalStyles';
-import {googleLogin} from "../../utils/googleLoginHelper";
+import {facebookLogin, googleLogin} from "../../utils/googleLoginHelper";
 
 
 export default function LoginScreen() {
@@ -25,6 +25,7 @@ export default function LoginScreen() {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [googleLoading, setGoogleLoading] = useState(false);
+    const [facebookLoading, setFacebookLoading] = useState(false);
 
     const handleBack = () => {
         if (router.canGoBack()) {
@@ -89,12 +90,12 @@ export default function LoginScreen() {
             <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
 
             <View style={{flexDirection: "row", alignItems: "center", marginTop: 10}}>
-                <TouchableOpacity onPress={handleBack}>
+                <Pressable onPress={handleBack}>
                     <Image
                         source={require("../../assets/icons/back_icon.png")}
                         style={globalStyles.backIcon}
                     />
-                </TouchableOpacity>
+                </Pressable>
 
                 <View style={{flex: 1, alignItems: "center", position: "absolute", width: "100%"}}>
                     <Text style={globalStyles.title}>Log In</Text>
@@ -130,7 +131,7 @@ export default function LoginScreen() {
                             onChangeText={setPassword}
                             autoCapitalize="none"
                         />
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.eyeButton}
                             onPress={togglePasswordVisibility}
                         >
@@ -142,7 +143,7 @@ export default function LoginScreen() {
                                 }
                                 style={styles.eyeIcon}
                             />
-                        </TouchableOpacity>
+                        </Pressable>
                     </View>
                 </View>
 
@@ -176,9 +177,9 @@ export default function LoginScreen() {
                 </View>
 
                 {/* Log In Button */}
-                <TouchableOpacity style={styles.loginBtn} onPress={handleLogin} disabled={loading}>
+                <Pressable style={styles.loginBtn} onPress={handleLogin} disabled={loading}>
                     <Text style={styles.loginBtnText}>{loading ? 'Logging in...' : 'Log In'}</Text>
-                </TouchableOpacity>
+                </Pressable>
 
                 {/* Divider */}
                 <View style={styles.divider}>
@@ -188,7 +189,7 @@ export default function LoginScreen() {
                 </View>
 
                 {/* Google Button */}
-                <TouchableOpacity style={globalStyles.socialBtn} onPress={() => googleLogin(router, setGoogleLoading)} disabled={googleLoading}>
+                <Pressable style={globalStyles.socialBtn} onPress={() => googleLogin(router, setGoogleLoading)} disabled={googleLoading}>
                     <Image
                         source={require("../../assets/google_logo.png")}
                         style={globalStyles.socialIcon}
@@ -196,16 +197,16 @@ export default function LoginScreen() {
                     <Text style={globalStyles.socialText}>
                         {googleLoading ? 'Connecting...' : 'Continue with Google'}
                     </Text>
-                </TouchableOpacity>
+                </Pressable>
 
                 {/* Facebook Button */}
-                <TouchableOpacity style={globalStyles.socialBtn}>
+                <Pressable style={globalStyles.socialBtn} onPress={() => facebookLogin(router, setFacebookLoading)} disabled={googleLoading}>
                     <Image
                         source={require("../../assets/facebook.png")}
                         style={globalStyles.socialIcon}
                     />
                     <Text style={globalStyles.socialText}>Continue with Facebook</Text>
-                </TouchableOpacity>
+                </Pressable>
 
                 {/* Register Text */}
                 <Text style={styles.registerText}>

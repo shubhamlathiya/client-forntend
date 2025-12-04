@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import {View, TextInput, StyleSheet, Image, TouchableOpacity} from "react-native";
+import {View, TextInput, StyleSheet, Image, Pressable} from "react-native";
 
 export default function SearchBar({ onSearch }) {
     const [query, setQuery] = useState('');
@@ -35,13 +35,13 @@ export default function SearchBar({ onSearch }) {
                     clearButtonMode="while-editing"
                 />
                 {query.length > 0 && (
-                    <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
+                    <Pressable onPress={clearSearch} style={styles.clearButton}>
                         <Image
                             source={require("../../assets/icons/deleteIcon.png")}
                             style={styles.clearIcon}
                             resizeMode="contain"
                         />
-                    </TouchableOpacity>
+                    </Pressable>
                 )}
             </View>
         </View>

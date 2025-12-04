@@ -7,7 +7,7 @@ import {
     StyleSheet,
     Text,
     ToastAndroid,
-    TouchableOpacity,
+    Pressable,
     View,
     Image,
     Platform,
@@ -194,7 +194,7 @@ export default function AddressListScreen() {
 
     const handleBack = () => {
         if (router.canGoBack()) {
-            router.back();
+            router.replace('/Home');
         } else {
             router.replace('/Home');
         }
@@ -239,12 +239,12 @@ export default function AddressListScreen() {
             {/* Header - Blinkit Style */}
             <View style={styles.header}>
                 <View style={styles.headerTop}>
-                    <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+                    <Pressable onPress={handleBack} style={styles.backButton}>
                         <Image
                             source={require("../../assets/icons/back_icon.png")}
                             style={styles.backIcon}
                         />
-                    </TouchableOpacity>
+                    </Pressable>
                     <Text style={styles.headerTitle}>Select Delivery Address</Text>
                     <View style={styles.headerPlaceholder}/>
                 </View>
@@ -264,7 +264,7 @@ export default function AddressListScreen() {
                 }
             >
                 {/* Current Location Option */}
-                <TouchableOpacity
+                <Pressable
                     style={[
                         styles.currentLocationCard,
                         gettingLocation && styles.disabledCard
@@ -292,7 +292,7 @@ export default function AddressListScreen() {
                             style={styles.arrowIcon}
                         />
                     )}
-                </TouchableOpacity>
+                </Pressable>
 
                 {/* Saved Addresses Section */}
                 <View style={styles.section}>
@@ -315,7 +315,7 @@ export default function AddressListScreen() {
                             const isDefault = !!addr?.isDefault;
 
                             return (
-                                <TouchableOpacity
+                                <Pressable
                                     key={String(id)}
                                     style={[
                                         styles.addressCard,
@@ -359,7 +359,7 @@ export default function AddressListScreen() {
 
                                     {/* Action Buttons */}
                                     <View style={styles.actionRow}>
-                                        <TouchableOpacity
+                                        <Pressable
                                             style={styles.actionButton}
                                             onPress={() => handleEdit(addr)}
                                         >
@@ -368,18 +368,18 @@ export default function AddressListScreen() {
                                                 style={styles.actionIcon}
                                             />
                                             <Text style={styles.actionText}>Edit</Text>
-                                        </TouchableOpacity>
+                                        </Pressable>
 
                                         {!isDefault && (
-                                            <TouchableOpacity
+                                            <Pressable
                                                 style={styles.actionButton}
                                                 onPress={() => handleSetDefault(id)}
                                             >
                                                 <Text style={styles.actionText}>Set Default</Text>
-                                            </TouchableOpacity>
+                                            </Pressable>
                                         )}
 
-                                        <TouchableOpacity
+                                        <Pressable
                                             style={styles.actionButton}
                                             onPress={() => handleDelete(id)}
                                         >
@@ -388,7 +388,7 @@ export default function AddressListScreen() {
                                                 style={[styles.actionIcon, styles.deleteIcon]}
                                             />
                                             <Text style={[styles.actionText, styles.deleteText]}>Delete</Text>
-                                        </TouchableOpacity>
+                                        </Pressable>
                                     </View>
 
                                     {/* Selection Overlay */}
@@ -398,7 +398,7 @@ export default function AddressListScreen() {
                                             <Text style={styles.selectingText}>Selecting...</Text>
                                         </View>
                                     )}
-                                </TouchableOpacity>
+                                </Pressable>
                             );
                         })
                     )}
@@ -410,7 +410,7 @@ export default function AddressListScreen() {
 
             {/* Fixed Add Address Button - Blinkit Style */}
             <View style={styles.footer}>
-                <TouchableOpacity
+                <Pressable
                     style={styles.addButton}
                     onPress={handleAddNew}
                 >
@@ -419,7 +419,7 @@ export default function AddressListScreen() {
                         style={styles.plusIcon}
                     />
                     <Text style={styles.addButtonText}>ADD NEW ADDRESS</Text>
-                </TouchableOpacity>
+                </Pressable>
             </View>
         </View>
     );

@@ -8,7 +8,7 @@ import {
     Text,
     TextInput,
     ToastAndroid,
-    TouchableOpacity,
+    Pressable,
     View,
     Platform,
     Image,
@@ -45,10 +45,12 @@ export default function AddAddressScreen() {
     const [form, setForm] = useState(initialForm);
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(isEdit);
+    const [addressId, setAddressId] = useState(id || null);
+    const [existingAddress, setExistingAddress] = useState(null);
 
     const handleBack = () => {
         if (router.canGoBack()) {
-            router.back();
+            router.replace('/screens/AddressListScreen');
         } else {
             router.replace('/Home');
         }
@@ -65,8 +67,8 @@ export default function AddAddressScreen() {
                 console.log('Current location data received:', currentLocationData);
 
                 // Pre-fill the form with current location data
-                setForm(prev => ({
-                    ...prev,
+                const updatedForm = {
+                    ...initialForm,
                     name: currentLocationData.name || 'Current Location',
                     address: currentLocationData.address || '',
                     landmark: currentLocationData.landmark || '',
@@ -75,7 +77,11 @@ export default function AddAddressScreen() {
                     pincode: currentLocationData.pincode || '',
                     latitude: currentLocationData.latitude || '',
                     longitude: currentLocationData.longitude || '',
-                }));
+                };
+                setForm(updatedForm);
+
+                // Check if this address already exists
+                checkForExistingAddress(updatedForm);
 
                 showMessage('Current location data loaded! Please complete the address details.');
             } catch (error) {
@@ -96,7 +102,7 @@ export default function AddAddressScreen() {
             const addr = list.find(a => String(a?._id || a?.id) === String(id));
 
             if (addr) {
-                setForm({
+                const loadedForm = {
                     name: addr?.name || '',
                     phone: addr?.phone || '',
                     address: addr?.address || '',
@@ -109,7 +115,10 @@ export default function AddAddressScreen() {
                     isDefault: !!addr?.isDefault,
                     latitude: addr?.latitude || '',
                     longitude: addr?.longitude || ''
-                });
+                };
+                setForm(loadedForm);
+                setAddressId(String(addr?._id || addr?.id));
+                setExistingAddress(addr);
             }
         } catch (error) {
             console.error('Error loading address:', error);
@@ -117,6 +126,66 @@ export default function AddAddressScreen() {
         } finally {
             setLoading(false);
         }
+    };
+
+    // Check if address already exists in user's address list
+    const checkForExistingAddress = async (addressData) => {
+        try {
+            const res = await getAddresses();
+            const data = res?.data ?? res?.addresses ?? res ?? [];
+            const list = Array.isArray(data) ? data : (data?.data || []);
+
+            if (!list.length) return;
+
+            // Normalize address data for comparison
+            const normalize = (text) => text?.toString().trim().toLowerCase().replace(/\s+/g, ' ') || '';
+
+            const normalizedInput = {
+                address: normalize(addressData.address),
+                city: normalize(addressData.city),
+                pincode: normalize(addressData.pincode),
+                landmark: normalize(addressData.landmark)
+            };
+
+            // Check for existing addresses with similar data
+            const existing = list.find(addr => {
+                const normalizedExisting = {
+                    address: normalize(addr.address),
+                    city: normalize(addr.city),
+                    pincode: normalize(addr.pincode),
+                    landmark: normalize(addr.landmark)
+                };
+
+                // Check if address is similar (you can adjust the matching logic)
+                const isSimilar =
+                    normalizedExisting.address.includes(normalizedInput.address) ||
+                    normalizedInput.address.includes(normalizedExisting.address) ||
+                    (normalizedExisting.pincode === normalizedInput.pincode &&
+                        normalizedExisting.city === normalizedInput.city);
+
+                return isSimilar;
+            });
+
+            if (existing) {
+                setExistingAddress(existing);
+                setAddressId(String(existing?._id || existing?.id));
+
+                // Update form with existing address data
+                setForm(prev => ({
+                    ...prev,
+                    name: existing.name || prev.name,
+                    phone: existing.phone || prev.phone,
+                    type: existing.type || prev.type,
+                    isDefault: !!existing.isDefault
+                }));
+
+                showMessage('Similar address found. Updating existing address.');
+                return true;
+            }
+        } catch (error) {
+            console.error('Error checking existing address:', error);
+        }
+        return false;
     };
 
     const onChange = (key, value) => {
@@ -188,33 +257,116 @@ export default function AddAddressScreen() {
             console.log('Submitting address data:', addressData);
 
             let result;
-            if (isEdit) {
-                result = await updateAddress(String(id), addressData);
+            let isUpdate = false;
+            let finalAddressId = addressId;
+
+            if (addressId) {
+                // Update existing address
+                result = await updateAddress(addressId, addressData);
+                isUpdate = true;
+                console.log('Update result:', result);
             } else {
+                // Add new address
                 result = await addAddress(addressData);
+                isUpdate = false;
+                console.log('Add result:', result);
+
+                // Get the new address ID from response
+                const savedAddress = result?.data || result;
+                finalAddressId = savedAddress?._id || savedAddress?.id;
             }
 
-            const savedAddress = result?.data || result;
-            const addressId = String(savedAddress?._id || savedAddress?.id || id);
+            // Check if request was successful
+            if (result && result.success === false) {
+                throw new Error(result.message || 'Failed to save address');
+            }
 
             // Set as default if requested
-            if (form.isDefault && addressId) {
+            if (form.isDefault && finalAddressId) {
                 try {
-                    await setDefaultAddress(addressId);
+                    await setDefaultAddress(finalAddressId);
+                    console.log('Address set as default successfully');
                 } catch (error) {
                     console.warn('Failed to set default address:', error);
+                    // Don't throw error here, as the address was already saved
                 }
             }
 
-            showMessage(`Address ${isEdit ? 'updated' : 'added'} successfully`);
+            showMessage(`Address ${isUpdate ? 'updated' : 'added'} successfully`);
 
-            // Navigate back to address list
-            router.push('/screens/AddressListScreen');
+            // Navigate back after a short delay
+            setTimeout(() => {
+                router.push('/screens/AddressListScreen');
+            }, 500);
+
         } catch (error) {
             console.error('Save address error:', error);
-            showMessage(`Failed to ${isEdit ? 'update' : 'add'} address`, true);
+
+            // Handle specific error cases
+            let errorMessage = `Failed to ${addressId ? 'update' : 'add'} address`;
+
+            if (error.response) {
+                // Backend returned an error
+                const backendError = error.response.data;
+                errorMessage = backendError.message || errorMessage;
+
+                if (backendError.error) {
+                    console.error('Backend error details:', backendError.error);
+                }
+
+                // Handle duplicate address case
+                if (backendError.message && backendError.message.includes('already exists')) {
+                    errorMessage = 'This address already exists in your address book.';
+                }
+            } else if (error.request) {
+                // No response received
+                errorMessage = 'No response from server. Please check your internet connection.';
+            } else {
+                // Something happened in setting up the request
+                errorMessage = error.message || errorMessage;
+            }
+
+            showMessage(errorMessage, true);
         } finally {
             setSaving(false);
+        }
+    };
+
+// Add this helper function for checking address uniqueness
+    const checkAddressUniqueness = async (addressData) => {
+        try {
+            const res = await getAddresses();
+            const data = res?.data || [];
+
+            if (!Array.isArray(data)) return null;
+
+            const normalizedInput = {
+                address: addressData.address.trim().toLowerCase(),
+                city: addressData.city.trim().toLowerCase(),
+                pincode: addressData.pincode.trim(),
+            };
+
+            const existing = data.find(addr => {
+                const normalizedAddr = {
+                    address: addr.address?.trim().toLowerCase() || '',
+                    city: addr.city?.trim().toLowerCase() || '',
+                    pincode: addr.pincode?.trim() || '',
+                };
+
+                return (
+                    normalizedAddr.address === normalizedInput.address &&
+                    normalizedAddr.city === normalizedInput.city &&
+                    normalizedAddr.pincode === normalizedInput.pincode
+                );
+            });
+
+            return existing ? {
+                exists: true,
+                addressId: existing._id || existing.id
+            } : { exists: false };
+        } catch (error) {
+            console.error('Error checking address uniqueness:', error);
+            return null;
         }
     };
 
@@ -279,7 +431,7 @@ export default function AddAddressScreen() {
             >
                 {/* Header */}
                 <View style={styles.header}>
-                    <TouchableOpacity
+                    <Pressable
                         style={styles.backButton}
                         onPress={handleBack}
                         disabled={saving}
@@ -288,10 +440,13 @@ export default function AddAddressScreen() {
                             source={require("../../assets/icons/back_icon.png")}
                             style={styles.backIcon}
                         />
-                    </TouchableOpacity>
+                    </Pressable>
 
                     <Text style={styles.headerTitle}>
-                        {isEdit ? 'Edit Address' : 'Add New Address'}
+                        {addressId || existingAddress ? 'Update Address' : 'Add New Address'}
+                        {existingAddress && (
+                            <Text style={styles.existingBadge}> (Existing)</Text>
+                        )}
                     </Text>
 
                     <View style={styles.headerPlaceholder}/>
@@ -310,11 +465,13 @@ export default function AddAddressScreen() {
                                     Current Location Detected
                                 </Text>
                                 <Text style={styles.locationBannerSubtitle}>
-                                    Address has been pre-filled with your current location
+                                    {existingAddress ?
+                                        'Updating existing address with location data' :
+                                        'Address has been pre-filled with your current location'}
                                 </Text>
                             </View>
                         </View>
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.refreshLocationButton}
                             onPress={handleUseCurrentLocation}
                             disabled={saving}
@@ -323,7 +480,20 @@ export default function AddAddressScreen() {
                                 source={require('../../assets/icons/refresh.png')}
                                 style={styles.refreshIcon}
                             />
-                        </TouchableOpacity>
+                        </Pressable>
+                    </View>
+                )}
+
+                {/* Existing Address Notification */}
+                {existingAddress && !isEdit && (
+                    <View style={styles.existingAddressBanner}>
+                        <Image
+                            source={require('../../assets/icons/info.png')}
+                            style={styles.infoIcon}
+                        />
+                        <Text style={styles.existingAddressText}>
+                            This address already exists in your address book. Updating it instead of creating a duplicate.
+                        </Text>
                     </View>
                 )}
 
@@ -443,7 +613,7 @@ export default function AddAddressScreen() {
 
                     <View style={styles.typeContainer}>
                         {Object.values(AddressType).map((type) => (
-                            <TouchableOpacity
+                            <Pressable
                                 key={type}
                                 style={[
                                     styles.typeOption,
@@ -469,14 +639,14 @@ export default function AddAddressScreen() {
                                 >
                                     {getAddressTypeLabel(type)}
                                 </Text>
-                            </TouchableOpacity>
+                            </Pressable>
                         ))}
                     </View>
                 </View>
 
                 {/* Default Toggle */}
                 <View style={styles.defaultContainer}>
-                    <TouchableOpacity
+                    <Pressable
                         onPress={() => !saving && onChange('isDefault', !form.isDefault)}
                         disabled={saving}
                         style={{ flexDirection: "row", alignItems: "center" }}
@@ -484,8 +654,8 @@ export default function AddAddressScreen() {
                         <Image
                             source={
                                 form.isDefault
-                                    ? require('../../assets/icons/check.png')   // checked image
-                                    : require('../../assets/icons/uncheck.png') // unchecked image
+                                    ? require('../../assets/icons/check.png')
+                                    : require('../../assets/icons/uncheck.png')
                             }
                             style={{ width: 24, height: 24 }}
                         />
@@ -494,14 +664,14 @@ export default function AddAddressScreen() {
                             <Text>Set as default address</Text>
                             <Text>This address will be used as your primary shipping address</Text>
                         </View>
-                    </TouchableOpacity>
+                    </Pressable>
 
                 </View>
             </ScrollView>
 
             {/* Submit */}
             <View style={styles.footer}>
-                <TouchableOpacity
+                <Pressable
                     style={[
                         styles.submitButton,
                         saving && styles.submitButtonDisabled
@@ -513,10 +683,10 @@ export default function AddAddressScreen() {
                         <ActivityIndicator color="#FFFFFF" size="small"/>
                     ) : (
                         <Text style={styles.submitButtonText}>
-                            {isEdit ? 'Update Address' : 'Save Address'}
+                            {addressId || existingAddress ? 'Update Address' : 'Save Address'}
                         </Text>
                     )}
-                </TouchableOpacity>
+                </Pressable>
             </View>
         </KeyboardAvoidingView>
     );
@@ -577,8 +747,36 @@ const styles = StyleSheet.create({
         color: '#1B1B1B',
         fontFamily: 'Poppins-SemiBold',
     },
+    existingBadge: {
+        fontSize: 14,
+        color: '#4CAD73',
+        fontFamily: 'Poppins-Medium',
+    },
     headerPlaceholder: {
         width: 32,
+    },
+    // Existing Address Banner
+    existingAddressBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFF3CD',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 16,
+        borderLeftWidth: 4,
+        borderLeftColor: '#FFC107',
+    },
+    infoIcon: {
+        width: 20,
+        height: 20,
+        tintColor: '#856404',
+        marginRight: 12,
+    },
+    existingAddressText: {
+        flex: 1,
+        fontSize: 14,
+        color: '#856404',
+        fontFamily: 'Poppins-Regular',
     },
     // Location Banner
     locationBanner: {

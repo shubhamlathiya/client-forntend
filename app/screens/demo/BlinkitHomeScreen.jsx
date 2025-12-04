@@ -14,7 +14,7 @@ import {
     FlatList,
     Modal,
     Animated,
-    Platform,
+    Platform, Linking,
 } from 'react-native';
 import {useFocusEffect, useRouter} from "expo-router";
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -114,10 +114,33 @@ export default function BlinkitHomeScreen() {
             finalStatus = status;
         }
 
-        if (finalStatus !== "granted") {
-            Alert.alert("Permission Needed", "Please enable notifications.");
-            return;
+        if (finalStatus !== 'granted') {
+            Alert.alert(
+                'Permission Needed',
+                'Please enable notifications in settings to receive updates.',
+                [
+                    {
+                        text: 'Cancel',
+                        style: 'cancel',
+                    },
+                    {
+                        text: 'Grant',
+                        onPress: async () => {
+                            // Only re-request if user clicked "Grant"
+                            if (Platform.OS === 'ios') {
+                                await Notifications.requestPermissionsAsync();
+                            } else {
+                                // On Android, open app settings for manual permission
+                                Linking.openSettings();
+                            }
+                        },
+                    },
+                ],
+                { cancelable: false }
+            );
+            return false;
         }
+
 
         // Create Android channel (important)
         if (Platform.OS === "android") {
@@ -162,9 +185,9 @@ export default function BlinkitHomeScreen() {
             let items = [];
 
             if (cartData?.success) {
-                if (cartData.data?.items) {
-                    items = cartData.data.items;
-                } else if (Array.isArray(cartData.data)) {
+                // If backend uses success + data structure
+                items = cartData.data?.items || [];
+                if (!Array.isArray(items) && Array.isArray(cartData.data)) {
                     items = cartData.data;
                 }
             } else if (Array.isArray(cartData)) {
@@ -172,17 +195,23 @@ export default function BlinkitHomeScreen() {
             }
 
             setCartItems(items);
+            setShowCartPopup(items.length > 0);
 
-            if (items.length > 0) {
-                setShowCartPopup(true);
+        } catch (error) {
+            // Handle "Cart not found" silently
+            if (error.response?.data?.message === 'Cart not found') {
+                setCartItems([]);
+                setShowCartPopup(false);
+                console.log('⚠️ Cart not found, showing empty cart');
             } else {
+                // Only log other errors
+                console.error('Error loading cart items:', error);
+                setCartItems([]);
                 setShowCartPopup(false);
             }
-        } catch (error) {
-            console.error('Error loading cart items:', error);
-            setCartItems([]);
         }
     };
+
 
     const getCartItemImages = () => {
         // If cart has items, show actual product images

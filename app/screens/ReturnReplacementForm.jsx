@@ -6,7 +6,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   View,
   Platform,
   ToastAndroid,
@@ -88,18 +88,18 @@ export default function ReturnReplacementForm() {
                 <View style={styles.card}>
                   <Text style={styles.label}>Resolution</Text>
                   <View style={styles.segmented}>
-                    <TouchableOpacity
+                    <Pressable
                         style={[styles.segment, resolution === 'refund' && styles.segmentActive]}
                         onPress={() => setResolution('refund')}
                     >
                       <Text style={[styles.segmentText, resolution === 'refund' && styles.segmentTextActive]}>Refund</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
+                    </Pressable>
+                    <Pressable
                         style={[styles.segment, resolution === 'replacement' && styles.segmentActive]}
                         onPress={() => setResolution('replacement')}
                     >
                       <Text style={[styles.segmentText, resolution === 'replacement' && styles.segmentTextActive]}>Replacement</Text>
-                    </TouchableOpacity>
+                    </Pressable>
                   </View>
                 </View>
             )}
@@ -116,9 +116,9 @@ export default function ReturnReplacementForm() {
               />
             </View>
 
-            <TouchableOpacity style={[styles.submitButton, submitting && styles.buttonDisabled]} onPress={handleSubmit} disabled={submitting}>
+            <Pressable style={[styles.submitButton, submitting && styles.buttonDisabled]} onPress={handleSubmit} disabled={submitting}>
               <Text style={styles.submitText}>{submitting ? 'Submitting…' : 'Submit Request'}</Text>
-            </TouchableOpacity>
+            </Pressable>
           </ScrollView>
         </View>
       </SafeAreaView>

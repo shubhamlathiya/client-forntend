@@ -4,7 +4,7 @@ import {
     Text,
     StyleSheet,
     ScrollView,
-    TouchableOpacity,
+    Pressable,
     StatusBar,
     Image,
     ActivityIndicator,
@@ -173,13 +173,13 @@ export default function FeedbackScreen() {
 
     const StarRating = ({rating, onRatingChange, size = 32, editable = true}) => (<View style={styles.starContainer}>
             {[1, 2, 3, 4, 5].map((star) => (
-                <TouchableOpacity key={star} onPress={() => editable && onRatingChange(star)} style={styles.starButton}
+                <Pressable key={star} onPress={() => editable && onRatingChange(star)} style={styles.starButton}
                                   disabled={!editable}>
                     <Image
                         source={star <= rating ? require("../../assets/icons/star_filled.png") : require("../../assets/icons/star_empty.png")}
                         style={{width: size, height: size}}
                     />
-                </TouchableOpacity>))}
+                </Pressable>))}
         </View>);
 
     return (<View style={styles.container}>
@@ -187,9 +187,9 @@ export default function FeedbackScreen() {
 
             {/* Header */}
             <View style={styles.topBar}>
-                <TouchableOpacity onPress={handleBack}>
+                <Pressable onPress={handleBack}>
                     <Image source={require("../../assets/icons/back_icon.png")} style={styles.iconBox}/>
-                </TouchableOpacity>
+                </Pressable>
                 <Text style={styles.heading}>{isEditing ? "Edit Review" : "Write a Review"}</Text>
                 <View style={styles.placeholder}/>
             </View>
@@ -253,14 +253,14 @@ export default function FeedbackScreen() {
 
             {/* Submit Button */}
             <View style={styles.reviewActions}>
-                <TouchableOpacity
+                <Pressable
                     style={[styles.submitButton, (!rating || submittingReview) && styles.submitButtonDisabled]}
                     onPress={isEditing ? () => updateExistingReview(userReview._id) : submitReview}
                     disabled={!rating || submittingReview}
                 >
                     {submittingReview ? <ActivityIndicator size="small" color="#FFFFFF"/> :
                         <Text style={styles.submitButtonText}>{isEditing ? "Update Review" : "Submit Review"}</Text>}
-                </TouchableOpacity>
+                </Pressable>
             </View>
         </View>);
 }

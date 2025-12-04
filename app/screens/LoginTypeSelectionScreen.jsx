@@ -3,7 +3,7 @@ import {
   View,
   Text,
   Image,
-  TouchableOpacity,
+  Pressable,
   StyleSheet,
   Animated,
   Dimensions,
@@ -70,7 +70,7 @@ export default function LoginTypeSelectionScreen() {
 
           <View style={styles.cardsContainer}>
             {/* Individual */}
-            <TouchableOpacity
+            <Pressable
                 activeOpacity={0.9}
                 style={styles.cardWrapper}
                 onPress={() => handleSelect('individual')}
@@ -86,10 +86,10 @@ export default function LoginTypeSelectionScreen() {
                 <Text style={styles.cardTitle}>Individual</Text>
                 <Text style={styles.cardSubtitle}>Personal Shopping</Text>
               </LinearGradient>
-            </TouchableOpacity>
+            </Pressable>
 
             {/* Business */}
-            <TouchableOpacity
+            <Pressable
                 activeOpacity={0.9}
                 style={styles.cardWrapper}
                 onPress={() => handleSelect('business')}
@@ -106,7 +106,7 @@ export default function LoginTypeSelectionScreen() {
                 <Text style={styles.cardSubtitle}>Wholesale & Bulk</Text>
 
               </LinearGradient>
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
           <View style={styles.footer}>

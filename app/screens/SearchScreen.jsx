@@ -1,6 +1,6 @@
 import React, {useState, useEffect} from 'react';
 import {
-    View, Text, StyleSheet, ScrollView, Image, TextInput, TouchableOpacity, ActivityIndicator, FlatList, StatusBar,
+    View, Text, StyleSheet, ScrollView, Image, TextInput, Pressable, ActivityIndicator, FlatList, StatusBar,
 } from 'react-native';
 import {useLocalSearchParams, useRouter} from 'expo-router';
 import {getProducts, searchProducts, toggleWishlist, checkWishlist} from '../../api/catalogApi';
@@ -162,7 +162,7 @@ export default function SearchScreen() {
         const productId = item._id || item.id;
         const imageSource = item?.thumbnail ? {uri: `${API_BASE_URL}${item.thumbnail}`} : require('../../assets/Rectangle 24904.png');
 
-        return (<TouchableOpacity
+        return (<Pressable
                 style={styles.productCard}
                 onPress={() => handleProductPress(item)}
             >
@@ -171,7 +171,7 @@ export default function SearchScreen() {
                     style={styles.productImage}
                     resizeMode="cover"
                 />
-                <TouchableOpacity style={styles.heartButton} onPress={async () => {
+                <Pressable style={styles.heartButton} onPress={async () => {
                     try {
                         const raw = await AsyncStorage.getItem('userData');
                         const user = raw ? JSON.parse(raw) : null;
@@ -183,7 +183,7 @@ export default function SearchScreen() {
                     } catch (_) {}
                 }}>
                     <Image source={require('../../assets/icons/heart.png')} style={[styles.heartIcon, likedMap[String(productId)] ? styles.heartLiked : styles.heartUnliked]} />
-                </TouchableOpacity>
+                </Pressable>
 
                 <View style={styles.productInfo}>
                     <Text style={styles.productName} numberOfLines={2}>
@@ -200,7 +200,7 @@ export default function SearchScreen() {
 
                     <Text style={styles.deliveryTime}>Delivery in 16 mins</Text>
                 </View>
-            </TouchableOpacity>);
+            </Pressable>);
     };
 
     const popularSearches = ['Milk', 'Bread', 'Eggs', 'Rice', 'Apple', 'Banana', 'Potato', 'Onion', 'Tomato', 'Biscuits'];
@@ -209,12 +209,12 @@ export default function SearchScreen() {
             <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
             {/* Top Bar with Back and Search */}
             <View style={styles.topBar}>
-                <TouchableOpacity onPress={() => router.back()}>
+                <Pressable onPress={() => router.back()}>
                     <Image
                         source={require('../../assets/icons/back_icon.png')}
                         style={styles.backIcon}
                     />
-                </TouchableOpacity>
+                </Pressable>
 
                 <View style={styles.searchBox}>
                     <Image
@@ -270,13 +270,13 @@ export default function SearchScreen() {
                     <Text style={styles.popularTitle}>Popular Searches</Text>
 
                     <View style={styles.popularTags}>
-                        {popularSearches.map((searchTerm, index) => (<TouchableOpacity
+                        {popularSearches.map((searchTerm, index) => (<Pressable
                                 key={index}
                                 style={styles.tag}
                                 onPress={() => setQuery(searchTerm)}
                             >
                                 <Text style={styles.tagText}>{searchTerm}</Text>
-                            </TouchableOpacity>))}
+                            </Pressable>))}
                     </View>
 
                     {/* Recent Searches Section (you can implement this later) */}

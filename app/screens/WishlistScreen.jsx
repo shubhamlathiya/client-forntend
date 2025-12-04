@@ -3,7 +3,7 @@ import {
     View,
     Text,
     StyleSheet,
-    TouchableOpacity,
+    Pressable,
     Image,
     FlatList,
     ActivityIndicator,
@@ -202,7 +202,7 @@ export default function WishlistScreen() {
                     styles.imageContainer,
                     { height: imageHeight }
                 ]}>
-                    <TouchableOpacity
+                    <Pressable
                         onPress={() => handleProductPress(product)}
                         activeOpacity={0.8}
                         disabled={isUpdating}
@@ -216,10 +216,10 @@ export default function WishlistScreen() {
                             style={styles.productImage}
                             resizeMode="cover"
                         />
-                    </TouchableOpacity>
+                    </Pressable>
 
                     {/* Remove Button - Heart Icon */}
-                    <TouchableOpacity
+                    <Pressable
                         style={[
                             styles.heartButton,
                             {
@@ -249,11 +249,11 @@ export default function WishlistScreen() {
                                 resizeMode="contain"
                             />
                         )}
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
 
                 {/* Product Details */}
-                <TouchableOpacity
+                <Pressable
                     onPress={() => handleProductPress(product)}
                     style={styles.productDetails}
                     activeOpacity={0.7}
@@ -287,7 +287,7 @@ export default function WishlistScreen() {
                     )}
 
                     {/* "Move to Cart" button removed as per requirement */}
-                </TouchableOpacity>
+                </Pressable>
             </View>
         );
     };
@@ -304,7 +304,7 @@ export default function WishlistScreen() {
 
         return (
             <View style={styles.listItem}>
-                <TouchableOpacity
+                <Pressable
                     style={styles.listItemContent}
                     onPress={() => handleProductPress(product)}
                     activeOpacity={0.7}
@@ -356,10 +356,10 @@ export default function WishlistScreen() {
                             </Text>
                         )}
                     </View>
-                </TouchableOpacity>
+                </Pressable>
 
                 {/* Action Button - Heart for removal */}
-                <TouchableOpacity
+                <Pressable
                     style={[
                         styles.listHeartButton,
                         {
@@ -389,7 +389,7 @@ export default function WishlistScreen() {
                             resizeMode="contain"
                         />
                     )}
-                </TouchableOpacity>
+                </Pressable>
             </View>
         );
     };
@@ -423,7 +423,7 @@ export default function WishlistScreen() {
             ]}>
                 Save your favorite items here to easily find them later
             </Text>
-            <TouchableOpacity
+            <Pressable
                 style={[
                     styles.shopButton,
                     {
@@ -441,7 +441,7 @@ export default function WishlistScreen() {
                 ]}>
                     Start Shopping
                 </Text>
-            </TouchableOpacity>
+            </Pressable>
         </View>
     );
 
@@ -480,7 +480,7 @@ export default function WishlistScreen() {
                     paddingHorizontal: responsiveSize(16),
                 }
             ]}>
-                <TouchableOpacity
+                <Pressable
                     style={[
                         styles.backButton,
                         {
@@ -501,7 +501,7 @@ export default function WishlistScreen() {
                         ]}
                         resizeMode="contain"
                     />
-                </TouchableOpacity>
+                </Pressable>
                 <Text style={[
                     styles.headerTitle,
                     { fontSize: responsiveSize(isTablet ? 20 : 18) }

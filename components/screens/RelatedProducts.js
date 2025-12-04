@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, Image, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, Image, StyleSheet, Pressable, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { getProducts } from "../../api/catalogApi";
 import { API_BASE_URL } from "../../config/apiConfig";
@@ -175,12 +175,12 @@ export default function RelatedProducts({ categoryId = null, title = "Bestseller
                     return (
                         <View key={String(productId) || index} style={styles.productCard}>
                             {/* Product Image */}
-                            <TouchableOpacity onPress={() => handleProductClick(item)}>
+                            <Pressable onPress={() => handleProductClick(item)}>
                                 <Image source={source} style={styles.productImage} resizeMode="cover" />
-                            </TouchableOpacity>
+                            </Pressable>
 
                             {/* Add to Cart Button */}
-                            <TouchableOpacity
+                            <Pressable
                                 style={[
                                     styles.addButton,
                                     addingToCart[productId] && styles.addButtonDisabled
@@ -191,7 +191,7 @@ export default function RelatedProducts({ categoryId = null, title = "Bestseller
                                 <Text style={styles.addButtonText}>
                                     {addingToCart[productId] ? 'ADDING...' : 'ADD'}
                                 </Text>
-                            </TouchableOpacity>
+                            </Pressable>
 
                             {/* Product Details */}
                             <View style={styles.productDetails}>

@@ -6,7 +6,7 @@ import {
     StyleSheet,
     Text,
     TextInput,
-    TouchableOpacity,
+    Pressable,
     View,
     Image,
     Platform,
@@ -238,7 +238,7 @@ export default function ReturnReplacementScreen() {
                     paddingTop: safeAreaInsets.top,
                 }
             ]}>
-                <TouchableOpacity
+                <Pressable
                     onPress={handleBack}
                     style={styles.backButton}
                     hitSlop={{top: RF(10), bottom: RF(10), left: RF(10), right: RF(10)}}
@@ -253,7 +253,7 @@ export default function ReturnReplacementScreen() {
                             }
                         ]}
                     />
-                </TouchableOpacity>
+                </Pressable>
 
                 <Text style={[
                     styles.headerTitle,
@@ -340,7 +340,7 @@ export default function ReturnReplacementScreen() {
                                         styles.itemCard,
                                         item.selected && styles.itemCardSelected
                                     ]}>
-                                        <TouchableOpacity
+                                        <Pressable
                                             style={styles.checkboxContainer}
                                             onPress={() => toggleItem(idx)}
                                         >
@@ -358,7 +358,7 @@ export default function ReturnReplacementScreen() {
                                                     />
                                                 )}
                                             </View>
-                                        </TouchableOpacity>
+                                        </Pressable>
 
                                         <Image
                                             source={item.image ? {uri: item.image} : require("../../assets/icons/order.png")}
@@ -419,7 +419,7 @@ export default function ReturnReplacementScreen() {
                                                         {type === 'replacement' ? 'Replace' : 'Return'} Quantity:
                                                     </Text>
                                                     <View style={styles.quantityControls}>
-                                                        <TouchableOpacity
+                                                        <Pressable
                                                             style={[
                                                                 styles.quantityButton,
                                                                 {width: RF(32), height: RF(32)}
@@ -434,7 +434,7 @@ export default function ReturnReplacementScreen() {
                                                             ]}>
                                                                 -
                                                             </Text>
-                                                        </TouchableOpacity>
+                                                        </Pressable>
 
                                                         <TextInput
                                                             style={[
@@ -446,7 +446,7 @@ export default function ReturnReplacementScreen() {
                                                             maxLength={3}
                                                         />
 
-                                                        <TouchableOpacity
+                                                        <Pressable
                                                             style={[
                                                                 styles.quantityButton,
                                                                 {width: RF(32), height: RF(32)}
@@ -461,7 +461,7 @@ export default function ReturnReplacementScreen() {
                                                             ]}>
                                                                 +
                                                             </Text>
-                                                        </TouchableOpacity>
+                                                        </Pressable>
                                                     </View>
                                                     <Text style={[
                                                         styles.quantityHelp,
@@ -543,7 +543,7 @@ export default function ReturnReplacementScreen() {
                                                     }
                                                 ]}
                                             />
-                                            <TouchableOpacity
+                                            <Pressable
                                                 style={[
                                                     styles.removeImageButton,
                                                     {
@@ -559,12 +559,12 @@ export default function ReturnReplacementScreen() {
                                                 ]}>
                                                     ×
                                                 </Text>
-                                            </TouchableOpacity>
+                                            </Pressable>
                                         </View>
                                     ))}
 
                                     {images.length < 3 && (
-                                        <TouchableOpacity
+                                        <Pressable
                                             style={[
                                                 styles.addImageButton,
                                                 {
@@ -586,7 +586,7 @@ export default function ReturnReplacementScreen() {
                                             ]}>
                                                 Add Image URL
                                             </Text>
-                                        </TouchableOpacity>
+                                        </Pressable>
                                     )}
                                 </View>
                             </View>
@@ -605,7 +605,7 @@ export default function ReturnReplacementScreen() {
                     paddingBottom: safeAreaInsets.bottom,
                 }
             ]}>
-                <TouchableOpacity
+                <Pressable
                     style={[
                         styles.submitButton,
                         (!isValid() || submitting) && styles.submitButtonDisabled
@@ -623,7 +623,7 @@ export default function ReturnReplacementScreen() {
                             Submit {type === 'replacement' ? 'Replacement' : 'Return'} Request
                         </Text>
                     )}
-                </TouchableOpacity>
+                </Pressable>
 
                 <Text style={[styles.footerText, {fontSize: RF(12)}]}>
                     By submitting, you agree to our return/replacement policy

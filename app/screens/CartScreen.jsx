@@ -1,8 +1,9 @@
 import { useRouter } from "expo-router";
 import React, { useEffect, useState, useCallback } from "react";
 import {
-    Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Dimensions,
-    FlatList, Modal, KeyboardAvoidingView, TouchableWithoutFeedback,Platform,Keyboard
+    Alert, Image, ScrollView, StyleSheet, Text, TextInput, Pressable, View, Dimensions,
+    FlatList, Modal, KeyboardAvoidingView, TouchableWithoutFeedback, Platform, Keyboard, SafeAreaView, StatusBar,
+    RefreshControl, ActivityIndicator
 } from "react-native";
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -20,13 +21,76 @@ import { API_BASE_URL } from '../../config/apiConfig';
 import { getWishlist, removeFromWishlist } from '../../api/catalogApi';
 import {getOrCreateSessionId, getUserType} from "../../api/sessionManager";
 
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
+
+// Check if device has notch (iPhone X and above)
+const hasNotch = Platform.OS === 'ios' && (screenHeight >= 812 || screenWidth >= 812);
+
+// Safe area insets for different devices
+const getSafeAreaInsets = () => {
+    if (Platform.OS === 'ios') {
+        if (hasNotch) {
+            return {
+                top: 44, // Status bar + notch area
+                bottom: 34 // Home indicator area
+            };
+        }
+        return {
+            top: 20, // Regular status bar
+            bottom: 0
+        };
+    }
+    // Android
+    return {
+        top: StatusBar.currentHeight || 25,
+        bottom: 0
+    };
+};
+
+const safeAreaInsets = getSafeAreaInsets();
+
+// Responsive size calculator with constraints
+const RF = (size) => {
+    const scale = screenWidth / 375; // 375 is standard iPhone width
+    const normalizedSize = size * Math.min(scale, 1.5); // Max 1.5x scaling for tablets
+    return Math.round(normalizedSize);
+};
+
+const RH = (size) => {
+    const scale = screenHeight / 812; // 812 is standard iPhone height
+    return Math.round(size * Math.min(scale, 1.5));
+};
+
+// Check if device is tablet
+const isTablet = screenWidth >= 768;
+const isLargeTablet = screenWidth >= 1024;
+const isSmallPhone = screenWidth <= 320;
+
+// Responsive width percentage
+const responsiveWidth = (percentage) => {
+    return Math.round((screenWidth * percentage) / 100);
+};
+
+// Responsive height percentage (excluding safe areas)
+const responsiveHeight = (percentage) => {
+    const availableHeight = screenHeight - safeAreaInsets.top - safeAreaInsets.bottom;
+    return Math.round((availableHeight * percentage) / 100);
+};
 
 export default function CartScreen() {
     const router = useRouter();
     const [cartItems, setCartItems] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [cartInfo, setCartInfo] = useState({ subtotal: 0, discount: 0, shipping: 0, total: 0, marketplaceFees: 0 });
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [cartInfo, setCartInfo] = useState({
+        subtotal: 0,
+        discount: 0,
+        shipping: 0,
+        tax: 0,
+        marketplaceFees: 0,
+        total: 0
+    });
     const [couponCode, setCouponCode] = useState('');
     const [applyingCoupon, setApplyingCoupon] = useState(false);
     const [removingCoupon, setRemovingCoupon] = useState(false);
@@ -43,37 +107,26 @@ export default function CartScreen() {
     const [tierPricing, setTierPricing] = useState({});
     const [sessionId, setSessionId] = useState(null);
 
-    // Mock data for special deals - only one
-    const [specialDeal] = useState({
-        id: '1',
-        title: 'Buy 1 Get 1 Free',
-        description: 'On selected beverages',
-        image: require('../../assets/Rectangle 24904.png'),
-        validUntil: 'Today',
-        discount: '50% OFF'
-    });
-
-    // Delivery instructions options
-    const deliveryInstructions = [
-        {
-            id: '1',
-            title: 'Avoid Calling',
-            description: 'Please avoid calling, use message instead',
-            icon: '📱'
-        },
-        {
-            id: '2',
-            title: "Don't Ring Bell",
-            description: 'Please do not ring the door bell',
-            icon: '🔕'
-        },
-        {
-            id: '3',
-            title: 'Leave at Door',
-            description: 'Leave the order at the door',
-            icon: '🚪'
-        }
-    ];
+    // const deliveryInstructions = [
+    //     {
+    //         id: '1',
+    //         title: 'Avoid Calling',
+    //         description: 'Please avoid calling, use message instead',
+    //         icon: '📱'
+    //     },
+    //     {
+    //         id: '2',
+    //         title: "Don't Ring Bell",
+    //         description: 'Please do not ring the door bell',
+    //         icon: '🔕'
+    //     },
+    //     {
+    //         id: '3',
+    //         title: 'Leave at Door',
+    //         description: 'Leave the order at the door',
+    //         icon: '🚪'
+    //     }
+    // ];
 
     const [wishlistItems, setWishlistItems] = useState([]);
 
@@ -160,7 +213,7 @@ export default function CartScreen() {
                 const name = p?.title || p?.name || 'Product';
                 const price = Number(p?.finalPrice ?? p?.price ?? 0);
                 const thumb = p?.thumbnail || (Array.isArray(p?.images) ? (p.images[0]?.url || p.images[0]) : null);
-                const image = thumb ? { uri: `${API_BASE_URL}${thumb}` } : require('../../assets/Rectangle 24904.png');
+                const image = thumb ? { uri: `${API_BASE_URL}${thumb}` } : require('../../assets/sample-product.png');
                 const unit = p?.unit || '';
                 return { id, name, price, image, unit, productId: p?._id || p?.id };
             });
@@ -171,9 +224,13 @@ export default function CartScreen() {
     };
 
     // Load cart data with proper error handling
-    const loadCartData = useCallback(async (showLoading = true) => {
+    const loadCartData = useCallback(async (isRefresh = false) => {
         try {
-            if (showLoading) setLoading(true);
+            if (isRefresh) {
+                setRefreshing(true);
+            } else {
+                setLoading(true);
+            }
 
             const res = await getCart();
             const data = res?.data ?? res;
@@ -209,7 +266,7 @@ export default function CartScreen() {
                 discount: Number(data?.totals?.discount ?? 0),
                 shipping: Number(data?.totals?.shipping ?? 0),
                 marketplaceFees: Number(data?.totals?.marketplaceFees ?? 0),
-                tax: Number(data?.totals?.tax ?? 0), // Added tax field
+                tax: Number(data?.totals?.tax ?? 0),
                 total: Number(data?.totals?.totalPayable ?? 0),
             });
 
@@ -217,24 +274,22 @@ export default function CartScreen() {
             console.error('Cart load error:', error);
             Alert.alert('Error', 'Failed to load cart data');
         } finally {
-            if (showLoading) setLoading(false);
+            setLoading(false);
+            setRefreshing(false);
         }
     }, []);
 
     // Optimized quantity update with immediate UI feedback
     const updateQuantity = useCallback(async (itemId, newQuantity, productId, variantId = null) => {
-        // Early exit if newQuantity is negative
         if (newQuantity < 0) return;
 
         try {
-            // Find the cart item locally
             const item = cartItems.find(i => i.id === itemId);
             if (!item) {
                 Alert.alert('Error', 'Cart item not found');
                 return;
             }
 
-            // Check minimum quantity for business users
             if (isBusinessUser && item.minQty && newQuantity < item.minQty) {
                 Alert.alert('Minimum Quantity', `Minimum quantity for this product is ${item.minQty}`);
                 return;
@@ -243,30 +298,21 @@ export default function CartScreen() {
             setUpdatingItems(prev => ({ ...prev, [itemId]: true }));
 
             if (newQuantity === 0) {
-                // Remove item if quantity is zero
                 await removeCartItem(productId, variantId);
             } else {
-                // Optimistic update
                 setCartItems(prevItems =>
                     prevItems.map(i =>
                         i.id === itemId ? { ...i, quantity: newQuantity } : i
                     )
                 );
-
-                // Update quantity via API
                 await updateCartItemApi(itemId, newQuantity);
             }
 
-            // Refresh cart to sync with backend
             await loadCartData(false);
-
         } catch (error) {
             console.error('Update quantity error:', error);
             Alert.alert('Error', 'Failed to update quantity');
-
-            // Revert optimistic update on error
             await loadCartData(false);
-
         } finally {
             setUpdatingItems(prev => ({ ...prev, [itemId]: false }));
         }
@@ -276,21 +322,13 @@ export default function CartScreen() {
     const removeItem = useCallback(async (productId, variantId = null, itemId) => {
         try {
             setUpdatingItems(prev => ({ ...prev, [itemId]: true }));
-
-            // Optimistic removal
             const updatedItems = cartItems.filter(item => item.id !== itemId);
             setCartItems(updatedItems);
-
-            // API call
             await removeCartItem(productId, variantId);
-
-            // Refresh data
             await loadCartData(false);
-
         } catch (error) {
             console.error('Remove item error:', error);
             Alert.alert('Error', 'Failed to remove item');
-            // Revert optimistic removal on error
             await loadCartData(false);
         } finally {
             setUpdatingItems(prev => ({ ...prev, [itemId]: false }));
@@ -310,11 +348,7 @@ export default function CartScreen() {
 
         try {
             setNegotiationLoading(true);
-
-            // 1. Get loginType
             const loginType = await AsyncStorage.getItem('loginType');
-
-            // 2. Get cart info (to extract cartId)
             const cartResponse = await getCart();
             const cartId = cartResponse?.data?.cartId || cartResponse?.cartId;
 
@@ -323,10 +357,9 @@ export default function CartScreen() {
                 return;
             }
 
-            // 3. Build negotiation payload
             const negotiationData = {
                 loginType,
-                cartId, // <-- added cartId here
+                cartId,
                 products: [
                     {
                         productId: selectedProductForNegotiation.productId,
@@ -336,17 +369,12 @@ export default function CartScreen() {
                         quantity: selectedProductForNegotiation.quantity,
                         currentPrice: selectedProductForNegotiation.finalPrice,
                         proposedPrice: parseFloat(proposedPrice),
-                        totalAmount:
-                            parseFloat(proposedPrice) *
-                            selectedProductForNegotiation.quantity
+                        totalAmount: parseFloat(proposedPrice) * selectedProductForNegotiation.quantity
                     }
                 ],
-                totalProposedAmount:
-                    parseFloat(proposedPrice) *
-                    selectedProductForNegotiation.quantity
+                totalProposedAmount: parseFloat(proposedPrice) * selectedProductForNegotiation.quantity
             };
 
-            // 4. Send request
             const result = await createBulkNegotiation(negotiationData);
 
             if (result.success) {
@@ -364,7 +392,6 @@ export default function CartScreen() {
             setNegotiationLoading(false);
         }
     };
-
 
     // Coupon application with immediate feedback
     const applyCoupon = useCallback(async () => {
@@ -421,14 +448,6 @@ export default function CartScreen() {
         router.push("/screens/AddressListScreen");
     };
 
-    const handleAddToCart = (item) => {
-        Alert.alert('Added', `${item.name} added to cart`);
-    };
-
-    const handleSpecialDeal = () => {
-        Alert.alert('Special Deal', 'Special deal applied to your cart!');
-    };
-
     const toggleInstruction = (instructionId) => {
         setSelectedInstructions(prev =>
             prev.includes(instructionId)
@@ -440,7 +459,7 @@ export default function CartScreen() {
     const renderWishlistItem = ({ item }) => (
         <View style={styles.wishlistCard}>
             <Image source={item.image} style={styles.wishlistImage} />
-            <TouchableOpacity style={styles.wishlistRemove} onPress={async () => {
+            <Pressable style={styles.wishlistRemove} onPress={async () => {
                 try {
                     const raw = await AsyncStorage.getItem('userData');
                     const user = raw ? JSON.parse(raw) : null;
@@ -451,7 +470,7 @@ export default function CartScreen() {
                 } catch (_) {}
             }}>
                 <Image source={require('../../assets/icons/deleteIcon.png')} style={styles.wishlistRemoveIcon} />
-            </TouchableOpacity>
+            </Pressable>
             <View style={styles.wishlistContent}>
                 <Text style={styles.wishlistName} numberOfLines={2}>{item.name}</Text>
             </View>
@@ -472,12 +491,10 @@ export default function CartScreen() {
                     <Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
                     <Text style={styles.productDescription} numberOfLines={1}>{item.description}</Text>
 
-                    {/* Minimum quantity warning for business users */}
                     {isBusinessUser && item.minQty && item.minQty > 1 && (
                         <Text style={styles.minQtyText}>Min. Qty: {item.minQty}</Text>
                     )}
 
-                    {/* Shipping cost display */}
                     {item.shippingCharge > 0 && (
                         <Text style={styles.shippingText}>Shipping: ₹{item.shippingCharge.toFixed(2)}</Text>
                     )}
@@ -494,27 +511,25 @@ export default function CartScreen() {
                         </>) : (<Text style={styles.finalPrice}>₹{item.finalPrice.toFixed(2)}</Text>)}
                     </View>
 
-                    {/* Tier pricing info for business users */}
                     {isBusinessUser && tierPricing[item.variantId ? `${item.productId}_${item.variantId}` : item.productId] && (
                         <Text style={styles.tierPricingText}>
                             Tier pricing applied
                         </Text>
                     )}
 
-                    {/* Negotiation button for business users */}
                     {isBusinessUser && (
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.negotiateButton}
                             onPress={() => openNegotiationModal(item)}
                         >
                             <Text style={styles.negotiateButtonText}>Request Better Price</Text>
-                        </TouchableOpacity>
+                        </Pressable>
                     )}
                 </View>
             </View>
 
             <View style={styles.itemRight}>
-                <TouchableOpacity
+                <Pressable
                     style={styles.deleteButton}
                     onPress={() => removeItem(item.productId, item.variantId, item.id)}
                     disabled={updatingItems[item.id]}
@@ -523,10 +538,10 @@ export default function CartScreen() {
                         source={require("../../assets/icons/deleteIcon.png")}
                         style={[styles.deleteIcon, updatingItems[item.id] && styles.disabledIcon]}
                     />
-                </TouchableOpacity>
+                </Pressable>
 
                 <View style={styles.quantityControl}>
-                    <TouchableOpacity
+                    <Pressable
                         style={styles.quantityButton}
                         onPress={() => updateQuantity(item.id, item.quantity - 1, item.productId, item.variantId)}
                     >
@@ -534,13 +549,13 @@ export default function CartScreen() {
                             style={[styles.minusButton, (updatingItems[item.id] || item.quantity <= (item.minQty || 1)) && styles.disabledButton]}>
                             <Text style={styles.minusText}>-</Text>
                         </View>
-                    </TouchableOpacity>
+                    </Pressable>
 
                     <Text style={styles.quantityText}>
                         {updatingItems[item.id] ? '...' : item.quantity}
                     </Text>
 
-                    <TouchableOpacity
+                    <Pressable
                         style={styles.quantityButton}
                         onPress={() => updateQuantity(item.id, item.quantity + 1, item.productId, item.variantId)}
                         disabled={updatingItems[item.id]}
@@ -548,7 +563,7 @@ export default function CartScreen() {
                         <View style={[styles.plusButton, updatingItems[item.id] && styles.disabledButton]}>
                             <Text style={styles.plusText}>+</Text>
                         </View>
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
             </View>
         </View>
@@ -562,30 +577,79 @@ export default function CartScreen() {
         }
     };
 
+    if (loading) {
+        return (
+            <SafeAreaView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
+                <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
+                    <Pressable
+                        onPress={handleBack}
+                        style={styles.backButton}
+                        activeOpacity={0.7}
+                        hitSlop={{top: RF(10), bottom: RF(10), left: RF(10), right: RF(10)}}
+                    >
+                        <Image
+                            source={require("../../assets/icons/back_icon.png")}
+                            style={styles.backIcon}
+                        />
+                    </Pressable>
+                    <Text style={styles.headerTitle}>Cart</Text>
+                    <View style={styles.headerPlaceholder} />
+                </View>
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size={isTablet ? "large" : "large"} color="#4CAD73"/>
+                    <Text style={styles.loadingText}>Loading your cart...</Text>
+                </View>
+            </SafeAreaView>
+        );
+    }
+
     return (
         <View style={styles.container}>
-            <View style={styles.topBar}>
-                <TouchableOpacity onPress={handleBack}>
-                    <Image
-                        source={require("../../assets/icons/back_icon.png")}
-                        style={styles.iconBox}
-                    />
-                </TouchableOpacity>
-                <Text style={styles.heading}>Cart</Text>
-                {isBusinessUser && (
-                    <View style={styles.businessBadge}>
-                        <Text style={styles.businessBadgeText}>Business</Text>
-                    </View>
-                )}
-            </View>
+            <StatusBar
+                barStyle="dark-content"
+                backgroundColor="#FFFFFF"
+                translucent={false}
+            />
 
+            {/* Header */}
+            <SafeAreaView style={styles.safeAreaTop} edges={['top']}>
+                <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
+                    <Pressable
+                        onPress={handleBack}
+                        style={styles.backButton}
+                        activeOpacity={0.7}
+                        hitSlop={{top: RF(10), bottom: RF(10), left: RF(10), right: RF(10)}}
+                    >
+                        <Image
+                            source={require("../../assets/icons/back_icon.png")}
+                            style={styles.backIcon}
+                        />
+                    </Pressable>
+                    <Text style={styles.headerTitle}>Cart</Text>
+                    <View style={styles.headerPlaceholder} />
+                    {isBusinessUser && (
+                        <View style={styles.businessBadge}>
+                            <Text style={styles.businessBadgeText}>Business</Text>
+                        </View>
+                    )}
+                </View>
+            </SafeAreaView>
+
+            {/* Main Content */}
             <ScrollView
                 style={styles.scrollView}
-                contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
-                bounces={true}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={() => loadCartData(true)}
+                        colors={["#4CAD73"]}
+                        tintColor="#4CAD73"
+                        progressViewOffset={safeAreaInsets.top}
+                    />
+                }
+                contentContainerStyle={styles.scrollContent}
             >
-
                 {/* Business User Notice */}
                 {isBusinessUser && (
                     <View style={styles.businessNotice}>
@@ -595,35 +659,6 @@ export default function CartScreen() {
                     </View>
                 )}
 
-                {/* Special Deal Section - Single Card */}
-                {/*<View style={styles.section}>*/}
-                {/*    <View style={styles.sectionHeader}>*/}
-                {/*        <Text style={styles.sectionTitle}>🔥 Special Deal For You</Text>*/}
-                {/*    </View>*/}
-
-                {/*    <View style={styles.specialDealCard}>*/}
-                {/*        <View style={styles.specialDealInnerCard}>*/}
-                {/*            <View style={styles.dealContent}>*/}
-                {/*                <View style={styles.dealTextContent}>*/}
-                {/*                    <Text style={styles.dealTitle}>{specialDeal.title}</Text>*/}
-                {/*                    <Text style={styles.dealDescription}>{specialDeal.description}</Text>*/}
-                {/*                    <Text style={styles.dealDiscount}>{specialDeal.discount}</Text>*/}
-                {/*                    <Text style={styles.dealValid}>Valid until: {specialDeal.validUntil}</Text>*/}
-                {/*                </View>*/}
-                {/*                <TouchableOpacity*/}
-                {/*                    style={styles.dealAddButton}*/}
-                {/*                    onPress={handleSpecialDeal}*/}
-                {/*                >*/}
-                {/*                    <Text style={styles.dealAddButtonText}>ADD</Text>*/}
-                {/*                </TouchableOpacity>*/}
-                {/*            </View>*/}
-                {/*        </View>*/}
-                {/*        <View style={styles.dealUnlockText}>*/}
-                {/*            <Text style={styles.dealUnlockTextContent}>🎉 Yay! Special deal unlocked</Text>*/}
-                {/*        </View>*/}
-                {/*    </View>*/}
-                {/*</View>*/}
-
                 {/* Cart Items Section */}
                 <View style={styles.section}>
                     <View style={styles.sectionHeader}>
@@ -632,7 +667,7 @@ export default function CartScreen() {
                         </Text>
                     </View>
 
-                    {cartItems.length === 0 && !loading && (
+                    {cartItems.length === 0 ? (
                         <View style={styles.emptyCart}>
                             <Image
                                 source={require("../../assets/icons/empty-box.png")}
@@ -643,22 +678,22 @@ export default function CartScreen() {
                                 Add items to get started with your order
                             </Text>
                         </View>
+                    ) : (
+                        <View style={styles.ordersContainer}>
+                            {cartItems.map(renderCartItem)}
+                        </View>
                     )}
-
-                    {cartItems.map(renderCartItem)}
                 </View>
 
                 {/* Your Wishlist Section */}
-                <View style={styles.section}>
-                    <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionTitle}>⭐ Your Wishlist</Text>
-                        <TouchableOpacity onPress={()=> router.push("/screens/WishlistScreen")}>
-                            <Text style={styles.seeAllText}>See all</Text>
-                        </TouchableOpacity>
-                    </View>
-                    {wishlistItems.length === 0 ? (
-                        <View style={styles.emptyWishlist}><Text style={styles.emptyWishlistText}>No wishlist items found.</Text></View>
-                    ) : (
+                {wishlistItems.length > 0 && (
+                    <View style={styles.section}>
+                        <View style={styles.sectionHeader}>
+                            <Text style={styles.sectionTitle}>⭐ Your Wishlist</Text>
+                            <Pressable onPress={()=> router.push("/screens/WishlistScreen")}>
+                                <Text style={styles.seeAllText}>See all</Text>
+                            </Pressable>
+                        </View>
                         <FlatList
                             data={wishlistItems}
                             renderItem={renderWishlistItem}
@@ -667,9 +702,8 @@ export default function CartScreen() {
                             showsHorizontalScrollIndicator={false}
                             contentContainerStyle={styles.wishlistContainer}
                         />
-                    )}
-                </View>
-
+                    </View>
+                )}
 
                 {/* Shipping Address Section */}
                 {cartItems.length > 0 && (
@@ -693,22 +727,22 @@ export default function CartScreen() {
                                             .filter(Boolean)
                                             .join(', ')}
                                     </Text>
-                                    <TouchableOpacity
+                                    <Pressable
                                         style={styles.changeAddressButton}
                                         onPress={handleSelectAddress}
                                     >
                                         <Text style={styles.changeAddressText}>Change Address</Text>
-                                    </TouchableOpacity>
+                                    </Pressable>
                                 </View>
                             ) : (
                                 <View style={styles.noAddressContent}>
                                     <Text style={styles.noAddressText}>No address selected</Text>
-                                    <TouchableOpacity
+                                    <Pressable
                                         style={styles.selectAddressButton}
                                         onPress={handleSelectAddress}
                                     >
                                         <Text style={styles.selectAddressText}>Select Address</Text>
-                                    </TouchableOpacity>
+                                    </Pressable>
                                 </View>
                             )}
                         </View>
@@ -730,7 +764,6 @@ export default function CartScreen() {
                                 <Text style={styles.billValue}>₹{cartInfo.shipping.toFixed(2)}</Text>
                             </View>
 
-                            {/* Tax Row - Added from cart data */}
                             {cartInfo.tax > 0 && (
                                 <View style={styles.billRow}>
                                     <Text style={styles.billLabel}>Tax</Text>
@@ -766,7 +799,7 @@ export default function CartScreen() {
                                     style={styles.couponInput}
                                     placeholderTextColor="#999"
                                 />
-                                <TouchableOpacity
+                                <Pressable
                                     style={[styles.applyButton, (!couponCode.trim() || applyingCoupon) && styles.applyButtonDisabled]}
                                     onPress={applyCoupon}
                                     disabled={!couponCode.trim() || applyingCoupon}
@@ -774,30 +807,30 @@ export default function CartScreen() {
                                     <Text style={styles.applyButtonText}>
                                         {applyingCoupon ? '...' : 'Apply'}
                                     </Text>
-                                </TouchableOpacity>
+                                </Pressable>
                             </View>
                         </View>
 
                         {/* Delivery Instructions Section */}
-                        <View style={styles.instructionsSection}>
-                            <Text style={styles.instructionsTitle}>Delivery instructions</Text>
-                            <View style={styles.instructionsGrid}>
-                                {deliveryInstructions.map((instruction) => (
-                                    <TouchableOpacity
-                                        key={instruction.id}
-                                        style={[
-                                            styles.instructionCard,
-                                            selectedInstructions.includes(instruction.id) && styles.instructionCardSelected
-                                        ]}
-                                        onPress={() => toggleInstruction(instruction.id)}
-                                    >
-                                        <Text style={styles.instructionIcon}>{instruction.icon}</Text>
-                                        <Text style={styles.instructionTitle}>{instruction.title}</Text>
-                                        <Text style={styles.instructionDescription}>{instruction.description}</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-                        </View>
+                        {/*<View style={styles.instructionsSection}>*/}
+                        {/*    <Text style={styles.instructionsTitle}>Delivery instructions</Text>*/}
+                        {/*    <View style={styles.instructionsGrid}>*/}
+                        {/*        {deliveryInstructions.map((instruction) => (*/}
+                        {/*            <Pressable*/}
+                        {/*                key={instruction.id}*/}
+                        {/*                style={[*/}
+                        {/*                    styles.instructionCard,*/}
+                        {/*                    selectedInstructions.includes(instruction.id) && styles.instructionCardSelected*/}
+                        {/*                ]}*/}
+                        {/*                onPress={() => toggleInstruction(instruction.id)}*/}
+                        {/*            >*/}
+                        {/*                <Text style={styles.instructionIcon}>{instruction.icon}</Text>*/}
+                        {/*                <Text style={styles.instructionTitle}>{instruction.title}</Text>*/}
+                        {/*                <Text style={styles.instructionDescription}>{instruction.description}</Text>*/}
+                        {/*            </Pressable>*/}
+                        {/*        ))}*/}
+                        {/*    </View>*/}
+                        {/*</View>*/}
 
                         {/* Cancellation Policy Section */}
                         <View style={styles.cancellationSection}>
@@ -808,7 +841,7 @@ export default function CartScreen() {
                         </View>
 
                         {/* Checkout Button */}
-                        <TouchableOpacity
+                        <Pressable
                             style={[styles.checkoutButton, !selectedAddress && styles.checkoutButtonDisabled]}
                             onPress={handleCheckOut}
                             disabled={!selectedAddress}
@@ -817,14 +850,14 @@ export default function CartScreen() {
                                 <Text style={styles.checkoutText}>
                                     {selectedAddress ? 'Proceed to Checkout' : 'Select Address First'}
                                 </Text>
-                                <Text style={styles.deliveryText}>Delivery in 10 mins</Text>
                             </View>
-                            <Text style={styles.checkoutPrice}>₹{cartInfo.total.toFixed(2)}</Text>
-                        </TouchableOpacity>
+                            <Text style={styles.checkoutPrice}>₹ {cartInfo.total.toFixed(2)}</Text>
+                        </Pressable>
                     </View>
                 )}
             </ScrollView>
 
+            {/* Negotiation Modal */}
             <Modal
                 visible={negotiationModalVisible}
                 animationType="slide"
@@ -889,14 +922,14 @@ export default function CartScreen() {
                                 )}
 
                                 <View style={styles.modalButtons}>
-                                    <TouchableOpacity
+                                    <Pressable
                                         style={[styles.modalButton, styles.cancelButton]}
                                         onPress={() => setNegotiationModalVisible(false)}
                                     >
                                         <Text style={styles.cancelButtonText}>Cancel</Text>
-                                    </TouchableOpacity>
+                                    </Pressable>
 
-                                    <TouchableOpacity
+                                    <Pressable
                                         style={[
                                             styles.modalButton,
                                             styles.submitButton,
@@ -908,407 +941,190 @@ export default function CartScreen() {
                                         <Text style={styles.submitButtonText}>
                                             {negotiationLoading ? "Submitting..." : "Submit Request"}
                                         </Text>
-                                    </TouchableOpacity>
+                                    </Pressable>
                                 </View>
                             </View>
                         </View>
                     </TouchableWithoutFeedback>
                 </KeyboardAvoidingView>
             </Modal>
-
         </View>
     );
 }
 
 const styles = StyleSheet.create({
+    // Container Styles
     container: {
         flex: 1,
-        backgroundColor: "#F8F9FA",
+        backgroundColor: "#FFFFFF",
     },
-    topBar: {
-        padding: 20,
-        marginTop: 20,
-        flexDirection: 'row',
-        justifyContent: 'flex-start',
+    safeAreaTop: {
+        backgroundColor: '#FFFFFF',
+    },
+
+    // Header Styles
+    header: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: RF(16),
+        paddingVertical: RF(12),
+        backgroundColor: "#FFFFFF",
+        borderBottomWidth: 1,
+        borderBottomColor: "#F0F0F0",
+    },
+    backButton: {
+        padding: RF(4),
+        justifyContent: 'center',
         alignItems: 'center',
     },
-    heading: {
-        fontSize: 24,
-        fontWeight: '500',
-        color: '#1B1B1B',
-        alignItems: 'center',
-        marginLeft: 20
+    backIcon: {
+        width: RF(24),
+        height: RF(24),
     },
-    iconBox: {
-        width: 32,
-        height: 32,
-        borderRadius: 8,
+    headerTitle: {
+        fontSize: RF(18),
+        fontWeight: "600",
+        color: "#1B1B1B",
+        fontFamily: "Poppins-SemiBold",
+        textAlign: "center",
+        flex: 1,
+        marginHorizontal: RF(8),
     },
-    // Business User Styles
+    headerPlaceholder: {
+        width: RF(32),
+    },
     businessBadge: {
+        position: 'absolute',
+        right: RF(20),
         backgroundColor: '#4CAD73',
-        paddingHorizontal: 12,
-        paddingVertical: 4,
-        borderRadius: 12,
-        marginLeft: 'auto',
+        paddingHorizontal: RF(12),
+        paddingVertical: RF(4),
+        borderRadius: RF(12),
     },
     businessBadgeText: {
         color: '#FFFFFF',
-        fontSize: 12,
+        fontSize: RF(12),
         fontFamily: 'Poppins-SemiBold',
     },
-    businessNotice: {
-        backgroundColor: '#E6F2FF',
-        marginHorizontal: 16,
-        padding: 12,
-        borderRadius: 8,
-        marginBottom: 16,
-        borderLeftWidth: 4,
-        borderLeftColor: '#4CAD73',
-    },
-    businessNoticeText: {
-        fontSize: 14,
-        fontFamily: 'Poppins-Medium',
-        color: '#1B1B1B',
-    },
-    minQtyText: {
-        fontSize: 12,
-        fontFamily: 'Poppins-Regular',
-        color: '#FF6B35',
-        marginTop: 2,
-    },
-    shippingText: {
-        fontSize: 12,
-        fontFamily: 'Poppins-Regular',
-        color: '#666',
-        marginTop: 2,
-    },
-    tierPricingText: {
-        fontSize: 11,
-        fontFamily: 'Poppins-Regular',
-        color: '#4CAD73',
-        fontStyle: 'italic',
-        marginTop: 2,
-    },
-    negotiateButton: {
-        backgroundColor: '#FFA500',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 6,
-        marginTop: 8,
-        alignSelf: 'flex-start',
-    },
-    negotiateButtonText: {
-        color: '#FFFFFF',
-        fontSize: 12,
-        fontFamily: 'Poppins-SemiBold',
-    },
-    // Modal Styles
-    modalOverlay: {
+
+    // Loading Styles
+    loadingContainer: {
         flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
+        justifyContent: "center",
+        alignItems: "center",
+        paddingBottom: RH(20),
     },
-    modalContent: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        padding: 20,
-        width: '100%',
-        maxWidth: 400,
+    loadingText: {
+        fontSize: RF(14),
+        fontFamily: "Poppins-Medium",
+        color: "#868889",
+        marginTop: RF(12),
     },
-    modalTitle: {
-        fontSize: 20,
-        fontFamily: 'Poppins-SemiBold',
-        color: '#1B1B1B',
-        marginBottom: 10,
-        textAlign: 'center',
-    },
-    negotiationProduct: {
-        flexDirection: 'row',
-        backgroundColor: '#F8F9FA',
-        padding: 12,
-        borderRadius: 8,
-        marginBottom: 10,
-    },
-    negotiationImage: {
-        width: 50,
-        height: 50,
-        borderRadius: 6,
-    },
-    negotiationProductInfo: {
-        flex: 1,
-        marginLeft: 12,
-    },
-    negotiationProductName: {
-        fontSize: 14,
-        fontFamily: 'Poppins-SemiBold',
-        color: '#1B1B1B',
-    },
-    negotiationProductDesc: {
-        fontSize: 12,
-        fontFamily: 'Poppins-Regular',
-        color: '#666',
-    },
-    currentPrice: {
-        fontSize: 12,
-        fontFamily: 'Poppins-SemiBold',
-        color: '#4CAD73',
-    },
-    currentQuantity: {
-        fontSize: 12,
-        fontFamily: 'Poppins-Regular',
-        color: '#666',
-        marginTop: 2,
-    },
-    modalLabel: {
-        fontSize: 14,
-        fontFamily: 'Poppins-Medium',
-        color: '#1B1B1B',
-        marginBottom: 8,
-    },
-    priceInput: {
-        borderWidth: 1,
-        borderColor: '#E0E0E0',
-        borderRadius: 8,
-        padding: 12,
-        fontSize: 16,
-        fontFamily: 'Poppins-Regular',
-        marginBottom: 12,
-    },
-    totalCalculation: {
-        backgroundColor: '#F8F9FA',
-        padding: 8,
-        borderRadius: 6,
-        marginBottom: 16,
-    },
-    totalCalculationText: {
-        fontSize: 14,
-        fontFamily: 'Poppins-SemiBold',
-        color: '#4CAD73',
-        textAlign: 'center',
-    },
-    modalButtons: {
-        flexDirection: 'row',
-        gap: 12,
-    },
-    modalButton: {
-        flex: 1,
-        padding: 16,
-        borderRadius: 8,
-        alignItems: 'center',
-    },
-    cancelButton: {
-        backgroundColor: '#F8F9FA',
-        borderWidth: 1,
-        borderColor: '#E0E0E0',
-    },
-    cancelButtonText: {
-        color: '#666',
-        fontSize: 12,
-        fontWeight: 'bold',
-        fontFamily: 'Poppins-SemiBold',
-    },
-    submitButton: {
-        backgroundColor: '#4CAD73',
-    },
-    submitButtonText: {
-        color: '#FFFFFF',
-        fontSize: 12,
-        fontWeight: 'bold',
-        fontFamily: 'Poppins-SemiBold',
-    },
-    // ... (keep all the existing styles from previous implementation)
+
+    // ScrollView Styles
     scrollView: {
         flex: 1,
     },
     scrollContent: {
-        paddingBottom: 100,
+        paddingBottom: safeAreaInsets.bottom + RF(80),
+        paddingTop: RF(16)
     },
+
+    // Section Styles
     section: {
-        marginBottom: 24,
+        marginBottom: RF(24),
     },
     sectionHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingHorizontal: 20,
-        marginBottom: 12,
+        paddingHorizontal: RF(16),
+        marginBottom: RF(12),
     },
     sectionTitle: {
-        fontSize: 18,
+        fontSize: RF(16),
         fontFamily: "Poppins-SemiBold",
         color: "#1B1B1B",
     },
     seeAllText: {
-        fontSize: 14,
+        fontSize: RF(14),
         color: '#4CAD73',
         fontFamily: 'Poppins-Medium',
     },
-    // Shipping Address Styles
-    addressCard: {
-        backgroundColor: "#FFFFFF",
-        borderRadius: 16,
-        padding: 16,
-        marginHorizontal: 16,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-        elevation: 3,
+
+    // Business Notice
+    businessNotice: {
+        backgroundColor: '#E6F2FF',
+        marginHorizontal: RF(16),
+        padding: RF(12),
+        borderRadius: RF(8),
+        marginBottom: RF(16),
+        borderLeftWidth: 4,
+        borderLeftColor: '#4CAD73',
     },
-    addressContent: {
-        // Content styles for when address exists
-    },
-    addressHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 8,
-    },
-    addressName: {
-        fontSize: 16,
-        fontFamily: "Poppins-SemiBold",
+    businessNoticeText: {
+        fontSize: RF(14),
+        fontFamily: 'Poppins-Medium',
         color: "#1B1B1B",
     },
-    addressPhone: {
-        fontSize: 14,
-        fontFamily: "Poppins-Regular",
-        color: "#666",
-    },
-    addressText: {
-        fontSize: 14,
-        fontFamily: "Poppins-Regular",
-        color: "#333",
-        lineHeight: 20,
-        marginBottom: 4,
-    },
-    addressArea: {
-        fontSize: 14,
-        fontFamily: "Poppins-Regular",
-        color: "#666",
-        marginBottom: 12,
-    },
-    changeAddressButton: {
-        alignSelf: 'flex-start',
-    },
-    changeAddressText: {
-        color: '#4CAD73',
-        fontSize: 14,
-        fontFamily: 'Poppins-SemiBold',
-    },
-    noAddressContent: {
+
+    // Empty Cart Styles
+    emptyCart: {
         alignItems: 'center',
-        paddingVertical: 20,
+        justifyContent: 'center',
+        paddingVertical: RH(20),
+        paddingHorizontal: RF(20),
     },
-    noAddressText: {
-        fontSize: 14,
-        fontFamily: 'Poppins-Regular',
-        color: '#666',
-        marginBottom: 12,
+    emptyCartImage: {
+        width: RF(120),
+        height: RF(120),
+        marginBottom: RF(16),
     },
-    selectAddressButton: {
-        backgroundColor: '#4CAD73',
-        paddingHorizontal: 20,
-        paddingVertical: 10,
-        borderRadius: 8,
-    },
-    selectAddressText: {
-        color: '#FFFFFF',
-        fontSize: 14,
+    emptyCartText: {
+        fontSize: RF(18),
         fontFamily: 'Poppins-SemiBold',
+        color: "#1B1B1B",
+        marginBottom: RF(8),
+        textAlign: 'center',
     },
-    // Special Deal Styles
-    specialDealCard: {
-        marginHorizontal: 16,
-    },
-    specialDealInnerCard: {
-        backgroundColor: '#E6F2FF',
-        borderRadius: 16,
-        padding: 16,
-        marginBottom: 8,
-    },
-    dealContent: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    dealTextContent: {
-        flex: 1,
-    },
-    dealTitle: {
-        fontSize: 18,
-        fontFamily: 'Poppins-Bold',
-        color: '#1B1B1B',
-        marginBottom: 4,
-    },
-    dealDescription: {
-        fontSize: 14,
-        color: '#666',
+    emptyCartSubtitle: {
+        fontSize: RF(14),
         fontFamily: 'Poppins-Regular',
-        marginBottom: 4,
+        color: "#868889",
+        textAlign: 'center',
+        lineHeight: RF(20),
     },
-    dealDiscount: {
-        fontSize: 16,
-        color: '#4CAD73',
-        fontFamily: 'Poppins-Bold',
-        marginBottom: 4,
+
+    // Orders Container
+    ordersContainer: {
+        paddingHorizontal: RF(16),
+        gap: RF(12),
     },
-    dealValid: {
-        fontSize: 12,
-        color: '#999',
-        fontFamily: 'Poppins-Regular',
-    },
-    dealAddButton: {
-        backgroundColor: '#4CAD73',
-        paddingHorizontal: 20,
-        paddingVertical: 12,
-        borderRadius: 8,
-        marginLeft: 12,
-    },
-    dealAddButtonText: {
-        color: '#FFFFFF',
-        fontSize: 14,
-        fontFamily: 'Poppins-SemiBold',
-    },
-    dealUnlockText: {
-        backgroundColor: '#FFFFFF',
-        padding: 12,
-        borderRadius: 8,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#E0E0E0',
-    },
-    dealUnlockTextContent: {
-        fontSize: 14,
-        color: '#4CAD73',
-        fontFamily: 'Poppins-SemiBold',
-    },
-    // Cart Items Styles
+
+    // Cart Item Styles
     cartItem: {
         flexDirection: "row",
         backgroundColor: "#FFFFFF",
-        borderRadius: 12,
-        padding: 16,
-        marginHorizontal: 16,
-        marginBottom: 8,
+        borderRadius: RF(12),
+        padding: RF(16),
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
+        shadowOffset: { width: 0, height: RF(2) },
         shadowOpacity: 0.1,
-        shadowRadius: 3,
-        elevation: 2,
+        shadowRadius: RF(4),
+        elevation: 3,
     },
     itemLeft: {
         flexDirection: "row",
         flex: 1,
     },
     productImage: {
-        width: 60,
-        height: 60,
-        borderRadius: 8,
+        width: RF(80),
+        height: RF(80),
+        borderRadius: RF(8),
         overflow: "hidden",
         backgroundColor: "#F5F6FA",
+        marginRight: RF(12),
     },
     image: {
         width: "100%",
@@ -1316,48 +1132,79 @@ const styles = StyleSheet.create({
     },
     productInfo: {
         flex: 1,
-        marginLeft: 12,
         justifyContent: 'space-between',
     },
     productName: {
-        fontSize: 14,
+        fontSize: RF(15),
         fontFamily: "Poppins-SemiBold",
         color: "#1B1B1B",
-        lineHeight: 18,
+        lineHeight: RF(20),
+        marginBottom: RF(4),
     },
     productDescription: {
-        fontSize: 12,
+        fontSize: RF(13),
         fontFamily: "Poppins-Regular",
         color: "#666",
-        marginTop: 2,
+        marginBottom: RF(4),
+    },
+    minQtyText: {
+        fontSize: RF(12),
+        fontFamily: 'Poppins-Regular',
+        color: '#FF6B35',
+        marginTop: RF(2),
+    },
+    shippingText: {
+        fontSize: RF(12),
+        fontFamily: 'Poppins-Regular',
+        color: '#666',
+        marginTop: RF(2),
+    },
+    tierPricingText: {
+        fontSize: RF(11),
+        fontFamily: 'Poppins-Regular',
+        color: '#4CAD73',
+        fontStyle: 'italic',
+        marginTop: RF(2),
+    },
+    negotiateButton: {
+        backgroundColor: '#FFA500',
+        paddingHorizontal: RF(12),
+        paddingVertical: RF(6),
+        borderRadius: RF(6),
+        marginTop: RF(8),
+        alignSelf: 'flex-start',
+    },
+    negotiateButtonText: {
+        color: '#FFFFFF',
+        fontSize: RF(12),
+        fontFamily: 'Poppins-SemiBold',
     },
     priceContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginTop: 4,
+        marginTop: RF(4),
         flexWrap: 'wrap',
+        gap: RF(6),
     },
     finalPrice: {
-        fontSize: 14,
+        fontSize: RF(16),
         fontFamily: "Poppins-SemiBold",
         color: "#4CAD73",
-        marginRight: 6,
     },
     originalPrice: {
-        fontSize: 12,
+        fontSize: RF(14),
         fontFamily: "Poppins-Regular",
         color: "#999",
         textDecorationLine: 'line-through',
-        marginRight: 6,
     },
     discountBadge: {
         backgroundColor: '#FFE8E8',
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 4,
+        paddingHorizontal: RF(8),
+        paddingVertical: RF(4),
+        borderRadius: RF(6),
     },
     discountText: {
-        fontSize: 14,
+        fontSize: RF(12),
         fontFamily: "Poppins-SemiBold",
         color: "#EC0505",
     },
@@ -1366,11 +1213,11 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
     },
     deleteButton: {
-        padding: 4,
+        padding: RF(4),
     },
     deleteIcon: {
-        width: 18,
-        height: 18,
+        width: RF(20),
+        height: RF(20),
         tintColor: '#FF3B30',
     },
     disabledIcon: {
@@ -1380,27 +1227,27 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         backgroundColor: '#F8F9FA',
-        borderRadius: 8,
-        padding: 2,
+        borderRadius: RF(8),
+        padding: RF(2),
     },
     quantityButton: {
-        padding: 2,
+        padding: RF(2),
     },
     minusButton: {
-        width: 28,
-        height: 28,
+        width: RF(32),
+        height: RF(32),
         borderWidth: 1,
         borderColor: "#4CAD73",
-        borderRadius: 6,
+        borderRadius: RF(8),
         justifyContent: "center",
         alignItems: "center",
         backgroundColor: '#FFFFFF',
     },
     plusButton: {
-        width: 28,
-        height: 28,
+        width: RF(32),
+        height: RF(32),
         backgroundColor: "#4CAD73",
-        borderRadius: 6,
+        borderRadius: RF(8),
         justifyContent: "center",
         alignItems: "center",
     },
@@ -1409,169 +1256,209 @@ const styles = StyleSheet.create({
     },
     minusText: {
         color: "#4CAD73",
-        fontSize: 14,
+        fontSize: RF(16),
         fontFamily: "Poppins-SemiBold",
     },
     plusText: {
         color: "#FFFFFF",
-        fontSize: 14,
+        fontSize: RF(16),
         fontFamily: "Poppins-SemiBold",
     },
     quantityText: {
-        fontSize: 14,
+        fontSize: RF(15),
         fontFamily: "Poppins-SemiBold",
         color: "#1B1B1B",
-        marginHorizontal: 8,
-        minWidth: 20,
+        marginHorizontal: RF(12),
+        minWidth: RF(24),
         textAlign: 'center',
     },
-    // Empty Cart Styles
-    emptyCart: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 40,
-    },
-    emptyCartImage: {
-        width: 120,
-        height: 120,
-        marginBottom: 16,
-    },
-    emptyCartText: {
-        fontSize: 18,
-        fontFamily: 'Poppins-SemiBold',
-        color: '#1B1B1B',
-        marginBottom: 8,
-        textAlign: 'center',
-    },
-    emptyCartSubtitle: {
-        fontSize: 14,
-        fontFamily: 'Poppins-Regular',
-        color: '#666',
-        textAlign: 'center',
-        lineHeight: 20,
-    },
+
     // Wishlist Styles
     wishlistContainer: {
-        paddingHorizontal: 16,
-        gap: 12,
+        paddingHorizontal: RF(16),
+        gap: RF(12),
     },
     wishlistCard: {
-        width: 140,
+        width: RF(140),
         backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        padding: 12,
-        marginRight: 6,
+        borderRadius: RF(12),
+        padding: RF(12),
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: RF(2) },
+        shadowOpacity: 0.1,
+        shadowRadius: RF(4),
+        elevation: 2,
     },
     wishlistImage: {
         width: '100%',
-        height: 80,
-        borderRadius: 8,
-        marginBottom: 8,
+        height: RF(100),
+        borderRadius: RF(8),
+        marginBottom: RF(8),
     },
-    wishlistRemove: { position: 'absolute', top: 8, right: 8, backgroundColor: '#FFFFFF', padding: 4, borderRadius: 12 },
-    wishlistRemoveIcon: { width: 16, height: 16 },
+    wishlistRemove: {
+        position: 'absolute',
+        top: RF(8),
+        right: RF(8),
+        backgroundColor: '#FFFFFF',
+        padding: RF(4),
+        borderRadius: RF(12),
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: RF(1) },
+        shadowOpacity: 0.2,
+        shadowRadius: RF(2),
+        elevation: 2,
+    },
+    wishlistRemoveIcon: {
+        width: RF(16),
+        height: RF(16)
+    },
     wishlistContent: {
         flex: 1,
     },
     wishlistName: {
-        fontSize: 12,
+        fontSize: RF(13),
         fontFamily: 'Poppins-SemiBold',
         color: '#1B1B1B',
-        marginBottom: 4,
-        lineHeight: 16,
+        lineHeight: RF(18),
     },
-    wishlistUnit: {
-        fontSize: 10,
-        color: '#666',
-        fontFamily: 'Poppins-Regular',
-        marginBottom: 8,
+
+    // Shipping Address Styles
+    addressCard: {
+        backgroundColor: "#FFFFFF",
+        borderRadius: RF(12),
+        padding: RF(16),
+        marginHorizontal: RF(16),
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: RF(2) },
+        shadowOpacity: 0.08,
+        shadowRadius: RF(8),
+        elevation: 3,
     },
-    wishlistBottom: {
+    addressHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
+        marginBottom: RF(8),
     },
-    wishlistPrice: {
-        fontSize: 14,
-        fontFamily: 'Poppins-SemiBold',
+    addressName: {
+        fontSize: RF(16),
+        fontFamily: "Poppins-SemiBold",
+        color: "#1B1B1B",
+    },
+    addressPhone: {
+        fontSize: RF(14),
+        fontFamily: "Poppins-Regular",
+        color: "#666",
+    },
+    addressText: {
+        fontSize: RF(14),
+        fontFamily: "Poppins-Regular",
+        color: "#333",
+        lineHeight: RF(20),
+        marginBottom: RF(4),
+    },
+    addressArea: {
+        fontSize: RF(14),
+        fontFamily: "Poppins-Regular",
+        color: "#666",
+        marginBottom: RF(12),
+    },
+    changeAddressButton: {
+        alignSelf: 'flex-start',
+    },
+    changeAddressText: {
         color: '#4CAD73',
-    },
-    addButton: {
-        backgroundColor: '#4CAD73',
-        paddingHorizontal: 12,
-        paddingVertical: 4,
-        borderRadius: 6,
-    },
-    addButtonText: {
-        color: '#FFFFFF',
-        fontSize: 10,
+        fontSize: RF(14),
         fontFamily: 'Poppins-SemiBold',
     },
+    noAddressContent: {
+        alignItems: 'center',
+        paddingVertical: RF(20),
+    },
+    noAddressText: {
+        fontSize: RF(14),
+        fontFamily: 'Poppins-Regular',
+        color: '#666',
+        marginBottom: RF(12),
+    },
+    selectAddressButton: {
+        backgroundColor: '#4CAD73',
+        paddingHorizontal: RF(20),
+        paddingVertical: RF(12),
+        borderRadius: RF(8),
+    },
+    selectAddressText: {
+        color: '#FFFFFF',
+        fontSize: RF(14),
+        fontFamily: 'Poppins-SemiBold',
+    },
+
     // Bill Details Styles
     billCard: {
         backgroundColor: '#FFFFFF',
-        marginHorizontal: 16,
-        borderRadius: 12,
-        padding: 16,
+        marginHorizontal: RF(16),
+        borderRadius: RF(12),
+        padding: RF(16),
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
+        shadowOffset: { width: 0, height: RF(2) },
         shadowOpacity: 0.1,
-        shadowRadius: 4,
+        shadowRadius: RF(4),
         elevation: 3,
     },
     billRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 8,
+        marginBottom: RF(8),
     },
     billLabel: {
-        fontSize: 14,
+        fontSize: RF(14),
         fontFamily: 'Poppins-Regular',
         color: '#666',
     },
     billValue: {
-        fontSize: 14,
+        fontSize: RF(14),
         fontFamily: 'Poppins-Medium',
         color: '#1B1B1B',
     },
     divider: {
         height: 1,
         backgroundColor: '#F0F0F0',
-        marginVertical: 12,
+        marginVertical: RF(12),
     },
     totalLabel: {
-        fontSize: 16,
+        fontSize: RF(16),
         fontFamily: 'Poppins-SemiBold',
         color: '#1B1B1B',
     },
     totalValue: {
-        fontSize: 18,
+        fontSize: RF(18),
         fontFamily: 'Poppins-SemiBold',
         color: '#4CAD73',
     },
+
     // Coupon Section
     couponSection: {
         flexDirection: 'row',
-        gap: 8,
-        marginTop: 16,
-        marginBottom: 16,
+        gap: RF(8),
+        marginTop: RF(16),
+        marginBottom: RF(16),
     },
     couponInput: {
         flex: 1,
-        height: 40,
+        height: RF(44),
         borderWidth: 1,
         borderColor: '#E0E0E0',
-        borderRadius: 8,
-        paddingHorizontal: 12,
-        fontSize: 12,
+        borderRadius: RF(8),
+        paddingHorizontal: RF(12),
+        fontSize: RF(14),
         fontFamily: 'Poppins-Regular',
     },
     applyButton: {
         backgroundColor: '#4CAD73',
-        paddingHorizontal: 16,
-        height: 40,
-        borderRadius: 8,
+        paddingHorizontal: RF(20),
+        height: RF(44),
+        borderRadius: RF(8),
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -1580,90 +1467,104 @@ const styles = StyleSheet.create({
     },
     applyButtonText: {
         color: '#FFFFFF',
-        fontSize: 12,
+        fontSize: RF(14),
         fontFamily: 'Poppins-SemiBold',
     },
+
     // Delivery Instructions Styles
     instructionsSection: {
-        marginHorizontal: 16,
-        marginBottom: 20,
+        marginHorizontal: RF(16),
+        marginBottom: RF(20),
     },
     instructionsTitle: {
-        fontSize: 16,
+        fontSize: RF(16),
         fontFamily: 'Poppins-SemiBold',
         color: '#1B1B1B',
-        marginBottom: 12,
+        marginBottom: RF(12),
     },
     instructionsGrid: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        gap: 8,
+        gap: RF(8),
     },
     instructionCard: {
         flex: 1,
         backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        padding: 12,
+        borderRadius: RF(12),
+        padding: RF(12),
         alignItems: 'center',
         borderWidth: 1,
         borderColor: '#E0E0E0',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: RF(1) },
+        shadowOpacity: 0.1,
+        shadowRadius: RF(2),
+        elevation: 1,
     },
     instructionCardSelected: {
         borderColor: '#4CAD73',
         backgroundColor: '#F0F9F0',
     },
     instructionIcon: {
-        fontSize: 24,
-        marginBottom: 8,
+        fontSize: RF(24),
+        marginBottom: RF(8),
     },
     instructionTitle: {
-        fontSize: 12,
+        fontSize: RF(12),
         fontFamily: 'Poppins-SemiBold',
         color: '#1B1B1B',
         textAlign: 'center',
-        marginBottom: 4,
+        marginBottom: RF(4),
     },
     instructionDescription: {
-        fontSize: 10,
+        fontSize: RF(10),
         color: '#666',
         fontFamily: 'Poppins-Regular',
         textAlign: 'center',
-        lineHeight: 12,
+        lineHeight: RF(12),
     },
+
     // Cancellation Policy Styles
     cancellationSection: {
         backgroundColor: '#FFFFFF',
-        marginHorizontal: 16,
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 16,
+        marginHorizontal: RF(16),
+        marginTop:RF(20),
+        borderRadius: RF(12),
+        padding: RF(16),
+        marginBottom: RF(16),
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
+        shadowOffset: { width: 0, height: RF(2) },
         shadowOpacity: 0.1,
-        shadowRadius: 4,
+        shadowRadius: RF(4),
         elevation: 3,
     },
     cancellationTitle: {
-        fontSize: 16,
+        fontSize: RF(16),
         fontFamily: 'Poppins-SemiBold',
         color: '#1B1B1B',
-        marginBottom: 8,
+        marginBottom: RF(8),
     },
     cancellationText: {
-        fontSize: 12,
+        fontSize: RF(13),
         color: '#666',
         fontFamily: 'Poppins-Regular',
-        lineHeight: 16,
+        lineHeight: RF(18),
     },
+
     // Checkout Button
     checkoutButton: {
         backgroundColor: '#4CAD73',
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 16,
-        borderRadius: 12,
-        marginHorizontal: 16,
+        padding: RF(15),
+        borderRadius: RF(12),
+        marginHorizontal: RF(16),
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: RF(4) },
+        shadowOpacity: 0.2,
+        shadowRadius: RF(8),
+        elevation: 4,
     },
     checkoutButtonDisabled: {
         backgroundColor: '#CCCCCC',
@@ -1673,35 +1574,139 @@ const styles = StyleSheet.create({
     },
     checkoutText: {
         color: '#FFFFFF',
-        fontSize: 16,
+        fontSize: RF(16),
         fontFamily: 'Poppins-SemiBold',
-        marginBottom: 4,
+        marginBottom: RF(4),
     },
     deliveryText: {
         color: '#FFFFFF',
-        fontSize: 12,
+        fontSize: RF(13),
         fontFamily: 'Poppins-Regular',
         opacity: 0.9,
     },
     checkoutPrice: {
         backgroundColor: 'rgba(255, 255, 255, 0.2)',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 6,
+        paddingHorizontal: RF(12),
+        paddingVertical: RF(6),
+        borderRadius: RF(6),
         color: '#FFFFFF',
-        fontSize: 14,
+        fontSize: RF(14),
         fontFamily: 'Poppins-SemiBold',
     },
-    emptyWishlist: {
+
+    // Modal Styles
+    modalOverlay: {
         flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        paddingHorizontal: 20
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: RF(20),
     },
-    emptyWishlistText: {
-        fontSize: 16,
-        color: "#555",
-        textAlign: "center",
-        marginTop: 10
-    }
+    modalContent: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: RF(16),
+        padding: RF(20),
+        width: '100%',
+        maxWidth: RF(400),
+    },
+    modalTitle: {
+        fontSize: RF(20),
+        fontFamily: 'Poppins-SemiBold',
+        color: '#1B1B1B',
+        marginBottom: RF(16),
+        textAlign: 'center',
+    },
+    negotiationProduct: {
+        flexDirection: 'row',
+        backgroundColor: '#F8F9FA',
+        padding: RF(12),
+        borderRadius: RF(8),
+        marginBottom: RF(16),
+    },
+    negotiationImage: {
+        width: RF(60),
+        height: RF(60),
+        borderRadius: RF(8),
+    },
+    negotiationProductInfo: {
+        flex: 1,
+        marginLeft: RF(12),
+    },
+    negotiationProductName: {
+        fontSize: RF(15),
+        fontFamily: 'Poppins-SemiBold',
+        color: '#1B1B1B',
+    },
+    negotiationProductDesc: {
+        fontSize: RF(13),
+        fontFamily: 'Poppins-Regular',
+        color: '#666',
+    },
+    currentPrice: {
+        fontSize: RF(13),
+        fontFamily: 'Poppins-SemiBold',
+        color: '#4CAD73',
+        marginTop: RF(4),
+    },
+    currentQuantity: {
+        fontSize: RF(12),
+        fontFamily: 'Poppins-Regular',
+        color: '#666',
+        marginTop: RF(2),
+    },
+    modalLabel: {
+        fontSize: RF(14),
+        fontFamily: 'Poppins-Medium',
+        color: '#1B1B1B',
+        marginBottom: RF(8),
+    },
+    priceInput: {
+        borderWidth: 1,
+        borderColor: '#E0E0E0',
+        borderRadius: RF(8),
+        padding: RF(12),
+        fontSize: RF(16),
+        fontFamily: 'Poppins-Regular',
+        marginBottom: RF(12),
+    },
+    totalCalculation: {
+        backgroundColor: '#F8F9FA',
+        padding: RF(8),
+        borderRadius: RF(6),
+        marginBottom: RF(16),
+    },
+    totalCalculationText: {
+        fontSize: RF(14),
+        fontFamily: 'Poppins-SemiBold',
+        color: '#4CAD73',
+        textAlign: 'center',
+    },
+    modalButtons: {
+        flexDirection: 'row',
+        gap: RF(12),
+    },
+    modalButton: {
+        flex: 1,
+        padding: RF(16),
+        borderRadius: RF(8),
+        alignItems: 'center',
+    },
+    cancelButton: {
+        backgroundColor: '#F8F9FA',
+        borderWidth: 1,
+        borderColor: '#E0E0E0',
+    },
+    cancelButtonText: {
+        color: '#666',
+        fontSize: RF(14),
+        fontFamily: 'Poppins-SemiBold',
+    },
+    submitButton: {
+        backgroundColor: '#4CAD73',
+    },
+    submitButtonText: {
+        color: '#FFFFFF',
+        fontSize: RF(14),
+        fontFamily: 'Poppins-SemiBold',
+    },
 });

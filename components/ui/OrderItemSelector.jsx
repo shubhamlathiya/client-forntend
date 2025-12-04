@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, View, Text, TouchableOpacity, StyleSheet, Image, ScrollView } from 'react-native';
+import { Modal, View, Text, Pressable, StyleSheet, Image, ScrollView } from 'react-native';
 
 export default function OrderItemSelector({ visible, items = [], initialSelected = [], onClose, onConfirm }) {
   const [selected, setSelected] = useState(new Set());
@@ -35,24 +35,24 @@ export default function OrderItemSelector({ visible, items = [], initialSelected
             {items.map((item, idx) => {
               const checked = selected.has(item.productId);
               return (
-                <TouchableOpacity key={item.productId || idx} style={styles.row} onPress={() => toggleItem(item.productId)}>
+                <Pressable key={item.productId || idx} style={styles.row} onPress={() => toggleItem(item.productId)}>
                   <View style={[styles.checkbox, checked && styles.checkboxChecked]} />
                   <Image source={{ uri: item.image }} style={styles.image} />
                   <View style={styles.info}>
                     <Text style={styles.name}>{item.productName}</Text>
                     <Text style={styles.meta}>Qty: {item.quantity} • ₹{Number(item.price || 0).toFixed(2)}</Text>
                   </View>
-                </TouchableOpacity>
+                </Pressable>
               );
             })}
           </ScrollView>
           <View style={styles.actions}>
-            <TouchableOpacity style={styles.secondaryButton} onPress={onClose}>
+            <Pressable style={styles.secondaryButton} onPress={onClose}>
               <Text style={styles.secondaryText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.primaryButton} onPress={confirm}>
+            </Pressable>
+            <Pressable style={styles.primaryButton} onPress={confirm}>
               <Text style={styles.primaryText}>Next</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </View>
       </View>

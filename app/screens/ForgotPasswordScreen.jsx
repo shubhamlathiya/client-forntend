@@ -4,7 +4,7 @@ import {
     View,
     Text,
     TextInput,
-    TouchableOpacity,
+    Pressable,
     StyleSheet,
     KeyboardAvoidingView,
     Platform, Image,
@@ -34,9 +34,9 @@ export default function ForgotPasswordScreen() {
                 behavior={Platform.OS === "ios" ? "padding" : "height"}
             >
                 <View style={globalStyles.header}>
-                    <TouchableOpacity style={globalStyles.backButton} onPress={handleBack}>
+                    <Pressable style={globalStyles.backButton} onPress={handleBack}>
                         <Image source={require("../../assets/icons/back_icon.png")} style={globalStyles.backIcon}/>
-                    </TouchableOpacity>
+                    </Pressable>
                     <Text style={globalStyles.title}>Forgot Password</Text>
                 </View>
 
@@ -57,7 +57,7 @@ export default function ForgotPasswordScreen() {
                     />
                 </View>
 
-                <TouchableOpacity
+                <Pressable
                     style={styles.button}
                     onPress={async () => {
                         if (loading) return;
@@ -80,7 +80,7 @@ export default function ForgotPasswordScreen() {
                     disabled={loading}
                 >
                     <Text style={styles.buttonText}>{loading ? 'Loading...' : 'Confirm'}</Text>
-                </TouchableOpacity>
+                </Pressable>
             </KeyboardAvoidingView>
         </SafeAreaView>
     );

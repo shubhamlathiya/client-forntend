@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, Pressable, Dimensions } from 'react-native';
 import SearchBar from "../../components/screens/SearchBar";
 import Categories from "../../components/screens/Categories";
 import ProductsScreen from "./ProductsScreen";
@@ -37,12 +37,12 @@ export default function CategoriesScreen() {
         <View style={styles.container}>
             {/* Top Bar */}
             <View style={styles.topBar}>
-                <TouchableOpacity onPress={handleBack}>
+                <Pressable onPress={handleBack}>
                     <Image
                         source={require("../../assets/icons/back_icon.png")}
                         style={styles.iconBox}
                     />
-                </TouchableOpacity>
+                </Pressable>
                 <Text style={styles.heading}>Categories</Text>
             </View>
 

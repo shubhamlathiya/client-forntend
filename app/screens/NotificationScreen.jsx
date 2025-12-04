@@ -3,7 +3,7 @@ import {
     View,
     Text,
     FlatList,
-    TouchableOpacity,
+    Pressable,
     Alert,
     RefreshControl,
     StyleSheet,
@@ -12,7 +12,7 @@ import {
     Platform,
     StatusBar,
     Image,
-    Dimensions
+    Dimensions, Linking
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -23,6 +23,7 @@ import {
     markAllNotificationsAsRead,
     deleteNotification
 } from '../../api/notificationApi';
+import * as Notifications from "expo-notifications";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -106,6 +107,53 @@ export default function NotificationScreen() {
         }
     };
 
+    const requestNotificationPermission = async () => {
+        console.log("hy 123")
+        const {status: existingStatus} = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+
+        if (existingStatus !== "granted") {
+            const {status} = await Notifications.requestPermissionsAsync();
+            finalStatus = status;
+        }
+
+        if (finalStatus !== 'granted') {
+            Alert.alert(
+                'Permission Needed',
+                'Please enable notifications in settings to receive updates.',
+                [
+                    {
+                        text: 'Cancel',
+                        style: 'cancel',
+                    },
+                    {
+                        text: 'Grant',
+                        onPress: async () => {
+                            // Only re-request if user clicked "Grant"
+                            if (Platform.OS === 'ios') {
+                                await Notifications.requestPermissionsAsync();
+                            } else {
+                                // On Android, open app settings for manual permission
+                                Linking.openSettings();
+                            }
+                        },
+                    },
+                ],
+                { cancelable: false }
+            );
+            return false;
+        }
+
+
+        // Create Android channel (important)
+        if (Platform.OS === "android") {
+            await Notifications.setNotificationChannelAsync("default", {
+                name: "Default", importance: Notifications.AndroidImportance.MAX,
+            });
+        }
+
+        console.log("Notification permission granted");
+    };
     // Fetch notifications
     const fetchNotifications = useCallback(async (showLoader = true) => {
         try {
@@ -259,6 +307,7 @@ export default function NotificationScreen() {
     };
 
     useEffect(() => {
+        requestNotificationPermission();
         fetchNotifications();
         startPolling();
         const subscription = AppState.addEventListener('change', handleAppStateChange);
@@ -289,7 +338,7 @@ export default function NotificationScreen() {
 
     // Render item
     const renderNotificationItem = ({ item }) => (
-        <TouchableOpacity
+        <Pressable
             style={[styles.notificationItem, !item.read && styles.unreadItem]}
             onPress={() => handleNotificationPress(item)}
             onLongPress={() => handleDeleteNotification(item._id)}
@@ -326,7 +375,7 @@ export default function NotificationScreen() {
             </View>
 
             {!item.read && <View style={styles.unreadDot} />}
-        </TouchableOpacity>
+        </Pressable>
     );
 
     // Render empty state
@@ -342,25 +391,25 @@ export default function NotificationScreen() {
             </Text>
 
             {!hasPermission && (
-                <TouchableOpacity style={styles.permissionButton} activeOpacity={0.7}>
+                <Pressable style={styles.permissionButton} onPress={requestNotificationPermission}>
                     <Text style={styles.permissionButtonText}>🔔 Enable Notifications</Text>
-                </TouchableOpacity>
+                </Pressable>
             )}
 
-            <TouchableOpacity
+            <Pressable
                 style={styles.refreshButton}
                 onPress={() => fetchNotifications(true)}
                 activeOpacity={0.7}
             >
                 <Text style={styles.refreshButtonText}>Refresh</Text>
-            </TouchableOpacity>
+            </Pressable>
         </View>
     );
 
     // Render header
     const renderHeader = () => (
         <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
-            <TouchableOpacity
+            <Pressable
                 onPress={() => router.back()}
                 style={styles.backButton}
                 activeOpacity={0.7}
@@ -370,7 +419,7 @@ export default function NotificationScreen() {
                     source={require("../../assets/icons/back_icon.png")}
                     style={styles.backIcon}
                 />
-            </TouchableOpacity>
+            </Pressable>
 
             <Text style={styles.headerTitle}>Notifications</Text>
 
@@ -392,7 +441,7 @@ export default function NotificationScreen() {
 
             {/* Mark All Read Button */}
             {unreadCount > 0 && (
-                <TouchableOpacity
+                <Pressable
                     style={styles.markAllButton}
                     onPress={handleMarkAllAsRead}
                     activeOpacity={0.7}
@@ -402,7 +451,7 @@ export default function NotificationScreen() {
                         style={styles.markAllIcon}
                     />
                     <Text style={styles.markAllText}>Mark All Read</Text>
-                </TouchableOpacity>
+                </Pressable>
             )}
 
             {/* Notifications List */}

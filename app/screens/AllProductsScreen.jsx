@@ -4,7 +4,7 @@ import {
     Text,
     StyleSheet,
     FlatList,
-    TouchableOpacity,
+    Pressable,
     Image,
     SafeAreaView,
     StatusBar,
@@ -15,7 +15,7 @@ import {
     Modal,
     ScrollView,
     Alert,
-    Pressable, RefreshControl
+    RefreshControl
 } from 'react-native';
 import {useRouter, useLocalSearchParams} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -504,24 +504,24 @@ export default function AllProductsScreen() {
                     <View style={styles.quantityContainer}>
                         {cartQuantity > 0 ? (
                             <View style={styles.quantityControl}>
-                                <TouchableOpacity
+                                <Pressable
                                     style={styles.quantityButton}
                                     onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity - 1)}
                                     activeOpacity={0.6}
                                 >
                                     <Text style={styles.quantityButtonText}>-</Text>
-                                </TouchableOpacity>
+                                </Pressable>
                                 <Text style={styles.quantityText}>{cartQuantity}</Text>
-                                <TouchableOpacity
+                                <Pressable
                                     style={styles.quantityButton}
                                     onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity + 1)}
                                     activeOpacity={0.6}
                                 >
                                     <Text style={styles.quantityButtonText}>+</Text>
-                                </TouchableOpacity>
+                                </Pressable>
                             </View>
                         ) : (
-                            <TouchableOpacity
+                            <Pressable
                                 style={[styles.addButton, addingToCart[productId] && styles.addButtonDisabled]}
                                 disabled={addingToCart[productId]}
                                 onPress={() => handleAddToCart(item)}
@@ -532,7 +532,7 @@ export default function AllProductsScreen() {
                                 ) : (
                                     <Text style={styles.addButtonText}>ADD</Text>
                                 )}
-                            </TouchableOpacity>
+                            </Pressable>
                         )}
                     </View>
                 </View>
@@ -541,7 +541,7 @@ export default function AllProductsScreen() {
     };
 
     const renderCategoryItem = ({item}) => (
-        <TouchableOpacity
+        <Pressable
             style={[
                 styles.categoryItem,
                 selectedCategory === item._id && styles.selectedCategoryItem
@@ -555,7 +555,7 @@ export default function AllProductsScreen() {
             ]} numberOfLines={1}>
                 {item.name}
             </Text>
-        </TouchableOpacity>
+        </Pressable>
     );
 
     // Loading state
@@ -586,7 +586,7 @@ export default function AllProductsScreen() {
                         paddingTop: safeAreaInsets.top,
                     }
                 ]}>
-                    <TouchableOpacity
+                    <Pressable
                         onPress={() => router.back()}
                         style={styles.backButton}
                         hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
@@ -601,7 +601,7 @@ export default function AllProductsScreen() {
                                 }
                             ]}
                         />
-                    </TouchableOpacity>
+                    </Pressable>
 
                     <Text style={[
                         styles.headerTitle,
@@ -639,12 +639,12 @@ export default function AllProductsScreen() {
                             onSubmitEditing={filterAndSortProducts}
                         />
                         {searchQuery ? (
-                            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+                            <Pressable onPress={() => setSearchQuery('')} style={styles.clearButton}>
                                 <Image
                                     source={require('../../assets/icons/deleteIcon.png')}
                                     style={styles.clearIcon}
                                 />
-                            </TouchableOpacity>
+                            </Pressable>
                         ) : null}
                     </View>
 
@@ -653,13 +653,13 @@ export default function AllProductsScreen() {
                         <Text style={styles.resultsText}>
                             {filteredProducts.length} {filteredProducts.length === 1 ? 'Product' : 'Products'} Found
                         </Text>
-                        <TouchableOpacity onPress={() => setShowFilters(true)} style={styles.filterResultsButton}>
+                        <Pressable onPress={() => setShowFilters(true)} style={styles.filterResultsButton}>
                             <Text style={styles.filterResultsText}>Filter</Text>
                             <Image
                                 source={require('../../assets/icons/filter.png')}
                                 style={styles.filterResultsIcon}
                             />
-                        </TouchableOpacity>
+                        </Pressable>
                     </View>
 
                     {/* Products Grid */}
@@ -697,12 +697,12 @@ export default function AllProductsScreen() {
                                 <Text style={styles.emptySubtext}>
                                     {searchQuery ? 'Try a different search term' : 'Try changing your filters'}
                                 </Text>
-                                <TouchableOpacity
+                                <Pressable
                                     style={styles.resetEmptyButton}
                                     onPress={handleResetFilters}
                                 >
                                     <Text style={styles.resetEmptyButtonText}>Reset Filters</Text>
-                                </TouchableOpacity>
+                                </Pressable>
                             </View>
                         }
                         ListHeaderComponent={
@@ -733,12 +733,12 @@ export default function AllProductsScreen() {
                     }]}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Filters & Sort</Text>
-                            <TouchableOpacity onPress={() => setShowFilters(false)} activeOpacity={0.7}>
+                            <Pressable onPress={() => setShowFilters(false)} activeOpacity={0.7}>
                                 <Image
                                     source={require('../../assets/icons/deleteIcon.png')}
                                     style={styles.closeIcon}
                                 />
-                            </TouchableOpacity>
+                            </Pressable>
                         </View>
 
                         <ScrollView
@@ -749,7 +749,7 @@ export default function AllProductsScreen() {
                             <View style={styles.filterSection}>
                                 <Text style={styles.filterSectionTitle}>Sort By</Text>
                                 {sortOptions.map((sort) => (
-                                    <TouchableOpacity
+                                    <Pressable
                                         key={sort.id}
                                         style={styles.filterOption}
                                         onPress={() => setSortBy(sort.id)}
@@ -761,7 +761,7 @@ export default function AllProductsScreen() {
                                         <Text style={styles.filterOptionText}>
                                             {sort.label}
                                         </Text>
-                                    </TouchableOpacity>
+                                    </Pressable>
                                 ))}
                             </View>
 
@@ -825,7 +825,7 @@ export default function AllProductsScreen() {
                                 <Text style={styles.filterSectionTitle}>Categories</Text>
                                 <View style={styles.categoriesFilter}>
                                     {categories.slice(0, isTablet ? 8 : 6).map((category) => (
-                                        <TouchableOpacity
+                                        <Pressable
                                             key={category._id}
                                             style={[
                                                 styles.categoryFilterItem,
@@ -840,27 +840,20 @@ export default function AllProductsScreen() {
                                             ]}>
                                                 {category.name}
                                             </Text>
-                                        </TouchableOpacity>
+                                        </Pressable>
                                     ))}
                                 </View>
                             </View>
                         </ScrollView>
 
                         <View style={styles.filterActions}>
-                            <TouchableOpacity
+                            <Pressable
                                 style={styles.resetButton}
                                 onPress={handleResetFilters}
                                 activeOpacity={0.7}
                             >
                                 <Text style={styles.resetButtonText}>Reset All</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={styles.applyButton}
-                                onPress={handleApplyFilters}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={styles.applyButtonText}>Apply Filters</Text>
-                            </TouchableOpacity>
+                            </Pressable>
                         </View>
                     </View>
                 </View>

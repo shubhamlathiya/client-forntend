@@ -52,17 +52,15 @@ apiClient.interceptors.request.use(
     async (config) => {
         // Load token only once
         if (!accessTokenInMemory) {
-            accessTokenInMemory = await SecureStore.getItemAsync("accessToken");
+            try {
+                accessTokenInMemory = await SecureStore.getItemAsync("accessToken");
+            } catch (error) {
+                console.log("Error reading token from SecureStore:", error);
+            }
         }
 
         if (accessTokenInMemory) {
             config.headers.Authorization = `Bearer ${accessTokenInMemory}`;
-        } else {
-            // Block all API calls if no token
-            if (!config.url.includes("/login")) {
-                await clearAuthAndLogout();
-                throw new axios.Cancel("Missing token → logout");
-            }
         }
 
         console.log("🔵 Request:", config.method?.toUpperCase(), config.url);
@@ -81,20 +79,35 @@ apiClient.interceptors.response.use(
     },
     async (error) => {
         const status = error?.response?.status || 0;
-        const msg = error?.response?.data?.message || "";
+        const data = error?.response?.data || {};
+        const msg = data?.message || "";
 
+        // Token expired / invalid handling
         const tokenExpired =
             status === 401 ||
             msg.toLowerCase().includes("expired") ||
-            JSON.stringify(error?.response?.data).toLowerCase().includes("expired");
+            msg.toLowerCase().includes("invalid token") ||
+            JSON.stringify(data).toLowerCase().includes("expired") ||
+            JSON.stringify(data).toLowerCase().includes("invalid");
 
         if (tokenExpired) {
-            console.log("🔴 Token expired");
+            console.log("🔴 Token expired or invalid");
             await clearAuthAndLogout();
         }
 
-        return Promise.reject(error);
+        // Silent handling for "Cart not found"
+        if (status === 404 && msg === "Cart not found") {
+            console.log("⚠️ Cart not found, returning empty cart silently");
+            return Promise.resolve({ data: { items: [] } }); // simulate empty cart response
+        }
+
+        // For other errors, return a proper message
+        const errorMessage =
+            data?.message || data?.error || error.message || "An unknown error occurred";
+
+        return Promise.reject(new Error(errorMessage));
     }
 );
+
 
 export default apiClient;

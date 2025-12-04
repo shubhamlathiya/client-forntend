@@ -1,6 +1,6 @@
 import React, {useState, useEffect} from "react";
 import {
-    View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Image, ActivityIndicator, Alert, RefreshControl,
+    View, Text, StyleSheet, ScrollView, Pressable, StatusBar, Image, ActivityIndicator, Alert, RefreshControl,
     Modal, SafeAreaView, Dimensions, Platform
 } from "react-native";
 import {useRouter} from "expo-router";
@@ -250,7 +250,7 @@ export default function MyOrderScreen() {
         }) || [];
 
         return (
-            <TouchableOpacity
+            <Pressable
                 style={styles.orderCard}
                 onPress={() => handleOrderPress(order)}
                 activeOpacity={0.7}
@@ -278,7 +278,7 @@ export default function MyOrderScreen() {
                         </View>
                     </View>
 
-                    <TouchableOpacity
+                    <Pressable
                         style={styles.threeDotButton}
                         onPress={(e) => handleThreeDotMenu(order, e)}
                         hitSlop={{top: RF(10), bottom: RF(10), left: RF(10), right: RF(10)}}
@@ -287,7 +287,7 @@ export default function MyOrderScreen() {
                             source={require('../../assets/icons/menu_dots.png')}
                             style={styles.threeDotIcon}
                         />
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
 
                 {/* Product Images */}
@@ -327,19 +327,19 @@ export default function MyOrderScreen() {
                 {/* Order Footer */}
                 <View style={styles.orderFooter}>
                     <View style={styles.actionButtons}>
-                        <TouchableOpacity
-                            style={styles.textButton}
-                            onPress={(e) => {
-                                e.stopPropagation?.();
-                                handleReorder(order);
-                            }}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={styles.textButtonText}>Reorder</Text>
-                        </TouchableOpacity>
+                        {/*<Pressable*/}
+                        {/*    style={styles.textButton}*/}
+                        {/*    onPress={(e) => {*/}
+                        {/*        e.stopPropagation?.();*/}
+                        {/*        handleReorder(order);*/}
+                        {/*    }}*/}
+                        {/*    activeOpacity={0.7}*/}
+                        {/*>*/}
+                        {/*    <Text style={styles.textButtonText}>Reorder</Text>*/}
+                        {/*</Pressable>*/}
 
                         {(order.status === 'delivered' || order.status === 'completed') && (
-                            <TouchableOpacity
+                            <Pressable
                                 style={styles.textButton}
                                 onPress={(e) => {
                                     e.stopPropagation?.();
@@ -350,11 +350,11 @@ export default function MyOrderScreen() {
                                 activeOpacity={0.7}
                             >
                                 <Text style={styles.textButtonText}>Rate Order</Text>
-                            </TouchableOpacity>
+                            </Pressable>
                         )}
                     </View>
                 </View>
-            </TouchableOpacity>
+            </Pressable>
         );
     };
 
@@ -435,7 +435,7 @@ export default function MyOrderScreen() {
             >
                 <SafeAreaView style={styles.fullScreenModalContainer}>
                     <View style={[styles.fullScreenModalHeader, { paddingTop: safeAreaInsets.top }]}>
-                        <TouchableOpacity
+                        <Pressable
                             onPress={onClose}
                             style={styles.closeButton}
                             activeOpacity={0.7}
@@ -445,7 +445,7 @@ export default function MyOrderScreen() {
                                 source={require("../../assets/icons/back_icon.png")}
                                 style={styles.closeIcon}
                             />
-                        </TouchableOpacity>
+                        </Pressable>
                         <Text style={styles.fullScreenModalTitle}>Order Details</Text>
                         <View style={styles.placeholder}/>
                     </View>
@@ -519,7 +519,7 @@ export default function MyOrderScreen() {
                                         </Text>
 
                                         {(order.status === 'delivered' || order.status === 'completed') && (
-                                            <TouchableOpacity
+                                            <Pressable
                                                 style={styles.rateProductButton}
                                                 onPress={() => {
                                                     onClose();
@@ -528,7 +528,7 @@ export default function MyOrderScreen() {
                                                 activeOpacity={0.7}
                                             >
                                                 <Text style={styles.rateProductText}>Rate</Text>
-                                            </TouchableOpacity>
+                                            </Pressable>
                                         )}
                                     </View>
                                 );
@@ -631,7 +631,7 @@ export default function MyOrderScreen() {
                         {/* Return/Replacement Button (if eligible) */}
                         {isEligibleForReturn && (
                             <View style={styles.detailSection}>
-                                <TouchableOpacity
+                                <Pressable
                                     style={styles.returnActionButton}
                                     onPress={() => {
                                         onClose();
@@ -657,7 +657,7 @@ export default function MyOrderScreen() {
                                     activeOpacity={0.7}
                                 >
                                     <Text style={styles.returnActionButtonText}>Request Return/Replacement</Text>
-                                </TouchableOpacity>
+                                </Pressable>
                             </View>
                         )}
                     </ScrollView>
@@ -670,7 +670,7 @@ export default function MyOrderScreen() {
         return (
             <SafeAreaView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
                 <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
-                    <TouchableOpacity
+                    <Pressable
                         onPress={() => router.back()}
                         style={styles.backButton}
                         activeOpacity={0.7}
@@ -680,7 +680,7 @@ export default function MyOrderScreen() {
                             source={require("../../assets/icons/back_icon.png")}
                             style={styles.backIcon}
                         />
-                    </TouchableOpacity>
+                    </Pressable>
                     <Text style={styles.headerTitle}>My Orders</Text>
                     <View style={styles.headerPlaceholder} />
                 </View>
@@ -711,7 +711,7 @@ export default function MyOrderScreen() {
             {/* Header */}
             <SafeAreaView style={styles.safeAreaTop} edges={['top']}>
                 <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
-                    <TouchableOpacity
+                    <Pressable
                         onPress={handleBack}
                         style={styles.backButton}
                         activeOpacity={0.7}
@@ -721,7 +721,7 @@ export default function MyOrderScreen() {
                             source={require("../../assets/icons/back_icon.png")}
                             style={styles.backIcon}
                         />
-                    </TouchableOpacity>
+                    </Pressable>
                     <Text style={styles.headerTitle}>My Orders</Text>
                     <View style={styles.headerPlaceholder} />
                 </View>

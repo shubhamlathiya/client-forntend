@@ -56,7 +56,6 @@ export const getCart = async () => {
         const { sessionId } = await getIdentity();
         const loginType = await getUserType();
         const addressId = await getSelectedAddressId();
-
         const params = { sessionId, loginType ,addressId};
         const res = await apiClient.get("/api/cart", { params });
         return res.data;

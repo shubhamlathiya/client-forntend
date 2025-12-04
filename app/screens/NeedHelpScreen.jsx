@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image, StatusBar, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Image, StatusBar, Platform, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -129,7 +129,7 @@ export default function NeedHelpScreen() {
   };
 
   const renderTicketCard = (t) => (
-    <TouchableOpacity key={t.id} style={styles.ticketCard} onPress={() => router.push({ pathname: '/screens/TicketDetailScreen', params: { id: String(t.id) } })}>
+    <Pressable key={t.id} style={styles.ticketCard} onPress={() => router.push({ pathname: '/screens/TicketDetailScreen', params: { id: String(t.id) } })}>
       <View style={styles.ticketHeader}>
         <Text style={styles.ticketSubject}>{t.subject}</Text>
         <Text style={[styles.statusBadge, styles[`status_${t.status?.toLowerCase()}`] || styles.status_open]}>{String(t.status).toUpperCase()}</Text>
@@ -138,16 +138,16 @@ export default function NeedHelpScreen() {
         <Text style={[styles.priorityBadge, styles[`priority_${t.priority}`] || styles.priority_low]}>{t.priority}</Text>
         <Text style={styles.ticketDate}>{t.createdAt ? new Date(t.createdAt).toLocaleString() : ''}</Text>
       </View>
-    </TouchableOpacity>
+    </Pressable>
   );
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={handleBack}>
+        <Pressable onPress={handleBack}>
           <Image source={require('../../assets/icons/back_icon.png')} style={styles.backIcon} />
-        </TouchableOpacity>
+        </Pressable>
         <Text style={styles.heading}>Need Help</Text>
       </View>
 
@@ -158,9 +158,9 @@ export default function NeedHelpScreen() {
         {/*  <View style={styles.formRow}><Text style={styles.label}>Email</Text><TextInput style={styles.input} value={email} onChangeText={setEmail} placeholder="Your email" placeholderTextColor="#838383" keyboardType="email-address" autoCapitalize="none" /></View>*/}
         {/*  <View style={styles.formRow}><Text style={styles.label}>Subject</Text><TextInput style={styles.input} value={subject} onChangeText={setSubject} placeholder="Subject" placeholderTextColor="#838383" /></View>*/}
         {/*  <View style={styles.formRow}><Text style={styles.label}>Message</Text><TextInput style={[styles.input, { height: 100 }]} value={message} onChangeText={setMessage} placeholder="Type your message" placeholderTextColor="#838383" multiline /></View>*/}
-        {/*  <TouchableOpacity style={[styles.submitBtn, enquiryLoading && styles.btnDisabled]} onPress={submitEnquiry} disabled={enquiryLoading}>*/}
+        {/*  <Pressable style={[styles.submitBtn, enquiryLoading && styles.btnDisabled]} onPress={submitEnquiry} disabled={enquiryLoading}>*/}
         {/*    <Text style={styles.submitText}>{enquiryLoading ? 'Submitting...' : 'Submit'}</Text>*/}
-        {/*  </TouchableOpacity>*/}
+        {/*  </Pressable>*/}
         {/*</View>*/}
 
         <View style={styles.section}>
@@ -178,9 +178,9 @@ export default function NeedHelpScreen() {
                 ) : (
                   <View style={{ gap: 8 }}>{tickets.map(renderTicketCard)}</View>
                 )}
-                <TouchableOpacity style={styles.loadMoreBtn} onPress={() => loadTickets(page + 1)} disabled={ticketsLoading}>
+                <Pressable style={styles.loadMoreBtn} onPress={() => loadTickets(page + 1)} disabled={ticketsLoading}>
                   <Text style={styles.loadMoreText}>{ticketsLoading ? 'Loading...' : 'Load More'}</Text>
-                </TouchableOpacity>
+                </Pressable>
               </View>
 
               <View style={styles.subSection}>
@@ -190,24 +190,24 @@ export default function NeedHelpScreen() {
                 <View style={styles.formRow}><Text style={styles.label}>Priority</Text>
                   <View style={styles.priorityRow}>
                     {['low', 'medium', 'high'].map((p) => (
-                      <TouchableOpacity key={p} style={[styles.priorityChip, ticketPriority === p && styles.priorityChipActive]} onPress={() => setTicketPriority(p)}>
+                      <Pressable key={p} style={[styles.priorityChip, ticketPriority === p && styles.priorityChipActive]} onPress={() => setTicketPriority(p)}>
                         <Text style={[styles.priorityText, ticketPriority === p && styles.priorityTextActive]}>{p}</Text>
-                      </TouchableOpacity>
+                      </Pressable>
                     ))}
                   </View>
                 </View>
                 <View style={styles.formRow}>
                   <Text style={styles.label}>Attachments (optional)</Text>
-                  <TouchableOpacity style={styles.attachBtn} onPress={selectAttachment}><Text style={styles.attachText}>Attach Image</Text></TouchableOpacity>
+                  <Pressable style={styles.attachBtn} onPress={selectAttachment}><Text style={styles.attachText}>Attach Image</Text></Pressable>
                   {attachments.length > 0 && (
                     <View style={styles.attachList}>
                       {attachments.map((a, i) => (<Image key={`att-${i}`} source={{ uri: a.uri }} style={styles.attachPreview} />))}
                     </View>
                   )}
                 </View>
-                <TouchableOpacity style={[styles.submitBtn, creatingTicket && styles.btnDisabled]} onPress={handleCreateTicket} disabled={creatingTicket}>
+                <Pressable style={[styles.submitBtn, creatingTicket && styles.btnDisabled]} onPress={handleCreateTicket} disabled={creatingTicket}>
                   <Text style={styles.submitText}>{creatingTicket ? 'Submitting...' : 'Submit Ticket'}</Text>
-                </TouchableOpacity>
+                </Pressable>
               </View>
             </>
           )}

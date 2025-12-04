@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import {View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Alert} from 'react-native';
+import {View, Text, TextInput, Pressable, StyleSheet, Image, Alert} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {globalStyles} from '../../constants/globalStyles';
 import {useLocalSearchParams, useRouter} from 'expo-router';
@@ -55,9 +55,9 @@ export default function ResetPasswordScreen() {
     return (
         <SafeAreaView style={styles.container}>
             <View style={globalStyles.header}>
-                <TouchableOpacity style={globalStyles.backButton}>
+                <Pressable style={globalStyles.backButton}>
                     <Image source={require('../../assets/icons/back_icon.png')} style={globalStyles.backIcon}/>
-                </TouchableOpacity>
+                </Pressable>
                 <Text style={globalStyles.title}>Reset Password</Text>
             </View>
 
@@ -73,9 +73,9 @@ export default function ResetPasswordScreen() {
                     onChangeText={setNewPassword}
                 />
 
-                <TouchableOpacity style={styles.button} onPress={handleReset} disabled={loading}>
+                <Pressable style={styles.button} onPress={handleReset} disabled={loading}>
                     <Text style={styles.buttonText}>{loading ? 'Loading...' : 'Confirm'}</Text>
-                </TouchableOpacity>
+                </Pressable>
             </View>
         </SafeAreaView>
     );

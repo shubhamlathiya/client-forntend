@@ -4,7 +4,7 @@ import {
     Text,
     StyleSheet,
     ScrollView,
-    TouchableOpacity,
+    Pressable,
     TextInput,
     Image,
     StatusBar,
@@ -84,8 +84,8 @@ export default function TicketDetailScreen() {
         <View style={styles.container}>
             <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
             <View style={styles.topBar}>
-                <TouchableOpacity onPress={handleBack}><Image source={require('../../assets/icons/back_icon.png')}
-                                                              style={styles.backIcon}/></TouchableOpacity>
+                <Pressable onPress={handleBack}><Image source={require('../../assets/icons/back_icon.png')}
+                                                              style={styles.backIcon}/></Pressable>
                 <Text style={styles.heading}>Ticket Details</Text>
             </View>
             {loading ? (
@@ -107,12 +107,12 @@ export default function TicketDetailScreen() {
                         {canEdit() ? (
                             <View style={styles.priorityRow}>
                                 {['low', 'medium', 'high'].map((p) => (
-                                    <TouchableOpacity key={p}
+                                    <Pressable key={p}
                                                       style={[styles.priorityChip, priority === p && styles.priorityChipActive]}
                                                       onPress={() => setPriority(p)}>
                                         <Text
                                             style={[styles.priorityText, priority === p && styles.priorityTextActive]}>{p}</Text>
-                                    </TouchableOpacity>
+                                    </Pressable>
                                 ))}
                             </View>
                         ) : (
@@ -123,12 +123,12 @@ export default function TicketDetailScreen() {
                         {canEdit() ? (
                             <View style={styles.priorityRow}>
                                 {['open', 'in_progress', 'resolved', 'closed'].map((s) => (
-                                    <TouchableOpacity key={s}
+                                    <Pressable key={s}
                                                       style={[styles.priorityChip, status === s && styles.priorityChipActive]}
                                                       onPress={() => setStatus(s)}>
                                         <Text
                                             style={[styles.priorityText, status === s && styles.priorityTextActive]}>{s}</Text>
-                                    </TouchableOpacity>
+                                    </Pressable>
                                 ))}
                             </View>
                         ) : (
@@ -143,10 +143,10 @@ export default function TicketDetailScreen() {
                             style={styles.valueText}>{ticket?.updatedAt ? new Date(ticket.updatedAt).toLocaleString() : ''}</Text>
 
                         {canEdit() && (
-                            <TouchableOpacity style={[styles.submitBtn, saving && {opacity: 0.7}]} onPress={handleSave}
+                            <Pressable style={[styles.submitBtn, saving && {opacity: 0.7}]} onPress={handleSave}
                                               disabled={saving}>
                                 <Text style={styles.submitText}>{saving ? 'Saving...' : 'Save Changes'}</Text>
-                            </TouchableOpacity>
+                            </Pressable>
                         )}
                     </View>
                 </ScrollView>

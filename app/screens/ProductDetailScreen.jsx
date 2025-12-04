@@ -5,7 +5,7 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TouchableOpacity,
+    Pressable,
     View,
     ActivityIndicator,
     SafeAreaView,
@@ -260,9 +260,9 @@ export default function ProductDetailScreen() {
         return (
             <View style={styles.errorContainer}>
                 <Text style={styles.errorText}>Product not found</Text>
-                <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+                <Pressable style={styles.backButton} onPress={handleBack}>
                     <Text style={styles.backButtonText}>Go Back</Text>
-                </TouchableOpacity>
+                </Pressable>
             </View>
         );
     }
@@ -272,12 +272,12 @@ export default function ProductDetailScreen() {
             {/* Header with Back Button - Separate from image section */}
             <SafeAreaView style={styles.headerSafeArea}>
                 <View style={styles.header}>
-                    <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+                    <Pressable style={styles.backButton} onPress={handleBack}>
                         <Image
                             source={require("../../assets/icons/back_icon.png")}
                             style={styles.backIcon}
                         />
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
             </SafeAreaView>
 
@@ -289,7 +289,7 @@ export default function ProductDetailScreen() {
             >
                 {/* Product Images Section - Clean without header overlap */}
                 <View style={styles.imageSection}>
-                    <TouchableOpacity
+                    <Pressable
                         style={styles.wishlistButton}
                         onPress={handleWishlist}
                         activeOpacity={0.8}
@@ -303,7 +303,7 @@ export default function ProductDetailScreen() {
                             style={styles.wishlistIcon}
                             resizeMode="contain"
                         />
-                    </TouchableOpacity>
+                    </Pressable>
 
                     <ScrollView
                         horizontal
@@ -467,7 +467,7 @@ export default function ProductDetailScreen() {
                                             : (variant?.name || variant?.sku || `Variant ${index + 1}`);
 
                                         return (
-                                            <TouchableOpacity
+                                            <Pressable
                                                 key={`variant-${variantId || index}`}
                                                 style={[
                                                     styles.variantChip,
@@ -485,7 +485,7 @@ export default function ProductDetailScreen() {
                                                     {variantName}
                                                     {isOutOfStock && ' (Out of stock)'}
                                                 </Text>
-                                            </TouchableOpacity>
+                                            </Pressable>
                                         );
                                     })}
                                 </View>
@@ -581,27 +581,27 @@ export default function ProductDetailScreen() {
                     <View style={styles.quantitySelector}>
                         <Text style={styles.quantityLabel}>Quantity</Text>
                         <View style={styles.quantityControls}>
-                            <TouchableOpacity
+                            <Pressable
                                 style={[styles.quantityButton, outOfStock && styles.buttonDisabled]}
                                 onPress={decreaseQuantity}
                                 disabled={outOfStock}
                             >
                                 <Text style={styles.quantityButtonText}>-</Text>
-                            </TouchableOpacity>
+                            </Pressable>
                             <Text style={[styles.quantityValue, outOfStock && styles.textDisabled]}>
                                 {quantity}
                             </Text>
-                            <TouchableOpacity
+                            <Pressable
                                 style={[styles.quantityButton, outOfStock && styles.buttonDisabled]}
                                 onPress={increaseQuantity}
                                 disabled={outOfStock}
                             >
                                 <Text style={styles.quantityButtonText}>+</Text>
-                            </TouchableOpacity>
+                            </Pressable>
                         </View>
                     </View>
 
-                    <TouchableOpacity
+                    <Pressable
                         style={[styles.addToCartButton, outOfStock && styles.buttonDisabled]}
                         onPress={handleAddToCart}
                         disabled={outOfStock}
@@ -609,7 +609,7 @@ export default function ProductDetailScreen() {
                         <Text style={styles.addToCartButtonText}>
                             {outOfStock ? 'Out of Stock' : 'Add to Cart'}
                         </Text>
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
             </SafeAreaView>
         </View>
@@ -1048,10 +1048,11 @@ const styles = StyleSheet.create({
     },
     bottomActionBar: {
         backgroundColor: '#FFFFFF',
-        padding: 16,
+        padding: 18,
+        marginBottom: 8,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 20,
+        gap: 18,
         borderTopWidth: 1,
         borderTopColor: '#E6E6E6',
         shadowColor: '#000',
@@ -1067,16 +1068,15 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontFamily: "Poppins",
         color: "#838383",
-        marginBottom: 8,
     },
     quantityControls: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 16,
+        gap: 12,
     },
     quantityButton: {
-        width: 36,
-        height: 36,
+        width: 30,
+        height: 30,
         backgroundColor: '#4CAD73',
         borderRadius: 18,
         justifyContent: 'center',

@@ -1,135 +1,176 @@
 import apiClient, {clearMemoryTokens} from '../utils/apiClient';
-import { AUTH_ENDPOINTS } from '../config/apiConfig';
+import {API_BASE_URL, AUTH_ENDPOINTS} from '../config/apiConfig';
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export const registerUser = async ({ name = '', email, phone = '', password }) => {
-  // frontend validation
-  const errors = [];
+export const registerUser = async ({name = '', email, phone = '', password}) => {
+    try {
+        const res = await apiClient.post(AUTH_ENDPOINTS.register, {
+            name, email, phone: phone || undefined, password
+        });
 
-  // email validation
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    errors.push('Must be a valid email address');
-  }
+        const data = res.data;
 
-  // phone validation (basic)
-  if (phone && !/^\+?[0-9]{10,15}$/.test(phone)) {
-    errors.push('Must be a valid phone number');
-  }
+        // Backend returns success: false for errors
+        if (data?.success === false) {
+            // Throw with the backend message — do NOT enter catch
+            throw new Error(data?.message || 'Registration failed');
+        }
 
-  // password validation
-  if (!password || password.length < 8) {
-    errors.push('Password must be at least 8 characters long');
-  } else {
-    if (!/[A-Z]/.test(password)) errors.push('Password must contain at least one uppercase letter');
-    if (!/[a-z]/.test(password)) errors.push('Password must contain at least one lowercase letter');
-    if (!/[0-9]/.test(password)) errors.push('Password must contain at least one number');
-    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) errors.push('Password must contain at least one special character');
-  }
+        return data;
 
-  // name validation
-  if (name && typeof name !== 'string') {
-    errors.push('Name must be a string');
-  }
+    } catch (error) {
+        // Only network / axios errors end up here
+        console.log("❌ API Error:", error?.response?.data || error.message);
 
-  if (errors.length > 0) {
-    // show error before API call
-    throw new Error(errors.join(', '));
-  }
-
-  const formattedPhone = phone.trim() === '' ? null : phone;
-  // proceed with API call if valid
-  const body = { name, email,  phone: formattedPhone, password };
-
-  const res = await apiClient.post(AUTH_ENDPOINTS.register, body);
-
-  return res.data;
+        // Don't overwrite real backend errors
+        throw new Error(error.message || 'Network error. Try again.');
+    }
 };
 
-export const verifyEmail = async ({ email, otp }) => {
-  const body = { email, otp };
-  const res = await apiClient.post(AUTH_ENDPOINTS.verifyEmail, body);
-  return res.data;
+export const verifyEmail = async ({email, otp}) => {
+    const body = {email, otp};
+    const res = await apiClient.post(AUTH_ENDPOINTS.verifyEmail, body);
+    return res.data;
 };
 
-export const resendVerification = async ({ type = 'email', contact }) => {
-  const body = { type, contact };
-  const res = await apiClient.post(AUTH_ENDPOINTS.resendVerification, body);
-  return res.data;
+export const resendVerification = async ({type = 'email', contact}) => {
+    const body = {type, contact};
+    const res = await apiClient.post(AUTH_ENDPOINTS.resendVerification, body);
+    return res.data;
 };
 
-export const loginUser = async ({ email, password }) => {
-  const body = { email, password };
-  const res = await apiClient.post(AUTH_ENDPOINTS.login, body);
-  return res.data;
+export const loginUser = async ({email, password}) => {
+    // Backend expects email/phone, but let's keep email for login
+    const body = {email, password};
+    const res = await apiClient.post(AUTH_ENDPOINTS.login, body);
+    return res.data;
 };
 
-export const forgotPassword = async ({ type = 'email', contact }) => {
-  const body = { type, contact };
-  const res = await apiClient.post(AUTH_ENDPOINTS.forgotPassword, body);
-  return res.data;
+export const forgotPassword = async ({type = 'email', contact}) => {
+    const body = {type, contact};
+    const res = await apiClient.post(AUTH_ENDPOINTS.forgotPassword, body);
+    return res.data;
 };
 
-export const resetPassword = async ({ type = 'email', contact, token, newPassword }) => {
-  const body = { type, contact, token, newPassword };
-  const res = await apiClient.post(AUTH_ENDPOINTS.resetPassword, body);
-  return res.data;
+export const resetPassword = async ({type = 'email', contact, token, newPassword}) => {
+    const body = {type, contact, token, newPassword};
+    const res = await apiClient.post(AUTH_ENDPOINTS.resetPassword, body);
+    return res.data;
 };
 
+export const uploadProfileImage = async (userId, formData) => {
+    try {
+
+
+        // Validate FormData
+        if (!(formData instanceof FormData)) {
+            throw new Error("Invalid FormData: expected FormData object");
+        }
+
+
+        formData._parts?.forEach((p) => console.log(" →", p[0], p[1]));
+
+        // Build final URL
+        const uploadUrl = `/api/users/profile/${userId}`;
+        const fullUrl = API_BASE_URL + uploadUrl;
+
+
+        // Prepare headers
+        const token = await AsyncStorage.getItem("token");
+        const headers = {
+            Accept: "application/json",
+            "Content-Type": "multipart/form-data",
+            Authorization: token ? `Bearer ${token}` : "",
+        };
+
+        const response = await apiClient.post(uploadUrl, formData, {
+            headers, timeout: 20000, maxContentLength: Infinity, maxBodyLength: Infinity,
+        });
+        return response.data;
+
+    } catch (error) {
+        console.log("❌ Upload FAILED");
+        console.log("Error message:", error?.message);
+        const backendMessage = error?.response?.data?.message || error?.response?.data?.error || error?.message || "Upload failed";
+
+        throw new Error(backendMessage);
+    }
+};
+
+export const updateUserPhone = async (userId, phone) => {
+    try {
+        const response = await apiClient.put(`/api/users/updatephone`, {phone});
+
+        return response.data;
+    } catch (error) {
+        console.error('Update phone API error:', error.response?.data || error.message);
+        throw error;
+    }
+};
+
+// Get user profile
+export const getUserProfile = async (userId) => {
+    try {
+        const response = await apiClient.get(`/api/users/profile/${userId}`);
+        return response.data;
+    } catch (error) {
+        console.error('Get profile API error:', error.response?.data || error.message);
+        throw error;
+    }
+};
+
+export const updateUserProfile = async (userId, userData) => {
+    try {
+        const response = await apiClient.put(`/api/users/update/${userId}`, userData);
+        return response.data;
+    } catch (error) {
+        console.error('Update user error:', error);
+        throw error;
+    }
+};
 
 export const logoutUser = async () => {
-  try {
-    console.log("🔴 Logging out user…");
-    // ---------------------------
-    // 1. Clear AsyncStorage
-    // ---------------------------
     try {
-      const keys = await AsyncStorage.getAllKeys();
-      if (keys.length > 0) {
-        await AsyncStorage.multiRemove(keys);
-      }
+        console.log("🔴 Logging out user…");
+
+        // 1. Clear AsyncStorage
+        try {
+            const keys = await AsyncStorage.getAllKeys();
+            if (keys.length > 0) {
+                await AsyncStorage.multiRemove(keys);
+            }
+        } catch (err) {
+            console.log("AsyncStorage clear failed:", err);
+        }
+
+        // 2. Clear SecureStore
+        const secureKeys = ["accessToken", "refreshToken", "userData", "loginType", "sessionId_individual", "sessionId_business"];
+
+        for (const key of secureKeys) {
+            try {
+                await SecureStore.deleteItemAsync(key);
+            } catch {
+            }
+        }
+
+        // 3. Remove in-memory tokens
+        // Note: clearMemoryTokens should be imported from apiClient
+        if (typeof clearMemoryTokens === 'function') {
+            clearMemoryTokens();
+        }
+
+        // 4. Backend logout (optional)
+        try {
+            await apiClient.post("/api/auth/logout");
+        } catch {
+            console.log("Backend logout failed (ignored)");
+        }
+        console.log("logout success");
+        return {success: true};
+
     } catch (err) {
-      console.log("AsyncStorage clear failed:", err);
+        console.log("Logout error:", err);
+        return {success: false, error: err.message};
     }
-
-    // ---------------------------
-    // 2. Clear SecureStore
-    // ---------------------------
-    const secureKeys = [
-      "accessToken",
-      "refreshToken",
-      "userData",
-      "loginType",
-      "sessionId_individual",
-      "sessionId_business"
-    ];
-
-    for (const key of secureKeys) {
-      try {
-        await SecureStore.deleteItemAsync(key);
-      } catch {}
-    }
-
-    // ---------------------------
-    // 3. Remove in-memory tokens
-    // ---------------------------
-    clearMemoryTokens();
-
-    // ---------------------------
-    // 4. Backend logout (optional)
-    // ---------------------------
-    try {
-      await apiClient.post("/api/auth/logout");
-    } catch {
-      console.log("Backend logout failed (ignored)");
-    }
-
-    return { success: true };
-
-  } catch (err) {
-    console.log("Logout error:", err);
-    return { success: false, error: err.message };
-  }
 };
-
-

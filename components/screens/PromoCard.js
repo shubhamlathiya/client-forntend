@@ -1,5 +1,5 @@
 import React from "react";
-import {View, Text, Image, StyleSheet, TouchableOpacity} from "react-native";
+import {View, Text, Image, StyleSheet, Pressable} from "react-native";
 import {LinearGradient} from "expo-linear-gradient";
 
 export default function PromoCard() {
@@ -25,9 +25,9 @@ export default function PromoCard() {
 
                     <Text style={styles.subtitle}>All Vegetables & Fruits</Text>
 
-                    <TouchableOpacity style={styles.detailBtn}>
+                    <Pressable style={styles.detailBtn}>
                         <Text style={styles.detailText}>See Detail</Text>
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
             </LinearGradient>
         </View>

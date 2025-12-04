@@ -1,12 +1,12 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Image, StyleSheet, Text, TextInput, Pressable, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors } from '../../constants/colors';
-import { fonts } from '../../constants/fonts';
-import { globalStyles } from '../../constants/globalStyles';
+import {useRouter} from 'expo-router';
+import {useState} from 'react';
+import {Alert, Image, StyleSheet, Text, TextInput, Pressable, View} from 'react-native';
+import {SafeAreaView} from 'react-native-safe-area-context';
+import {colors} from '../../constants/colors';
+import {fonts} from '../../constants/fonts';
+import {globalStyles} from '../../constants/globalStyles';
 
-import { registerUser } from '../../api/authApi';
+import {registerUser} from '../../api/authApi';
 import {googleLogin} from "../../utils/googleLoginHelper";
 
 export default function SignUpScreen() {
@@ -21,27 +21,68 @@ export default function SignUpScreen() {
 
     async function handleSignUp() {
         if (loading) return;
+
+        // Basic pre-checks
         if (!email || !password) {
             Alert.alert('Error', 'Email and password are required');
             return;
         }
+
         if (password !== confirmPassword) {
             Alert.alert('Error', 'Passwords do not match');
             return;
         }
+
+        // Local validation (same as backend)
+        const errors = [];
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            errors.push('Must be a valid email address');
+        }
+
+        if (password.length < 8) {
+            errors.push('Password must be at least 8 characters long');
+        } else {
+            if (!/[A-Z]/.test(password)) errors.push('Password must contain at least one uppercase letter');
+            if (!/[a-z]/.test(password)) errors.push('Password must contain at least one lowercase letter');
+            if (!/[0-9]/.test(password)) errors.push('Password must contain at least one number');
+            if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) errors.push('Password must contain at least one special character');
+        }
+
+        if (errors.length > 0) {
+            Alert.alert('Error', errors.join(', '));
+            return;
+        }
+
         setLoading(true);
+
         try {
             const name = email.split('@')[0];
-            const data = await registerUser({ name, email, phone: '', password });
+
+            const data = await registerUser({
+                name,
+                email,
+                phone: undefined,
+                password
+            });
+
+            // Backend success response
             Alert.alert('Success', data?.message || 'User registered successfully.');
-            router.push({ pathname: '/screens/VerifyOtpScreen', params: { email } });
+
+            router.push({
+                pathname: '/screens/VerifyOtpScreen',
+                params: { email }
+            });
+
         } catch (error) {
-            const message = error?.response?.data?.message || 'Registration failed';
-            Alert.alert('Error', message);
+            console.log("❌ Registration error:", error.message);
+            Alert.alert('Error', error.message || 'Registration failed');
         } finally {
             setLoading(false);
         }
     }
+
+
 
     const handleBack = () => {
         if (router.canGoBack()) {
@@ -152,7 +193,8 @@ export default function SignUpScreen() {
                 </View>
 
                 {/* Google Button */}
-                <Pressable style={globalStyles.socialBtn}  onPress={() => googleLogin(router, setGoogleLoading)} disabled={googleLoading}>
+                <Pressable style={globalStyles.socialBtn} onPress={() => googleLogin(router, setGoogleLoading)}
+                           disabled={googleLoading}>
                     <Image
                         source={require("../../assets/google_logo.png")}
                         style={globalStyles.socialIcon}

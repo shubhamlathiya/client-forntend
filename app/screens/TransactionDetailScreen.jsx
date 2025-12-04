@@ -5,7 +5,7 @@ import {
     Text,
     StyleSheet,
     ScrollView,
-    TouchableOpacity,
+    Pressable,
     ActivityIndicator,
     SafeAreaView,
     StatusBar,
@@ -117,12 +117,12 @@ const TransactionDetailScreen = () => {
                 <View style={styles.errorContainer}>
                     <Ionicons name="alert-circle" size={64} color="#EF4444" />
                     <Text style={styles.errorText}>Transaction not found</Text>
-                    <TouchableOpacity
+                    <Pressable
                         style={styles.backButton}
                         onPress={() => router.back()}
                     >
                         <Text style={styles.backButtonText}>Go Back</Text>
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
             </SafeAreaView>
         );
@@ -136,12 +136,12 @@ const TransactionDetailScreen = () => {
 
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity
+                <Pressable
                     style={styles.backButton}
                     onPress={() => router.back()}
                 >
                     <Ionicons name="arrow-back" size={24} color="#333" />
-                </TouchableOpacity>
+                </Pressable>
                 <Text style={styles.headerTitle}>Transaction Details</Text>
                 <View style={styles.placeholder} />
             </View>
@@ -239,7 +239,7 @@ const TransactionDetailScreen = () => {
 
                 {/* Actions */}
                 <View style={styles.actionsCard}>
-                    <TouchableOpacity
+                    <Pressable
                         style={styles.actionButton}
                         onPress={() => router.push({
                             pathname: '/screens/OrderDetailScreen',
@@ -248,9 +248,9 @@ const TransactionDetailScreen = () => {
                     >
                         <Ionicons name="receipt" size={20} color="#10B981" />
                         <Text style={styles.actionText}>View Order Details</Text>
-                    </TouchableOpacity>
+                    </Pressable>
 
-                    <TouchableOpacity
+                    <Pressable
                         style={styles.actionButton}
                         onPress={() => {
                             // Handle download receipt
@@ -259,7 +259,7 @@ const TransactionDetailScreen = () => {
                     >
                         <Ionicons name="download" size={20} color="#3B82F6" />
                         <Text style={styles.actionText}>Download Receipt</Text>
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
             </ScrollView>
         </SafeAreaView>

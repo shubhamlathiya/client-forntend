@@ -5,7 +5,7 @@ import {
     Text,
     StyleSheet,
     ScrollView,
-    TouchableOpacity,
+    Pressable,
     RefreshControl,
     Alert,
     ActivityIndicator,
@@ -105,12 +105,12 @@ const WalletScreen = () => {
         <SafeAreaView style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity
+                <Pressable
                     style={styles.backButton}
                     onPress={() => router.back()}
                 >
                     <Ionicons name="arrow-back" size={24} color="#333"/>
-                </TouchableOpacity>
+                </Pressable>
                 <Text style={styles.headerTitle}>My Wallet</Text>
                 <View style={styles.placeholder}/>
             </View>
@@ -152,7 +152,7 @@ const WalletScreen = () => {
                 <View style={styles.actionsContainer}>
                     <Text style={styles.sectionTitle}>Quick Actions</Text>
                     <View style={styles.actionsRow}>
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.actionButton}
                             onPress={() => router.push('AddMoney')}
                         >
@@ -160,9 +160,9 @@ const WalletScreen = () => {
                                 <Ionicons name="add-circle" size={24} color="#10B981"/>
                             </View>
                             <Text style={styles.actionText}>Add Money</Text>
-                        </TouchableOpacity>
+                        </Pressable>
 
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.actionButton}
                             onPress={() => router.push('/screens/TransactionsScreen')}
                         >
@@ -170,9 +170,9 @@ const WalletScreen = () => {
                                 <Ionicons name="list-circle" size={24} color="#2196F3"/>
                             </View>
                             <Text style={styles.actionText}>Transactions</Text>
-                        </TouchableOpacity>
+                        </Pressable>
 
-                        <TouchableOpacity
+                        <Pressable
                             style={styles.actionButton}
                             onPress={() => router.push('/screens/PaymentHistoryScreen')}
                         >
@@ -180,7 +180,7 @@ const WalletScreen = () => {
                                 <Ionicons name="time" size={24} color="#FF9800"/>
                             </View>
                             <Text style={styles.actionText}>History</Text>
-                        </TouchableOpacity>
+                        </Pressable>
                     </View>
                 </View>
 
@@ -188,9 +188,9 @@ const WalletScreen = () => {
                 <View style={styles.transactionsContainer}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>Recent Transactions</Text>
-                        <TouchableOpacity onPress={() => router.push('/screens/TransactionsScreen')}>
+                        <Pressable onPress={() => router.push('/screens/TransactionsScreen')}>
                             <Text style={styles.seeAllText}>See All</Text>
-                        </TouchableOpacity>
+                        </Pressable>
                     </View>
 
                     {transactions.length === 0 ? (
@@ -205,7 +205,7 @@ const WalletScreen = () => {
                         transactions.slice(0, 5).map((transaction, index) => {
                             const icon = getTransactionIcon(transaction.type);
                             return (
-                                <TouchableOpacity
+                                <Pressable
                                     key={transaction._id || index}
                                     style={styles.transactionItem}
                                 >
@@ -236,7 +236,7 @@ const WalletScreen = () => {
                                             {getTransactionTypeText(transaction.type)}
                                         </Text>
                                     </View>
-                                </TouchableOpacity>
+                                </Pressable>
                             );
                         })
                     )}

@@ -7,7 +7,7 @@ import {
     StatusBar,
     StyleSheet,
     Text,
-    TouchableOpacity,
+    Pressable,
     View,
 } from "react-native";
 import {getCart} from '../../api/cartApi';
@@ -108,12 +108,12 @@ export default function CheckoutScreen() {
         <View style={styles.container}>
             <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
             <View style={styles.topBar}>
-                <TouchableOpacity onPress={handleBack}>
+                <Pressable onPress={handleBack}>
                     <Image
                         source={require("../../assets/icons/back_icon.png")}
                         style={styles.iconBox}
                     />
-                </TouchableOpacity>
+                </Pressable>
                 <Text style={styles.heading}>Checkout</Text>
 
             </View>
@@ -168,9 +168,9 @@ export default function CheckoutScreen() {
                         </View>
                     </View>
 
-                    <TouchableOpacity style={styles.proceedButton} onPress={handleProceed}>
+                    <Pressable style={styles.proceedButton} onPress={handleProceed}>
                         <Text style={styles.proceedText}>Select Address</Text>
-                    </TouchableOpacity>
+                    </Pressable>
                 </View>
             </ScrollView>
         </View>

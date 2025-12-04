@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, Image, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { getCategories } from "../../api/catalogApi";
 import { API_BASE_URL } from "../../config/apiConfig";
 
@@ -51,9 +51,9 @@ const Categories = ({ onCategorySelect, selectedCategory }) => {
             {/* Header */}
             <View style={styles.header}>
                 <Text style={styles.title}>Categories</Text>
-                <TouchableOpacity onPress={() => onCategorySelect && onCategorySelect('')}>
+                <Pressable onPress={() => onCategorySelect && onCategorySelect('')}>
                     <Text style={styles.showAll}>Show All</Text>
-                </TouchableOpacity>
+                </Pressable>
             </View>
 
             {/* Category List */}
@@ -73,7 +73,7 @@ const Categories = ({ onCategorySelect, selectedCategory }) => {
                         const imageSource = url ? { uri: `${API_BASE_URL}${url}` } : require("../../assets/icons/fruit.png");
 
                         return (
-                            <TouchableOpacity
+                            <Pressable
                                 key={cat?._id || index}
                                 style={styles.categoryItem}
                                 onPress={() => handleCategoryPress(cat?._id)}
@@ -97,7 +97,7 @@ const Categories = ({ onCategorySelect, selectedCategory }) => {
                                     {cat?.name || "Category"}
                                 </Text>
                                 {isSelected && <View style={styles.activeDot} />}
-                            </TouchableOpacity>
+                            </Pressable>
                         );
                     })
                 )}

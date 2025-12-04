@@ -1,6 +1,6 @@
 // screens/VerifyOtpScreen.js
 import React, {useRef, useState} from "react";
-import {View, Text, TextInput, TouchableOpacity, StyleSheet, Image,Alert} from "react-native";
+import {View, Text, TextInput, Pressable, StyleSheet, Image,Alert} from "react-native";
 import {SafeAreaView} from "react-native-safe-area-context";
 import {globalStyles} from "../../constants/globalStyles";
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -117,13 +117,13 @@ export default function VerifyOtpScreen() {
                 </View>
 
                 <Text style={styles.notice}>A code has been sent to your phone</Text>
-                <TouchableOpacity style={styles.resendContainer} onPress={handleResend}>
+                <Pressable style={styles.resendContainer} onPress={handleResend}>
                     <Text style={styles.resendText}>Resend OTP</Text>
-                </TouchableOpacity>
+                </Pressable>
 
-                <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirm} disabled={loading || otpCode.length !== 6}>
+                <Pressable style={styles.confirmBtn} onPress={handleConfirm} disabled={loading || otpCode.length !== 6}>
                     <Text style={styles.confirmText}>{loading ? 'Loading...' : 'Confirm'}</Text>
-                </TouchableOpacity>
+                </Pressable>
             </View>
         </SafeAreaView>
     );

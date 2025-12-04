@@ -143,24 +143,24 @@ export const checkWishlist = async (userId, productId) => {
         throw error;
     }
 };
-//
+
 // // Dynamic Tab Category Integration
-// export const getTabCategories = async () => {
-//     try {
-//         const response = await apiClient.get(`/api/tabCategory/tab-categories`);
-//         return response.data;
-//     } catch (error) {
-//         console.error('Failed to fetch tab categories', error);
-//         throw error;
-//     }
-// };
-//
-// export const getProductsByTab = async (tabId) => {
-//     try {
-//         const response = await apiClient.get(`/products/by-tab/${tabId}`);
-//         return response.data;
-//     } catch (error) {
-//         console.error('Failed to fetch products by tab', error);
-//         throw error;
-//     }
-// };
+export const getTabCategories = async () => {
+    try {
+        const response = await apiClient.get(`/api/tabCategory/tab-categories`);
+        return response.data;
+    } catch (error) {
+        console.error('Failed to fetch tab categories', error);
+        throw error;
+    }
+};
+
+export const getProductsByTab = async (tabId, params = {}) => {
+    try {
+        const response = await apiClient.get(`/api/tabs/${tabId}/products`, { params });
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching products for tab ${tabId}:`, error);
+        throw error;
+    }
+};

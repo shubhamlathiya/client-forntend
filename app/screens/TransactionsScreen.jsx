@@ -4,7 +4,7 @@ import {
     Text,
     StyleSheet,
     ScrollView,
-    TouchableOpacity,
+    Pressable,
     RefreshControl,
     ActivityIndicator,
     SafeAreaView,
@@ -152,7 +152,7 @@ const TransactionsScreen = () => {
     };
 
     const renderFilterTab = ({ item }) => (
-        <TouchableOpacity
+        <Pressable
             style={[
                 styles.filterTab,
                 filter === item.id && styles.filterTabActive
@@ -171,11 +171,11 @@ const TransactionsScreen = () => {
             ]}>
                 {item.label}
             </Text>
-        </TouchableOpacity>
+        </Pressable>
     );
 
     const renderTransactionItem = ({ item, index }) => (
-        <TouchableOpacity
+        <Pressable
             style={styles.transactionCard}
             onPress={() => router.push({
                 pathname: '/screens/TransactionDetailScreen',
@@ -222,7 +222,7 @@ const TransactionsScreen = () => {
                     </View>
                 </View>
             </View>
-        </TouchableOpacity>
+        </Pressable>
     );
 
     const renderEmptyState = () => (
@@ -237,13 +237,13 @@ const TransactionsScreen = () => {
                     : `No ${filter} transactions found. Try changing the filter.`
                 }
             </Text>
-            <TouchableOpacity
+            <Pressable
                 style={styles.shopButton}
                 onPress={() => router.push('/(tabs)/home')}
             >
                 <Ionicons name="cart-outline" size={18} color="#FFFFFF" />
                 <Text style={styles.shopButtonText}>Start Shopping</Text>
-            </TouchableOpacity>
+            </Pressable>
         </View>
     );
 
@@ -253,12 +253,12 @@ const TransactionsScreen = () => {
 
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity
+                <Pressable
                     style={styles.backButton}
                     onPress={() => router.back()}
                 >
                     <Ionicons name="arrow-back" size={24} color="#1F2937" />
-                </TouchableOpacity>
+                </Pressable>
                 <Text style={styles.headerTitle}>Payment History</Text>
                 <View style={styles.placeholder} />
             </View>

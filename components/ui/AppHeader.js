@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, TouchableOpacity, Image, StyleSheet, Text } from 'react-native';
+import { View, Pressable, Image, StyleSheet, Text } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
 export default function AppHeader({ title = '' }) {
@@ -9,9 +9,9 @@ export default function AppHeader({ title = '' }) {
   return (
     <View style={styles.container}>
       {canGoBack ? (
-        <TouchableOpacity accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
+        <Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
           <Image source={require('../../assets/icons/back_icon.png')} style={styles.backIcon} />
-        </TouchableOpacity>
+        </Pressable>
       ) : (
         <View style={styles.backButtonPlaceholder} />
       )}

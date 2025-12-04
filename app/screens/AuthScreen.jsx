@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import {View, Text, StyleSheet, TouchableOpacity, Image, Alert, Platform} from 'react-native';
+import {View, Text, StyleSheet, Pressable, Image, Alert, Platform} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { colors } from '../../constants/colors';
@@ -60,14 +60,14 @@ export default function AuthScreen() {
 
             {/* Buttons Section */}
             <View style={styles.buttonWrapper}>
-                <TouchableOpacity
+                <Pressable
                     style={[styles.button, { backgroundColor: colors.primaryGreen }]}
                     onPress={handleLogin}
                 >
                     <Text style={[styles.buttonText, { color: colors.white }]}>Log In</Text>
-                </TouchableOpacity>
+                </Pressable>
 
-                <TouchableOpacity
+                <Pressable
                     style={[
                         styles.button,
                         {
@@ -79,7 +79,7 @@ export default function AuthScreen() {
                     onPress={handleSignUp}
                 >
                     <Text style={[styles.buttonText, { color: colors.primaryGreen }]}>Sign Up</Text>
-                </TouchableOpacity>
+                </Pressable>
 
                 {/* Divider */}
                 <View style={styles.divider}>
@@ -89,15 +89,15 @@ export default function AuthScreen() {
                 </View>
 
                 {/* Social Login Buttons */}
-                <TouchableOpacity style={[styles.socialButton]} onPress={() => googleLogin(router, setGoogleLoading)} disabled={googleLoading}>
+                <Pressable style={[styles.socialButton]} onPress={() => googleLogin(router, setGoogleLoading)} disabled={googleLoading}>
                     <Image source={googleIcon} style={styles.icon} />
                     <Text style={styles.socialText}>Continue with Google</Text>
-                </TouchableOpacity>
+                </Pressable>
 
-                <TouchableOpacity style={[styles.socialButton]}>
+                <Pressable style={[styles.socialButton]}>
                     <Image source={facebookIcon} style={styles.icon} />
                     <Text style={styles.socialText}>Continue with Facebook</Text>
-                </TouchableOpacity>
+                </Pressable>
             </View>
         </SafeAreaView>
     );

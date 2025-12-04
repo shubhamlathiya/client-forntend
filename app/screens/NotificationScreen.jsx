@@ -100,7 +100,7 @@ export default function NotificationScreen() {
             const userData = await AsyncStorage.getItem('userData');
             if (!userData) return null;
             const parsed = JSON.parse(userData);
-            return parsed?.id || null;
+            return parsed?.id || parsed?._id|| null;
         } catch (error) {
             console.log('⚠️ Get user ID error:', error.message);
             return null;

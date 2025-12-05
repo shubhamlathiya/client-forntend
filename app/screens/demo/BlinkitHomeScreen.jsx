@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import {useFocusEffect, useRouter} from "expo-router";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {getCategories, getProducts, getProductsByCategory, getSaleCategories} from "../../../api/catalogApi";
+import {getCategories, getProducts, getProductsByCategory, getSaleCategories, getTabCategories} from "../../../api/catalogApi";
 import {API_BASE_URL} from "../../../config/apiConfig";
 import {getAddresses} from "../../../api/addressApi";
 import {addCartItem, getCart, updateCartItem, removeCartItem, getTierPricing} from "../../../api/cartApi";
@@ -26,7 +26,8 @@ import * as Notifications from "expo-notifications";
 
 const {width, height} = Dimensions.get('window');
 
-const TAB_CATEGORIES = [{
+// Default fallback tabs in case API fails
+const FALLBACK_TABS = [{
     id: 'all',
     name: 'All',
     icon: require('../../../assets/icons/all.png'),
@@ -93,19 +94,23 @@ export default function BlinkitHomeScreen() {
     const [cartPopupTimeout, setCartPopupTimeout] = useState(null);
 
     const slideAnim = useRef(new Animated.Value(-300)).current;
+
     // New state for tab view
     const [activeTab, setActiveTab] = useState('all');
     const [tabProducts, setTabProducts] = useState({});
     const [headerColor, setHeaderColor] = useState('#EC0505');
+
+    // State for dynamic tabs
+    const [tabCategories, setTabCategories] = useState([]);
+    const [loadingTabs, setLoadingTabs] = useState(true);
+    const [tabLoading, setTabLoading] = useState(false);
 
     // Animation values
     const [searchFocused, setSearchFocused] = useState(false);
     const searchAnim = useState(new Animated.Value(0))[0];
     const placeholderAnim = useState(new Animated.Value(1))[0];
 
-
     const requestNotificationPermission = async () => {
-        // iOS + Android (API 33+)
         const {status: existingStatus} = await Notifications.getPermissionsAsync();
         let finalStatus = existingStatus;
 
@@ -126,11 +131,9 @@ export default function BlinkitHomeScreen() {
                     {
                         text: 'Grant',
                         onPress: async () => {
-                            // Only re-request if user clicked "Grant"
                             if (Platform.OS === 'ios') {
                                 await Notifications.requestPermissionsAsync();
                             } else {
-                                // On Android, open app settings for manual permission
                                 Linking.openSettings();
                             }
                         },
@@ -141,8 +144,6 @@ export default function BlinkitHomeScreen() {
             return false;
         }
 
-
-        // Create Android channel (important)
         if (Platform.OS === "android") {
             await Notifications.setNotificationChannelAsync("default", {
                 name: "Default", importance: Notifications.AndroidImportance.MAX,
@@ -159,8 +160,14 @@ export default function BlinkitHomeScreen() {
         loadUserData();
         fetchCategories();
         loadFeaturedProducts();
-        loadTabProducts('all');
+        loadTabCategories(); // Load dynamic tabs first
     }, []);
+
+    useEffect(() => {
+        if (tabCategories.length > 0) {
+            loadTabProducts(activeTab);
+        }
+    }, [tabCategories, activeTab]);
 
     useFocusEffect(useCallback(() => {
         loadCartItems();
@@ -178,6 +185,232 @@ export default function BlinkitHomeScreen() {
         }
     }, [showCartPopup, cartItems.length]);
 
+    // Load dynamic tab categories from backend
+    const loadTabCategories = async () => {
+        const capitalizeWords = (text) => {
+            if (!text || typeof text !== "string") return text;
+            return text
+                .split(" ")
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(" ");
+        };
+
+        try {
+            setLoadingTabs(true);
+            const response = await getTabCategories();
+
+            if (response?.success && Array.isArray(response.data)) {
+                const processedTabs = response.data.map(tab => ({
+                    id: tab._id || tab.id || 'all',
+                    name: capitalizeWords(tab.name || 'Unnamed Tab'),
+                    icon: tab.icon
+                        ? { uri: `${API_BASE_URL}${tab.icon}` }
+                        : require('../../../assets/icons/all.png'),
+                    color: tab.color || '#4CAF72',
+                    headerColor: tab.headerColor || '#4CAF72',
+                    lightColor: tab.lightColor || '#CFF5DE',
+                    categories: tab.categories || [],
+                    slug: tab.slug,
+                    sortOrder: tab.sortOrder || 0
+                }));
+
+                const allTab = {
+                    id: 'all',
+                    name: capitalizeWords('All'),
+                    icon: require('../../../assets/icons/all.png'),
+                    color: '#4CAF72',
+                    headerColor: '#4CAF72',
+                    lightColor: '#CFF5DE',
+                    categories: [],
+                    slug: 'all',
+                    sortOrder: -1
+                };
+
+                const sortedTabs = [
+                    allTab,
+                    ...processedTabs.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+                ];
+
+                setTabCategories(sortedTabs);
+
+                if (sortedTabs.length > 0) {
+                    setActiveTab(sortedTabs[0].id);
+                    setHeaderColor(sortedTabs[0].headerColor || '#4CAF72');
+                }
+            } else {
+                console.warn('Using fallback tabs');
+                const formattedFallback = FALLBACK_TABS.map(tab => ({
+                    ...tab,
+                    name: capitalizeWords(tab.name)
+                }));
+                setTabCategories(formattedFallback);
+                setActiveTab('all');
+                setHeaderColor('#4CAF72');
+            }
+        } catch (error) {
+            console.error('Error loading tab categories:', error);
+            const formattedFallback = FALLBACK_TABS.map(tab => ({
+                ...tab,
+                name: capitalizeWords(tab.name)
+            }));
+            setTabCategories(formattedFallback);
+            setActiveTab('all');
+            setHeaderColor('#4CAF72');
+        } finally {
+            setLoadingTabs(false);
+        }
+    };
+
+
+    // Updated loadTabProducts function to handle dynamic tabs
+    const loadTabProducts = async (tabId) => {
+        if (tabId === 'all') {
+            await loadAllTabProducts();
+            return;
+        }
+
+        try {
+            setTabLoading(true);
+            const tab = tabCategories.find(t => t.id === tabId);
+
+            if (!tab) {
+                console.warn(`Tab ${tabId} not found`);
+                return;
+            }
+
+            let products = [];
+
+            // If tab has associated categories, fetch products from those categories
+            if (tab.categories && tab.categories.length > 0) {
+                // Fetch products from each category
+                const categoryPromises = tab.categories.map(categoryId =>
+                    getProductsByCategory(categoryId, { limit: 20 })
+                );
+
+                const categoryResults = await Promise.allSettled(categoryPromises);
+
+                categoryResults.forEach(result => {
+                    if (result.status === 'fulfilled') {
+                        const productsData = result.value?.data?.items ||
+                            result.value?.items ||
+                            result.value?.data ||
+                            [];
+                        products = [...products, ...productsData];
+                    }
+                });
+
+                // Remove duplicates by product ID
+                const uniqueProducts = [];
+                const seenIds = new Set();
+
+                products.forEach(product => {
+                    const productId = product._id || product.id;
+                    if (productId && !seenIds.has(productId)) {
+                        seenIds.add(productId);
+                        uniqueProducts.push(product);
+                    }
+                });
+
+                products = uniqueProducts;
+            } else {
+                // Fallback to fetching all products if no categories specified
+                const res = await getProducts({ page: 1, limit: 50 });
+                products = extractProducts(res);
+
+                // Try to filter by tab name if possible
+                if (tab.name) {
+                    const filteredProducts = filterProductsByTabName(products, tab.name);
+                    if (filteredProducts.length > 0) {
+                        products = filteredProducts;
+                    }
+                }
+            }
+
+            const processedProducts = products.map(p => processProductData(p, tabId));
+            setTabProducts(prev => ({
+                ...prev,
+                [tabId]: processedProducts
+            }));
+
+        } catch (error) {
+            console.error(`Error loading ${tabId} products:`, error);
+            // Fallback to loading all products
+            await loadAllTabProducts();
+        } finally {
+            setTabLoading(false);
+        }
+    };
+
+    const loadAllTabProducts = async () => {
+        try {
+            setTabLoading(true);
+            const res = await getProducts({ page: 1, limit: 50 });
+            const products = extractProducts(res);
+            const processedProducts = products.map(p => processProductData(p, 'all'));
+
+            setTabProducts(prev => ({
+                ...prev,
+                ['all']: processedProducts
+            }));
+        } catch (error) {
+            console.error('Error loading all products:', error);
+        } finally {
+            setTabLoading(false);
+        }
+    };
+
+    const extractProducts = (response) => {
+        if (!response) return [];
+        if (Array.isArray(response)) return response;
+        if (Array.isArray(response.data)) return response.data;
+        if (Array.isArray(response.items)) return response.items;
+        if (response.data && Array.isArray(response.data.items)) return response.data.items;
+        if (response.success && Array.isArray(response.data?.data)) return response.data.data;
+        return [];
+    };
+
+    const filterProductsByTabName = (products, tabName) => {
+        if (!Array.isArray(products)) return [];
+
+        const tabNameLower = tabName.toLowerCase();
+        const keywordMap = {
+            'wedding': ['gift', 'wedding', 'marriage', 'ring', 'decoration', 'flower', 'bouquet', 'cake', 'card', 'invitation'],
+            'winter': ['winter', 'cold', 'wool', 'sweater', 'jacket', 'gloves', 'scarf', 'heater', 'blanket', 'thermal'],
+            'electronics': ['electronic', 'phone', 'mobile', 'laptop', 'computer', 'device', 'gadget', 'tech', 'smart', 'wireless'],
+            'grocery': ['grocery', 'food', 'vegetable', 'fruit', 'rice', 'atta', 'dal', 'oil', 'spice', 'kitchen'],
+            'fashion': ['fashion', 'clothes', 'dress', 'shirt', 'jeans', 'shoes', 'accessory', 'jewelry', 'watch', 'bag']
+        };
+
+        const keywords = keywordMap[tabNameLower] || [];
+
+        return products.filter(p => {
+            if (!p) return false;
+            const title = p?.title?.toLowerCase() || '';
+            const name = p?.name?.toLowerCase() || '';
+            const category = p?.category?.toLowerCase() || '';
+            const description = p?.description?.toLowerCase() || '';
+
+            return keywords.some(keyword =>
+                title.includes(keyword) ||
+                name.includes(keyword) ||
+                category.includes(keyword) ||
+                description.includes(keyword)
+            );
+        });
+    };
+
+    const handleTabPress = (tabId) => {
+        setActiveTab(tabId);
+        const selectedTab = tabCategories.find(tab => tab.id === tabId);
+        if (selectedTab) {
+            setHeaderColor(selectedTab.headerColor);
+        }
+
+        if (!tabProducts[tabId]) {
+            loadTabProducts(tabId);
+        }
+    };
+
     // Load cart items
     const loadCartItems = async () => {
         try {
@@ -185,7 +418,6 @@ export default function BlinkitHomeScreen() {
             let items = [];
 
             if (cartData?.success) {
-                // If backend uses success + data structure
                 items = cartData.data?.items || [];
                 if (!Array.isArray(items) && Array.isArray(cartData.data)) {
                     items = cartData.data;
@@ -198,13 +430,10 @@ export default function BlinkitHomeScreen() {
             setShowCartPopup(items.length > 0);
 
         } catch (error) {
-            // Handle "Cart not found" silently
             if (error.response?.data?.message === 'Cart not found') {
                 setCartItems([]);
                 setShowCartPopup(false);
-                console.log('⚠️ Cart not found, showing empty cart');
             } else {
-                // Only log other errors
                 console.error('Error loading cart items:', error);
                 setCartItems([]);
                 setShowCartPopup(false);
@@ -212,17 +441,13 @@ export default function BlinkitHomeScreen() {
         }
     };
 
-
     const getCartItemImages = () => {
-        // If cart has items, show actual product images
         if (cartItems.length > 0) {
             return cartItems.slice(0, 1).map(item => {
                 const imageUrl = item.product?.thumbnail || item.thumbnail || item.image;
-                console.log(`${API_BASE_URL}${imageUrl}`)
                 return imageUrl ? {uri: `${API_BASE_URL}${imageUrl}`} : require("../../../assets/Rectangle 24904.png");
             });
         } else {
-            // If cart is empty, show placeholder images
             return [require("../../../assets/Rectangle 24904.png"), require("../../../assets/Rectangle 24904.png")];
         }
     };
@@ -239,15 +464,19 @@ export default function BlinkitHomeScreen() {
         }, 0);
     };
 
-    // Get cart quantity for a product
     const getCartQuantity = (productId, variantId = null) => {
-        const item = cartItems.find(cartItem => cartItem.productId === String(productId) && cartItem.variantId === (variantId ? String(variantId) : null));
+        const item = cartItems.find(cartItem =>
+            cartItem.productId === String(productId) &&
+            cartItem.variantId === (variantId ? String(variantId) : null)
+        );
         return item ? item.quantity : 0;
     };
 
-    // Get cart item ID for update/remove operations
     const getCartItemId = (productId, variantId = null) => {
-        const cartItem = cartItems.find(item => item.productId === String(productId) && item.variantId === (variantId ? String(variantId) : null));
+        const cartItem = cartItems.find(item =>
+            item.productId === String(productId) &&
+            item.variantId === (variantId ? String(variantId) : null)
+        );
         return cartItem?._id || cartItem?.id;
     };
 
@@ -265,16 +494,13 @@ export default function BlinkitHomeScreen() {
         }
     };
 
-
     const loadTierPricing = async () => {
         if (!isBusinessUser) return;
 
         try {
-            console.log('Loading tier pricing for business user...');
             const tierData = await getTierPricing();
 
             if (tierData && Array.isArray(tierData)) {
-                // Organize tier pricing by productId and variantId for easy lookup
                 const pricingMap = {};
 
                 tierData.forEach(tier => {
@@ -290,14 +516,13 @@ export default function BlinkitHomeScreen() {
                     }
 
                     pricingMap[productId][variantId].push({
-                        minQty: tier.minQty, maxQty: tier.maxQty || Infinity, price: tier.price
+                        minQty: tier.minQty,
+                        maxQty: tier.maxQty || Infinity,
+                        price: tier.price
                     });
                 });
 
                 setTierPricing(pricingMap);
-                console.log('Tier pricing loaded successfully:', Object.keys(pricingMap).length, 'products with tier pricing');
-            } else {
-                console.log('No tier pricing data available');
             }
         } catch (error) {
             console.error('Error loading tier pricing:', error);
@@ -305,136 +530,39 @@ export default function BlinkitHomeScreen() {
     };
 
     useEffect(() => {
-        const activeTabData = TAB_CATEGORIES.find(tab => tab.id === activeTab);
-        if (activeTabData) {
-            setHeaderColor(activeTabData.headerColor);
-        }
-    }, [activeTab]);
-
-    useEffect(() => {
-        Animated.parallel([Animated.timing(searchAnim, {
-            toValue: searchFocused ? 1 : 0, duration: 300, useNativeDriver: false,
-        }), Animated.timing(placeholderAnim, {
-            toValue: searchFocused ? 0 : 1, duration: 200, useNativeDriver: false,
-        })]).start();
+        Animated.parallel([
+            Animated.timing(searchAnim, {
+                toValue: searchFocused ? 1 : 0,
+                duration: 300,
+                useNativeDriver: false,
+            }),
+            Animated.timing(placeholderAnim, {
+                toValue: searchFocused ? 0 : 1,
+                duration: 200,
+                useNativeDriver: false,
+            })
+        ]).start();
     }, [searchFocused]);
 
     const searchBarWidth = searchAnim.interpolate({
-        inputRange: [0, 1], outputRange: ['100%', '90%']
+        inputRange: [0, 1],
+        outputRange: ['100%', '90%']
     });
 
     const searchBarMargin = searchAnim.interpolate({
-        inputRange: [0, 1], outputRange: [0, -40]
+        inputRange: [0, 1],
+        outputRange: [0, -40]
     });
 
     const placeholderOpacity = placeholderAnim.interpolate({
-        inputRange: [0, 1], outputRange: [0, 1]
+        inputRange: [0, 1],
+        outputRange: [0, 1]
     });
 
     const placeholderScale = placeholderAnim.interpolate({
-        inputRange: [0, 1], outputRange: [0.8, 1]
+        inputRange: [0, 1],
+        outputRange: [0.8, 1]
     });
-
-    // Load products for specific tab
-    const loadTabProducts = async (tabId) => {
-        try {
-            setLoading(true);
-            let products = [];
-
-            const extractProducts = (response) => {
-                if (!response) return [];
-                if (Array.isArray(response)) return response;
-                if (Array.isArray(response.data)) return response.data;
-                if (Array.isArray(response.items)) return response.items;
-                if (response.data && Array.isArray(response.data.items)) return response.data.items;
-                if (response.success && Array.isArray(response.data?.data)) return response.data.data;
-                return [];
-            };
-
-            const filterProducts = (productsArray, keywords) => {
-                if (!Array.isArray(productsArray)) return [];
-
-                return productsArray.filter(p => {
-                    if (!p) return false;
-
-                    const title = p?.title?.toLowerCase() || '';
-                    const name = p?.name?.toLowerCase() || '';
-                    const category = p?.category?.toLowerCase() || '';
-                    const description = p?.description?.toLowerCase() || '';
-
-                    return keywords.some(keyword => title.includes(keyword) || name.includes(keyword) || category.includes(keyword) || description.includes(keyword));
-                });
-            };
-
-            let res;
-
-            switch (tabId) {
-                case 'all':
-                    res = await getProducts({page: 1, limit: 50});
-                    products = extractProducts(res);
-                    break;
-
-                case 'wedding':
-                    res = await getProducts({page: 1, limit: 50});
-                    products = filterProducts(extractProducts(res), ['gift', 'wedding', 'marriage', 'ring', 'decoration', 'flower', 'bouquet', 'cake', 'card', 'invitation']);
-                    break;
-
-                case 'winter':
-                    res = await getProducts({page: 1, limit: 50});
-                    products = filterProducts(extractProducts(res), ['winter', 'cold', 'wool', 'sweater', 'jacket', 'gloves', 'scarf', 'heater', 'blanket', 'thermal']);
-                    break;
-
-                case 'electronics':
-                    res = await getProducts({page: 1, limit: 50});
-                    products = filterProducts(extractProducts(res), ['electronic', 'phone', 'mobile', 'laptop', 'computer', 'device', 'gadget', 'tech', 'smart', 'wireless']);
-                    break;
-
-                case 'grocery':
-                    res = await getProducts({page: 1, limit: 50});
-                    products = filterProducts(extractProducts(res), ['grocery', 'food', 'vegetable', 'fruit', 'rice', 'atta', 'dal', 'oil', 'spice', 'kitchen']);
-                    break;
-
-                case 'fashion':
-                    res = await getProducts({page: 1, limit: 50});
-                    products = filterProducts(extractProducts(res), ['fashion', 'clothes', 'dress', 'shirt', 'jeans', 'shoes', 'accessory', 'jewelry', 'watch', 'bag']);
-                    break;
-
-                default:
-                    res = await getProducts({page: 1, limit: 50});
-                    products = extractProducts(res);
-            }
-
-            // 🔥 If filtered products are empty → load ALL products (but no dummy)
-            if (!products.length) {
-                const allRes = await getProducts({page: 1, limit: 50});
-                products = extractProducts(allRes);
-            }
-
-            const processedProducts = products.map(p => processProductData(p, tabId));
-
-            setTabProducts(prev => ({
-                ...prev, [tabId]: processedProducts
-            }));
-
-        } catch (error) {
-            console.error(`Error loading ${tabId} products:`, error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-
-    const generateFallbackProducts = () => {
-        return []; // No dummy items
-    };
-
-
-    const handleTabPress = (tabId) => {
-        setActiveTab(tabId);
-        if (!tabProducts[tabId]) {
-            loadTabProducts(tabId);
-        }
-    };
 
     const openCategoryFragment = async (category) => {
         setSelectedCategory(category);
@@ -469,12 +597,10 @@ export default function BlinkitHomeScreen() {
         loadCategoryProducts(category._id);
     };
 
-    // Updated handleAddToCart function
     const handleAddToCart = async (product, isFragment = false) => {
         try {
             const productId = product.id || product._id;
 
-            // Check minimum quantity for business users
             if (isBusinessUser && product.minQty && product.minQty > 1) {
                 Alert.alert('Minimum Quantity Required', `Minimum order quantity for this product is ${product.minQty} units for business customers.`, [{text: 'OK'}]);
                 return;
@@ -483,11 +609,13 @@ export default function BlinkitHomeScreen() {
             setAddingToCart(prev => ({...prev, [productId]: true}));
 
             const cartItem = {
-                productId: productId, quantity: product.minQty || 1, variantId: product.variantId || null
+                productId: productId,
+                quantity: product.minQty || 1,
+                variantId: product.variantId || null
             };
 
             await addCartItem(cartItem);
-            await loadCartItems(); // Reload cart items after adding
+            await loadCartItems();
 
         } catch (error) {
             console.error('Add to cart error:', error);
@@ -503,7 +631,6 @@ export default function BlinkitHomeScreen() {
         }
     };
 
-    // New function to handle quantity updates
     const handleUpdateQuantity = async (productId, variantId, newQuantity) => {
         try {
             const itemId = getCartItemId(productId, variantId);
@@ -526,10 +653,6 @@ export default function BlinkitHomeScreen() {
         }
     };
 
-    const BusinessUserBadge = () => (<View style={styles.businessBadge}>
-        <Text style={styles.businessBadgeText}>BUSINESS</Text>
-    </View>);
-
     const handleFragmentProductPress = (product) => {
         closeCategoryFragment();
         router.push(`/screens/ProductDetailScreen?id=${product._id || product.id}`);
@@ -541,8 +664,10 @@ export default function BlinkitHomeScreen() {
 
     const handleCategorySelected = (category) => {
         router.push({
-            pathname: '/screens/ProductsScreen', params: {
-                selectedCategory: category._id || category.id, categoryName: category.name
+            pathname: '/screens/ProductsScreen',
+            params: {
+                selectedCategory: category._id || category.id,
+                categoryName: category.name
             }
         });
     };
@@ -576,21 +701,18 @@ export default function BlinkitHomeScreen() {
             };
         };
 
-        // Use actual tier pricing for business users
         if (isBusinessUser) {
             const productId = product._id || product.id;
             const variantId = product.variantId || (product.variants?.[0]?._id) || null;
             const productTiers = getProductTierPricing(productId, variantId);
 
             if (productTiers.length > 0) {
-                // Find applicable tier for the given quantity
                 const applicableTier = productTiers.find(tier => quantity >= tier.minQty && quantity <= tier.maxQty);
 
                 if (applicableTier) {
                     return buildResponse(applicableTier.price, applicableTier.price, null, 0, applicableTier.minQty);
                 }
 
-                // If no tier found for quantity, use the first tier's min quantity
                 const firstTier = productTiers[0];
                 if (firstTier) {
                     return buildResponse(firstTier.price, firstTier.price, null, 0, firstTier.minQty);
@@ -598,7 +720,6 @@ export default function BlinkitHomeScreen() {
             }
         }
 
-        // Fallback to regular pricing
         if (Array.isArray(product?.variants) && product.variants.length > 0) {
             const v = product.variants[0];
             return buildResponse(v.basePrice ?? product.basePrice, v.finalPrice ?? product.finalPrice ?? product.price, v.discount ?? product.discount, v.discountPercent ?? product.discountPercent);
@@ -607,74 +728,80 @@ export default function BlinkitHomeScreen() {
         return buildResponse(product.basePrice ?? product.price, product.finalPrice ?? product.price, product.discount, product.discountPercent);
     };
 
-
-    // Updated renderFragmentProduct function with quantity controls
     const renderFragmentProduct = ({item, index}) => {
         const priceInfo = calculateProductPrice(item);
         const productId = item._id || item.id;
         const cartQuantity = getCartQuantity(productId, item.variantId);
         const imageSource = item.image?.uri ? {uri: item.image.uri} : require("../../../assets/Rectangle 24904.png");
 
-        return (<Pressable
-            style={[styles.fragmentProductCard, index % 2 === 0 ? styles.fragmentLeftCard : styles.fragmentRightCard]}
-            onPress={() => handleFragmentProductPress(item)}
-        >
-            <Image
-                source={imageSource}
-                style={styles.fragmentProductImage}
-                resizeMode="cover"
-            />
+        return (
+            <Pressable
+                style={[styles.fragmentProductCard, index % 2 === 0 ? styles.fragmentLeftCard : styles.fragmentRightCard]}
+                onPress={() => handleFragmentProductPress(item)}
+            >
+                <Image
+                    source={imageSource}
+                    style={styles.fragmentProductImage}
+                    resizeMode="cover"
+                />
 
-            <View style={styles.fragmentProductInfo}>
-                <Text style={styles.fragmentProductName} numberOfLines={2}>
-                    {item.title || item.name}
-                </Text>
+                <View style={styles.fragmentProductInfo}>
+                    <Text style={styles.fragmentProductName} numberOfLines={2}>
+                        {item.title || item.name}
+                    </Text>
 
-                <View style={styles.rowBetween}>
-                    <View style={styles.leftPriceBox}>
-                        <Text style={styles.fragmentProductPrice}>
-                            ₹{priceInfo.finalPrice}
-                        </Text>
-
-                        {priceInfo.hasDiscount && (<View style={styles.discountBox}>
-                            <Text style={styles.fragmentProductOriginalPrice}>
-                                ₹{priceInfo.basePrice}
+                    <View style={styles.rowBetween}>
+                        <View style={styles.leftPriceBox}>
+                            <Text style={styles.fragmentProductPrice}>
+                                ₹{priceInfo.finalPrice}
                             </Text>
-                            <Text style={styles.discountBadge}>
-                                {priceInfo.discountPercent}% OFF
-                            </Text>
-                        </View>)}
+
+                            {priceInfo.hasDiscount && (
+                                <View style={styles.discountBox}>
+                                    <Text style={styles.fragmentProductOriginalPrice}>
+                                        ₹{priceInfo.basePrice}
+                                    </Text>
+                                    <Text style={styles.discountBadge}>
+                                        {priceInfo.discountPercent}% OFF
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+                    </View>
+                    <View style={styles.rowBetween}>
+                        {cartQuantity > 0 ? (
+                            <View style={styles.quantityControl}>
+                                <Pressable
+                                    style={styles.quantityButton}
+                                    onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity - 1)}
+                                >
+                                    <Text style={styles.quantityMinus}>-</Text>
+                                </Pressable>
+
+                                <Text style={styles.quantityText}>{cartQuantity}</Text>
+
+                                <Pressable
+                                    style={styles.quantityButton}
+                                    onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity + 1)}
+                                >
+                                    <Text style={styles.quantityPlus}>+</Text>
+                                </Pressable>
+                            </View>
+                        ) : (
+                            <Pressable
+                                style={[styles.fragmentAddButton, addingToCart[productId] && styles.fragmentAddButtonDisabled]}
+                                disabled={addingToCart[productId]}
+                                onPress={() => handleAddToCart(item, true)}
+                            >
+                                <Text style={styles.fragmentAddButtonText}>
+                                    {addingToCart[productId] ? "ADDING..." : "ADD"}
+                                </Text>
+                            </Pressable>
+                        )}
                     </View>
                 </View>
-                <View style={styles.rowBetween}>
-                    {cartQuantity > 0 ? (<View style={styles.quantityControl}>
-                        <Pressable
-                            style={styles.quantityButton}
-                            onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity - 1)}
-                        >
-                            <Text style={styles.quantityMinus}>-</Text>
-                        </Pressable>
-
-                        <Text style={styles.quantityText}>{cartQuantity}</Text>
-
-                        <Pressable
-                            style={styles.quantityButton}
-                            onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity + 1)}
-                        >
-                            <Text style={styles.quantityPlus}>+</Text>
-                        </Pressable>
-                    </View>) : (<Pressable
-                        style={[styles.fragmentAddButton, addingToCart[productId] && styles.fragmentAddButtonDisabled]}
-                        disabled={addingToCart[productId]}
-                        onPress={() => handleAddToCart(item, true)}
-                    >
-                        <Text style={styles.fragmentAddButtonText}>
-                            {addingToCart[productId] ? "ADDING..." : "ADD"}
-                        </Text>
-                    </Pressable>)}
-                </View>
-            </View>
-        </Pressable>);
+            </Pressable>
+        );
     };
 
     const getProductTierPricing = (productId, variantId = null) => {
@@ -689,14 +816,16 @@ export default function BlinkitHomeScreen() {
         const imageSource = item.image?.uri ? {uri: item.image.uri} : require("../../../assets/Rectangle 24904.png");
         const productTiers = getProductTierPricing(productId, item.variantId);
 
-        return (<Pressable
+        return (
+            <Pressable
                 style={styles.tabProductCard}
                 onPress={() => router.push(`/screens/ProductDetailScreen?id=${item.id}`)}
             >
-                {/* Business User Badge */}
-                {isBusinessUser && priceInfo.minQty > 1 && (<View style={styles.minQtyBadge}>
+                {isBusinessUser && priceInfo.minQty > 1 && (
+                    <View style={styles.minQtyBadge}>
                         <Text style={styles.minQtyText}>Min: {priceInfo.minQty}</Text>
-                    </View>)}
+                    </View>
+                )}
 
                 <Image
                     source={imageSource}
@@ -715,27 +844,33 @@ export default function BlinkitHomeScreen() {
                                 ₹{priceInfo.finalPrice}
                             </Text>
 
-                            {priceInfo.hasDiscount && (<View style={styles.discountBox}>
+                            {priceInfo.hasDiscount && (
+                                <View style={styles.discountBox}>
                                     <Text style={styles.tabProductOriginalPrice}>
                                         ₹{priceInfo.basePrice}
                                     </Text>
                                     <Text style={styles.discountBadge}>
                                         {priceInfo.discountPercent}% OFF
                                     </Text>
-                                </View>)}
+                                </View>
+                            )}
 
-                            {isBusinessUser && priceInfo.minQty > 1 && (<Text style={styles.businessMinQty}>
+                            {isBusinessUser && priceInfo.minQty > 1 && (
+                                <Text style={styles.businessMinQty}>
                                     Min. {priceInfo.minQty} units
-                                </Text>)}
+                                </Text>
+                            )}
 
-                            {/* Show tier pricing info for business users */}
-                            {isBusinessUser && productTiers.length > 0 && (<Text style={styles.tierPricingInfo}>
+                            {isBusinessUser && productTiers.length > 0 && (
+                                <Text style={styles.tierPricingInfo}>
                                     {productTiers.length} tier{productTiers.length > 1 ? 's' : ''} available
-                                </Text>)}
+                                </Text>
+                            )}
                         </View>
                     </View>
                     <View style={styles.rowBetween}>
-                        {cartQuantity > 0 ? (<View style={styles.quantityControl}>
+                        {cartQuantity > 0 ? (
+                            <View style={styles.quantityControl}>
                                 <Pressable
                                     style={styles.quantityButton}
                                     onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity - 1)}
@@ -751,7 +886,9 @@ export default function BlinkitHomeScreen() {
                                 >
                                     <Text style={styles.quantityPlus}>+</Text>
                                 </Pressable>
-                            </View>) : (<Pressable
+                            </View>
+                        ) : (
+                            <Pressable
                                 style={[styles.tabAddButton, addingToCart[productId] && styles.tabAddButtonDisabled]}
                                 disabled={addingToCart[productId]}
                                 onPress={() => handleAddToCart(item)}
@@ -759,50 +896,61 @@ export default function BlinkitHomeScreen() {
                                 <Text style={styles.tabAddButtonText}>
                                     {addingToCart[productId] ? "..." : "ADD"}
                                 </Text>
-                            </Pressable>)}
+                            </Pressable>
+                        )}
                     </View>
                 </View>
-            </Pressable>);
+            </Pressable>
+        );
     };
 
-    // Rest of your existing functions (fetchCategories, loadUserData, etc.) remain the same
     const fetchCategories = async () => {
+        const capitalizeWords = (text) => {
+            if (!text || typeof text !== "string") return text;
+            return text
+                .split(" ")
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(" ");
+        };
+
         try {
             setLoading(true);
 
-            // Fetch normal categories
-            const categoryRes = await getCategories({status: true, limit: 100});
+            const categoryRes = await getCategories({ status: true, limit: 100 });
+            const saleRes = await getSaleCategories({ limit: 100 });
 
-            // Fetch sale categories
-            const saleRes = await getSaleCategories({limit: 100});
-
-            // Handle categories
             let categoryList = [];
             if (categoryRes?.success) {
-                // Some APIs return { success, data: [] }
-                if (Array.isArray(categoryRes.data)) {
-                    categoryList = categoryRes.data;
-                }
-                // Some return { success, data: { data: [] } }
-                else if (Array.isArray(categoryRes.data?.data)) {
-                    categoryList = categoryRes.data.data;
-                }
+                categoryList = Array.isArray(categoryRes.data)
+                    ? categoryRes.data
+                    : Array.isArray(categoryRes.data?.data)
+                        ? categoryRes.data.data
+                        : [];
             }
 
-            // Handle sale categories
             let saleCategoryList = [];
             if (saleRes?.success) {
-                if (Array.isArray(saleRes.data)) {
-                    saleCategoryList = saleRes.data;
-                } else if (Array.isArray(saleRes.data?.data)) {
-                    saleCategoryList = saleRes.data.data;
-                }
+                saleCategoryList = Array.isArray(saleRes.data)
+                    ? saleRes.data
+                    : Array.isArray(saleRes.data?.data)
+                        ? saleRes.data.data
+                        : [];
             }
 
-            setSalesCategories(saleCategoryList)
-            // Save categories to state
-            setCategories(categoryList);
-            setGroceryCategories(categoryList);
+            // Apply capitalization to both lists
+            const formattedCategories = categoryList.map(item => ({
+                ...item,
+                name: capitalizeWords(item.name)
+            }));
+
+            const formattedSaleCategories = saleCategoryList.map(item => ({
+                ...item,
+                name: capitalizeWords(item.name)
+            }));
+
+            setSalesCategories(formattedSaleCategories);
+            setCategories(formattedCategories);
+            setGroceryCategories(formattedCategories);
 
         } catch (err) {
             console.error("Error fetching categories", err);
@@ -811,13 +959,13 @@ export default function BlinkitHomeScreen() {
         }
     };
 
+
     const loadUserData = async () => {
         try {
             let hasValidAddress = false;
 
             try {
                 const addressesResponse = await getAddresses();
-
                 const addresses = extractAddressesFromResponse(addressesResponse);
 
                 if (addresses.length > 0) {
@@ -852,18 +1000,19 @@ export default function BlinkitHomeScreen() {
 
     const extractAddressesFromResponse = (response) => {
         if (!response) return [];
-
         if (Array.isArray(response)) return response;
         if (Array.isArray(response.data)) return response.data;
         if (Array.isArray(response.data?.data)) return response.data.data;
         if (Array.isArray(response.items)) return response.items;
         if (Array.isArray(response.data?.items)) return response.data.items;
-
         return [];
     };
 
     const findDefaultAddress = (addresses) => {
-        return addresses.find(addr => addr.isDefault === true) || addresses.find(addr => addr.is_default === true) || addresses.find(addr => addr.default === true) || addresses[0];
+        return addresses.find(addr => addr.isDefault === true) ||
+            addresses.find(addr => addr.is_default === true) ||
+            addresses.find(addr => addr.default === true) ||
+            addresses[0];
     };
 
     const saveAddressToStorage = async (address) => {
@@ -889,9 +1038,7 @@ export default function BlinkitHomeScreen() {
 
     const formatAddress = (address) => {
         if (!address) return 'Select delivery address';
-
         const parts = [address.address, address.landmark, address.city].filter(part => part && part.trim() !== '');
-
         return parts.join(', ') || 'Select delivery address';
     };
 
@@ -908,16 +1055,12 @@ export default function BlinkitHomeScreen() {
 
     const setRandomDeliveryTime = () => {
         const minutes = Math.floor(Math.random() * 4320) + 15;
-        // 15 mins to 3 days
-
         let label = "";
 
         if (minutes < 1440) {
-            // Convert to hours only
             const hours = Math.max(1, Math.floor(minutes / 60));
             label = hours === 1 ? "1 hour" : `${hours} hours`;
         } else {
-            // Convert to days
             const days = Math.floor(minutes / 1440);
             label = days === 1 ? "1 day" : `${days} days`;
         }
@@ -945,7 +1088,7 @@ export default function BlinkitHomeScreen() {
             deliveryTime: "16 MINS",
             image: product?.thumbnail ? {uri: `${API_BASE_URL}${product.thumbnail}`} : require("../../../assets/Rectangle 24904.png"),
             variantId: product.variants?.[0]?._id || null,
-            minQty: priceInfo.minQty || 1, // Add tier pricing info for business users
+            minQty: priceInfo.minQty || 1,
             tierPricing: isBusinessUser ? getProductTierPricing(id, product.variants?.[0]?._id) : []
         };
     };
@@ -965,7 +1108,6 @@ export default function BlinkitHomeScreen() {
             setLoading(false);
         }
     }
-
 
     const handleProductPress = (product) => {
         router.push(`/screens/ProductDetailScreen?id=${product.id}`);
@@ -987,10 +1129,7 @@ export default function BlinkitHomeScreen() {
         return address;
     };
 
-    // Pick products from the active tab or fall back to featured
     const currentTabProducts = (tabProducts[activeTab] || featuredProducts).slice(0, 4);
-
-    const activeTabData = TAB_CATEGORIES.find(tab => tab.id === activeTab);
 
     function handleNotification() {
         router.push("/screens/NotificationScreen");
@@ -1002,435 +1141,473 @@ export default function BlinkitHomeScreen() {
         const cartQuantity = getCartQuantity(productId, product.variantId);
         const imageSource = product.image?.uri ? {uri: product.image.uri} : require("../../../assets/Rectangle 24904.png");
 
-        return (<Pressable
-            key={productId}
-            style={styles.productCard}
-            onPress={() => handleProductPress(product)}
-        >
-            {/* Product Image */}
-            <Image
-                source={imageSource}
-                style={styles.productImage}
-                resizeMode="cover"
-            />
+        return (
+            <Pressable
+                key={productId}
+                style={styles.productCard}
+                onPress={() => handleProductPress(product)}
+            >
+                <Image
+                    source={imageSource}
+                    style={styles.productImage}
+                    resizeMode="cover"
+                />
 
-            {/* Product Info */}
-            <View style={styles.fragmentProductInfo}>
-                <Text style={styles.fragmentProductName} numberOfLines={2}>
-                    {product.name}
-                </Text>
-
-                {/* Price Section */}
-                <View style={styles.leftPriceBox}>
-                    <Text style={styles.fragmentProductPrice}>
-                        ₹{priceInfo.finalPrice}
+                <View style={styles.fragmentProductInfo}>
+                    <Text style={styles.fragmentProductName} numberOfLines={2}>
+                        {product.name}
                     </Text>
 
-                    {priceInfo.hasDiscount && (<View style={styles.discountBox}>
-                        <Text style={styles.fragmentProductOriginalPrice}>
-                            ₹{priceInfo.basePrice}
+                    <View style={styles.leftPriceBox}>
+                        <Text style={styles.fragmentProductPrice}>
+                            ₹{priceInfo.finalPrice}
                         </Text>
-                        <Text style={styles.discountBadge}>
-                            {priceInfo.discountPercent}% OFF
-                        </Text>
-                    </View>)}
+
+                        {priceInfo.hasDiscount && (
+                            <View style={styles.discountBox}>
+                                <Text style={styles.fragmentProductOriginalPrice}>
+                                    ₹{priceInfo.basePrice}
+                                </Text>
+                                <Text style={styles.discountBadge}>
+                                    {priceInfo.discountPercent}% OFF
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+
+                    <View style={styles.bottomQuantityContainer}>
+                        {cartQuantity > 0 ? (
+                            <View style={styles.quantityControl}>
+                                <Pressable
+                                    style={styles.quantityButton}
+                                    onPress={() => handleUpdateQuantity(productId, product.variantId, cartQuantity - 1)}
+                                >
+                                    <Text style={styles.quantityMinus}>-</Text>
+                                </Pressable>
+
+                                <Text style={styles.quantityText}>{cartQuantity}</Text>
+
+                                <Pressable
+                                    style={styles.quantityButton}
+                                    onPress={() => handleUpdateQuantity(productId, product.variantId, cartQuantity + 1)}
+                                >
+                                    <Text style={styles.quantityPlus}>+</Text>
+                                </Pressable>
+                            </View>
+                        ) : (
+                            <Pressable
+                                style={[styles.fragmentAddButton, addingToCart[productId] && styles.fragmentAddButtonDisabled,]}
+                                disabled={addingToCart[productId]}
+                                onPress={() => handleAddToCart(product)}
+                            >
+                                <Text style={styles.fragmentAddButtonText}>
+                                    {addingToCart[productId] ? "ADDING..." : "ADD"}
+                                </Text>
+                            </Pressable>
+                        )}
+                    </View>
                 </View>
-
-                {/* Quantity / Add Button at Bottom */}
-                <View style={styles.bottomQuantityContainer}>
-                    {cartQuantity > 0 ? (<View style={styles.quantityControl}>
-                        <Pressable
-                            style={styles.quantityButton}
-                            onPress={() => handleUpdateQuantity(productId, product.variantId, cartQuantity - 1)}
-                        >
-                            <Text style={styles.quantityMinus}>-</Text>
-                        </Pressable>
-
-                        <Text style={styles.quantityText}>{cartQuantity}</Text>
-
-                        <Pressable
-                            style={styles.quantityButton}
-                            onPress={() => handleUpdateQuantity(productId, product.variantId, cartQuantity + 1)}
-                        >
-                            <Text style={styles.quantityPlus}>+</Text>
-                        </Pressable>
-                    </View>) : (<Pressable
-                        style={[styles.fragmentAddButton, addingToCart[productId] && styles.fragmentAddButtonDisabled,]}
-                        disabled={addingToCart[productId]}
-                        onPress={() => handleAddToCart(product)}
-                    >
-                        <Text style={styles.fragmentAddButtonText}>
-                            {addingToCart[productId] ? "ADDING..." : "ADD"}
-                        </Text>
-                    </Pressable>)}
-                </View>
-            </View>
-        </Pressable>);
+            </Pressable>
+        );
     };
 
     const handleCartPopupClick = () => {
         router.push('/screens/CartScreen');
     };
 
-    return (<SafeAreaView style={styles.container}>
-        <StatusBar backgroundColor={headerColor} barStyle="light-content"/>
+    // Get active tab name for display
+    const activeTabName = tabCategories.find(tab => tab.id === activeTab)?.name || 'Products';
 
-        {/* Header Section with Dynamic Background */}
-        <View style={[styles.header, {backgroundColor: headerColor}]}>
-            {/* Top Row */}
-            <View style={styles.topRow}>
-                <View style={styles.deliveryInfo}>
-                    <Text style={styles.blinkitText}>Healthy Choice</Text>
+    return (
+        <SafeAreaView style={styles.container}>
+            <StatusBar backgroundColor={headerColor} barStyle="light-content"/>
+
+            {/* Header Section with Dynamic Background */}
+            <View style={[styles.header, {backgroundColor: headerColor}]}>
+                {/* Top Row */}
+                <View style={styles.topRow}>
+                    <View style={styles.deliveryInfo}>
+                        <Text style={styles.blinkitText}>Healthy Choice</Text>
+                    </View>
                 </View>
-            </View>
 
-            {/*/!* Delivery Time *!/*/}
-            {/*<View style={styles.addressRow}>*/}
-            {/*    <Text style={styles.deliveryTimeBig}>*/}
-            {/*        {deliveryTime}*/}
-            {/*    </Text>*/}
-            {/*</View>*/}
-
-            {/* Address Row - Clickable */}
-            <Pressable style={styles.addressRow} onPress={handleAddressPress}>
-                <Text style={styles.homeText}>HOME</Text>
-                <Text style={styles.dash}>-</Text>
-                <Text style={styles.userAddress} numberOfLines={1}>
-                    {userName ? `${userName}, ` : ''}{truncateAddress(userAddress)}
-                </Text>
-                <Image
-                    source={require('../../../assets/icons/arrow-down-sign-to-navigate.png')}
-                    style={styles.downArrow}
-                />
-            </Pressable>
-
-            {/* Search Bar with Animation */}
-            <View style={styles.searchContainer}>
-                <Pressable
-                    style={styles.searchBarTouchable}
-                    onPress={() => router.push('/screens/SearchScreen')}
-                >
-                    <Animated.View style={[styles.searchBar, {
-                        width: searchBarWidth, marginLeft: searchBarMargin
-                    }]}>
-                        <Image
-                            source={require('../../../assets/icons/search.png')}
-                            style={styles.searchIcon}
-                        />
-                        <Animated.Text
-                            style={[styles.searchPlaceholder, {
-                                opacity: placeholderOpacity, transform: [{scale: placeholderScale}]
-                            }]}
-                        >
-                            Search "ice-cream"
-                        </Animated.Text>
-                        {/*<View style={styles.separator}/>*/}
-                        {/*<Image*/}
-                        {/*    source={require('../../../assets/icons/mic.png')}*/}
-                        {/*    style={styles.micIcon}*/}
-                        {/*/>*/}
-                    </Animated.View>
+                {/* Address Row - Clickable */}
+                <Pressable style={styles.addressRow} onPress={handleAddressPress}>
+                    <Text style={styles.homeText}>HOME</Text>
+                    <Text style={styles.dash}>-</Text>
+                    <Text style={styles.userAddress} numberOfLines={1}>
+                        {userName ? `${userName}, ` : ''}{truncateAddress(userAddress)}
+                    </Text>
+                    <Image
+                        source={require('../../../assets/icons/arrow-down-sign-to-navigate.png')}
+                        style={styles.downArrow}
+                    />
                 </Pressable>
-            </View>
 
-            <View style={styles.tabContainer}>
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.tabScrollContent}
-                >
-                    {TAB_CATEGORIES.map((tab) => (<Pressable
-                        key={tab.id}
-                        style={[styles.tabItem, activeTab === tab.id && [styles.activeTabItem, {backgroundColor: tab.color}]]}
-                        onPress={() => handleTabPress(tab.id)}
+                {/* Search Bar with Animation */}
+                <View style={styles.searchContainer}>
+                    <Pressable
+                        style={styles.searchBarTouchable}
+                        onPress={() => router.push('/screens/SearchScreen')}
                     >
-                        <View style={styles.tabIconContainer}>
+                        <Animated.View style={[styles.searchBar, {
+                            width: searchBarWidth,
+                            marginLeft: searchBarMargin
+                        }]}>
                             <Image
-                                source={tab.icon}
-                                style={[styles.tabIcon, activeTab === tab.id && styles.activeTabIcon]}
+                                source={require('../../../assets/icons/search.png')}
+                                style={styles.searchIcon}
                             />
+                            <Animated.Text
+                                style={[styles.searchPlaceholder, {
+                                    opacity: placeholderOpacity,
+                                    transform: [{scale: placeholderScale}]
+                                }]}
+                            >
+                                Search "ice-cream"
+                            </Animated.Text>
+                        </Animated.View>
+                    </Pressable>
+                </View>
+
+                {/* Dynamic Tab Container */}
+                <View style={styles.tabContainer}>
+                    {loadingTabs ? (
+                        <View style={styles.tabLoadingContainer}>
+                            <Text style={styles.tabLoadingText}>Loading tabs...</Text>
                         </View>
-
-                        <Text style={[styles.tabText, activeTab === tab.id && styles.activeTabText]}
-                              numberOfLines={1}>
-                            {tab.name}
-                        </Text>
-
-                        {activeTab === tab.id && (
-                            <View style={[styles.activeTabIndicator, {backgroundColor: '#FFFFFF'}]}/>)}
-                    </Pressable>))}
-                </ScrollView>
-            </View>
-        </View>
-
-        {/* Main Content */}
-        <ScrollView
-            style={styles.scrollView}
-            showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl
-                refreshing={false}
-                onRefresh={loadUserData}
-                colors={[headerColor]}
-                tintColor={headerColor}
-            />}
-        >
-
-            {/* Mega Diwali Sale Banner with Integrated Categories */}
-            <View style={[styles.saleBanner, {backgroundColor: headerColor}]}>
-                <View style={styles.saleContent}>
-                    <Text style={styles.saleTitle}>Mega Diwali Sale</Text>
-
-                    <View style={styles.categoriesSection}>
+                    ) : (
                         <ScrollView
                             horizontal
                             showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={styles.categoriesScroll}
+                            contentContainerStyle={styles.tabScrollContent}
                         >
-                            {salesCategories.map((category, index) => {
-                                const url = category?.image || category?.icon;
-                                const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../../assets/images/gifts.png");
-
-                                return (<Pressable
-                                    key={category?._id || `category-${index}`}
-                                    style={[styles.categoryCard, {backgroundColor: '#EAD3D3'}]}
-                                    onPress={() => handleCategoryPress(category)}
+                            {tabCategories.map((tab) => (
+                                <Pressable
+                                    key={tab.id}
+                                    style={[styles.tabItem, activeTab === tab.id && [styles.activeTabItem, {backgroundColor: tab.color}]]}
+                                    onPress={() => handleTabPress(tab.id)}
                                 >
-                                    <Text style={styles.categoryName}>
-                                        {category?.name || "Category"}
+                                    <View style={styles.tabIconContainer}>
+                                        {typeof tab.icon === 'object' && 'uri' in tab.icon ? (
+                                            <Image
+                                                source={tab.icon}
+                                                style={[styles.tabIcon, activeTab === tab.id && styles.activeTabIcon]}
+                                            />
+                                        ) : (
+                                            <Image
+                                                source={tab.icon}
+                                                style={[styles.tabIcon, activeTab === tab.id && styles.activeTabIcon]}
+                                            />
+                                        )}
+                                    </View>
+
+                                    <Text style={[styles.tabText, activeTab === tab.id && styles.activeTabText]}
+                                          numberOfLines={1}>
+                                        {tab.name}
                                     </Text>
-                                    <Image
-                                        source={imageSource}
-                                        style={styles.categoryImage}
-                                        resizeMode="contain"
-                                    />
-                                </Pressable>);
-                            })}
+
+                                    {activeTab === tab.id && (
+                                        <View style={[styles.activeTabIndicator, {backgroundColor: '#FFFFFF'}]}/>
+                                    )}
+                                </Pressable>
+                            ))}
                         </ScrollView>
-                    </View>
-                </View>
-
-            </View>
-
-            {/* Active Tab Products Section */}
-            <View style={styles.tabProductsSection}>
-                <View style={styles.sectionHeaderWithButton}>
-                    <Text style={styles.sectionTitle}>
-                        {TAB_CATEGORIES.find(tab => tab.id === activeTab)?.name} Products
-                    </Text>
-                    <Pressable
-                        style={styles.seeAllButton}
-                        onPress={() => router.push('/screens/AllProductsScreen')}
-                    >
-                        <Text style={styles.seeAllButtonText}>See All Products</Text>
-                        <Image
-                            source={require('../../../assets/icons/right-arrow.png')}
-                            style={styles.seeAllArrow}
-                        />
-                    </Pressable>
-                </View>
-
-                {loading ? (<View style={styles.loadingContainer}>
-                    <Text style={styles.loadingText}>Loading products...</Text>
-                </View>) : (<FlatList
-                    data={currentTabProducts}
-                    renderItem={renderTabProduct}
-                    keyExtractor={(item) => item.id}
-                    numColumns={2}
-                    scrollEnabled={false}
-                    contentContainerStyle={styles.tabProductsGrid}
-                    showsVerticalScrollIndicator={false}
-                />)}
-            </View>
-
-            {/* Featured Products */}
-            <View style={styles.productsSection}>
-                <View style={styles.sectionHeaderWithButton}>
-                    <Text style={styles.sectionTitle}>Featured Products</Text>
-                    <Pressable
-                        style={styles.seeAllButton}
-                        onPress={() => router.push('/screens/AllProductsScreen')}
-                    >
-                        <Text style={styles.seeAllButtonText}>See All</Text>
-                        <Image
-                            source={require('../../../assets/icons/right-arrow.png')}
-                            style={styles.seeAllArrow}
-                        />
-                    </Pressable>
-                </View>
-
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.productsScroll}
-                >
-                    {featuredProducts.map((product) => renderFeaturedProduct(product))}
-                </ScrollView>
-            </View>
-
-            {/* Grocery & Kitchen Section */}
-            <View style={styles.grocerySection}>
-                <View style={styles.sectionHeaderWithButton}>
-                    <Text style={styles.sectionTitle}>Grocery & Kitchen</Text>
-                    <Pressable
-                        style={styles.seeAllButton}
-                        onPress={() => router.push('/screens/AllCategoriesScreen')}
-                    >
-                        <Text style={styles.seeAllButtonText}>See All</Text>
-                        <Image
-                            source={require('../../../assets/icons/right-arrow.png')}
-                            style={styles.seeAllArrow}
-                        />
-                    </Pressable>
-                </View>
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.groceryScroll}
-                >
-                    {groceryCategories.map((category, index) => {
-                        const url = category?.image || category?.icon;
-                        const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../../assets/images/gifts.png");
-                        return (<Pressable
-                            key={category?._id || `category-${index}`}
-                            style={styles.groceryCard}
-                            onPress={() => handleCategorySelected(category)}
-                        >
-                            <View style={[styles.groceryImageContainer, {backgroundColor: category.color}]}>
-                                <Image
-                                    source={imageSource}
-                                    style={styles.groceryImage}
-                                    resizeMode="contain"
-                                />
-                            </View>
-                            <Text style={styles.groceryName}>{category.name}</Text>
-                        </Pressable>)
-                    })}
-                </ScrollView>
-            </View>
-
-            <View style={styles.bottomSpacer}/>
-
-        </ScrollView>
-
-        {/* Category Fragment Modal */}
-        <Modal
-            visible={showCategoryFragment}
-            animationType="slide"
-            transparent={true}
-            onRequestClose={closeCategoryFragment}
-        >
-            <View style={styles.modalOverlay}>
-                <View style={styles.halfScreenModal}>
-                    <SafeAreaView style={styles.fragmentContainer}>
-                        <View style={[styles.fragmentHeader]}>
-                            <Pressable onPress={closeCategoryFragment} style={styles.fragmentCloseButton}>
-                                <Image
-                                    source={require("../../../assets/icons/deleteIcon.png")}
-                                    style={styles.fragmentCloseIcon}
-                                />
-                            </Pressable>
-                            <Text style={styles.fragmentHeaderTitle}>
-                                {selectedCategory?.name || 'Categories'}
-                            </Text>
-                            <View style={styles.fragmentHeaderPlaceholder}/>
-                        </View>
-
-                        <View style={styles.fragmentContent}>
-                            <View style={styles.fragmentLeftColumn}>
-                                <ScrollView
-                                    style={styles.fragmentCategoriesList}
-                                    showsVerticalScrollIndicator={false}
-                                >
-                                    {categories.map((category) => {
-                                        const url = category?.image || category?.icon;
-                                        const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../../assets/images/gifts.png");
-
-                                        return (<Pressable
-                                            key={category._id}
-                                            style={[styles.fragmentCategoryItem, selectedCategory?._id === category._id && styles.fragmentSelectedCategoryItem]}
-                                            onPress={() => handleCategorySelect(category)}
-                                        >
-                                            <View style={styles.fragmentCategoryContent}>
-                                                <Image
-                                                    source={imageSource}
-                                                    style={styles.fragmentCategoryImage}
-                                                    resizeMode="cover"
-                                                />
-                                                <Text
-                                                    style={[styles.fragmentCategoryName, selectedCategory?._id === category._id && styles.fragmentSelectedCategoryName]}
-                                                    numberOfLines={2}
-                                                >
-                                                    {category.name}
-                                                </Text>
-                                            </View>
-                                        </Pressable>);
-                                    })}
-                                </ScrollView>
-                            </View>
-
-                            <View style={styles.fragmentRightColumn}>
-                                {fragmentLoading ? (<View style={styles.fragmentLoading}>
-                                    <Text style={styles.fragmentLoadingText}>Loading products...</Text>
-                                </View>) : categoryProducts.length === 0 ? (<View style={styles.fragmentEmpty}>
-                                    <Image
-                                        source={require("../../../assets/icons/empty-box.png")}
-                                        style={styles.fragmentEmptyIcon}
-                                    />
-                                    <Text style={styles.fragmentEmptyText}>No products found</Text>
-                                    <Text style={styles.fragmentEmptySubtext}>Try selecting another
-                                        category</Text>
-                                </View>) : (<FlatList
-                                    data={categoryProducts}
-                                    renderItem={renderFragmentProduct}
-                                    keyExtractor={(item) => item._id || item.id}
-                                    numColumns={2}
-                                    showsVerticalScrollIndicator={false}
-                                    contentContainerStyle={styles.fragmentProductsGrid}
-                                />)}
-                            </View>
-                        </View>
-                    </SafeAreaView>
+                    )}
                 </View>
             </View>
-        </Modal>
 
-        {/* Cart Popup - Only show when cart has items */}
-        {showCartPopup && cartItems.length > 0 && (<Animated.View
-            style={[styles.cartPopupContainer, {transform: [{translateX: slideAnim}]}]}
-        >
-            <Pressable
-                style={styles.cartPopup}
-                activeOpacity={0.9}
-                onPress={handleCartPopupClick}
+            {/* Main Content */}
+            <ScrollView
+                style={styles.scrollView}
+                showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={false}
+                        onRefresh={() => {
+                            loadTabCategories();
+                            loadUserData();
+                        }}
+                        colors={[headerColor]}
+                        tintColor={headerColor}
+                    />
+                }
             >
-                <View style={styles.cartPopupContent}>
 
-                    <View style={styles.cartImagesContainer}>
-                        {getCartItemImages().map((imageSource, index) => (<Image
-                            key={index}
-                            source={imageSource}
-                            style={[styles.cartItemImage, {zIndex: 3 - index}]}
-                            resizeMode="cover"
-                        />))}
+                {/* Mega Diwali Sale Banner with Integrated Categories */}
+                <View style={[styles.saleBanner, {backgroundColor: headerColor}]}>
+                    <View style={styles.saleContent}>
+                        <Text style={styles.saleTitle}>Mega Diwali Sale</Text>
 
-                        {cartItems.length > 1 && (<View style={styles.moreItemsBadge}>
-                            <Text style={styles.moreItemsText}>
-                                +{cartItems.length - 1}
-                            </Text>
-                        </View>)}
+                        <View style={styles.categoriesSection}>
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={styles.categoriesScroll}
+                            >
+                                {salesCategories.map((category, index) => {
+                                    const url = category?.image || category?.icon;
+                                    const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../../assets/images/gifts.png");
+
+                                    return (
+                                        <Pressable
+                                            key={category?._id || `category-${index}`}
+                                            style={[styles.categoryCard, {backgroundColor: '#EAD3D3'}]}
+                                            onPress={() => handleCategoryPress(category)}
+                                        >
+                                            <Text style={styles.categoryName}>
+                                                {category?.name || "Category"}
+                                            </Text>
+                                            <Image
+                                                source={imageSource}
+                                                style={styles.categoryImage}
+                                                resizeMode="contain"
+                                            />
+                                        </Pressable>
+                                    );
+                                })}
+                            </ScrollView>
+                        </View>
                     </View>
-
-                    <View style={styles.cartInfo}>
-                        <Text style={styles.cartItemsCount}>
-                            View in cart
-                        </Text>
-                    </View>
-
                 </View>
-            </Pressable>
-        </Animated.View>)}
 
-    </SafeAreaView>);
+                {/* Active Tab Products Section */}
+                <View style={styles.tabProductsSection}>
+                    <View style={styles.sectionHeaderWithButton}>
+                        <Text style={styles.sectionTitle}>
+                            {activeTabName} Products
+                        </Text>
+                        <Pressable
+                            style={styles.seeAllButton}
+                            onPress={() => router.push('/screens/AllProductsScreen')}
+                        >
+                            <Text style={styles.seeAllButtonText}>See All Products</Text>
+                            <Image
+                                source={require('../../../assets/icons/right-arrow.png')}
+                                style={styles.seeAllArrow}
+                            />
+                        </Pressable>
+                    </View>
+
+                    {tabLoading ? (
+                        <View style={styles.loadingContainer}>
+                            <Text style={styles.loadingText}>Loading products...</Text>
+                        </View>
+                    ) : (
+                        <FlatList
+                            data={currentTabProducts}
+                            renderItem={renderTabProduct}
+                            keyExtractor={(item) => item.id}
+                            numColumns={2}
+                            scrollEnabled={false}
+                            contentContainerStyle={styles.tabProductsGrid}
+                            showsVerticalScrollIndicator={false}
+                        />
+                    )}
+                </View>
+
+                {/* Featured Products */}
+                <View style={styles.productsSection}>
+                    <View style={styles.sectionHeaderWithButton}>
+                        <Text style={styles.sectionTitle}>Featured Products</Text>
+                        <Pressable
+                            style={styles.seeAllButton}
+                            onPress={() => router.push('/screens/AllProductsScreen')}
+                        >
+                            <Text style={styles.seeAllButtonText}>See All</Text>
+                            <Image
+                                source={require('../../../assets/icons/right-arrow.png')}
+                                style={styles.seeAllArrow}
+                            />
+                        </Pressable>
+                    </View>
+
+                    <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.productsScroll}
+                    >
+                        {featuredProducts.map((product) => renderFeaturedProduct(product))}
+                    </ScrollView>
+                </View>
+
+                {/* Grocery & Kitchen Section */}
+                <View style={styles.grocerySection}>
+                    <View style={styles.sectionHeaderWithButton}>
+                        <Text style={styles.sectionTitle}>Grocery & Kitchen</Text>
+                        <Pressable
+                            style={styles.seeAllButton}
+                            onPress={() => router.push('/screens/AllCategoriesScreen')}
+                        >
+                            <Text style={styles.seeAllButtonText}>See All</Text>
+                            <Image
+                                source={require('../../../assets/icons/right-arrow.png')}
+                                style={styles.seeAllArrow}
+                            />
+                        </Pressable>
+                    </View>
+                    <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.groceryScroll}
+                    >
+                        {groceryCategories.map((category, index) => {
+                            const url = category?.image || category?.icon;
+                            const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../../assets/images/gifts.png");
+                            return (
+                                <Pressable
+                                    key={category?._id || `category-${index}`}
+                                    style={styles.groceryCard}
+                                    onPress={() => handleCategorySelected(category)}
+                                >
+                                    <View style={[styles.groceryImageContainer, {backgroundColor: category.color}]}>
+                                        <Image
+                                            source={imageSource}
+                                            style={styles.groceryImage}
+                                            resizeMode="contain"
+                                        />
+                                    </View>
+                                    <Text style={styles.groceryName}>{category.name}</Text>
+                                </Pressable>
+                            )
+                        })}
+                    </ScrollView>
+                </View>
+
+                <View style={styles.bottomSpacer}/>
+            </ScrollView>
+
+            {/* Category Fragment Modal - Keep as is */}
+            <Modal
+                visible={showCategoryFragment}
+                animationType="slide"
+                transparent={true}
+                onRequestClose={closeCategoryFragment}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.halfScreenModal}>
+                        <SafeAreaView style={styles.fragmentContainer}>
+                            <View style={[styles.fragmentHeader]}>
+                                <Pressable onPress={closeCategoryFragment} style={styles.fragmentCloseButton}>
+                                    <Image
+                                        source={require("../../../assets/icons/deleteIcon.png")}
+                                        style={styles.fragmentCloseIcon}
+                                    />
+                                </Pressable>
+                                <Text style={styles.fragmentHeaderTitle}>
+                                    {selectedCategory?.name || 'Categories'}
+                                </Text>
+                                <View style={styles.fragmentHeaderPlaceholder}/>
+                            </View>
+
+                            <View style={styles.fragmentContent}>
+                                <View style={styles.fragmentLeftColumn}>
+                                    <ScrollView
+                                        style={styles.fragmentCategoriesList}
+                                        showsVerticalScrollIndicator={false}
+                                    >
+                                        {categories.map((category) => {
+                                            const url = category?.image || category?.icon;
+                                            const imageSource = url ? {uri: `${API_BASE_URL}${url}`} : require("../../../assets/images/gifts.png");
+
+                                            return (
+                                                <Pressable
+                                                    key={category._id}
+                                                    style={[styles.fragmentCategoryItem, selectedCategory?._id === category._id && styles.fragmentSelectedCategoryItem]}
+                                                    onPress={() => handleCategorySelect(category)}
+                                                >
+                                                    <View style={styles.fragmentCategoryContent}>
+                                                        <Image
+                                                            source={imageSource}
+                                                            style={styles.fragmentCategoryImage}
+                                                            resizeMode="cover"
+                                                        />
+                                                        <Text
+                                                            style={[styles.fragmentCategoryName, selectedCategory?._id === category._id && styles.fragmentSelectedCategoryName]}
+                                                            numberOfLines={2}
+                                                        >
+                                                            {category.name}
+                                                        </Text>
+                                                    </View>
+                                                </Pressable>
+                                            );
+                                        })}
+                                    </ScrollView>
+                                </View>
+
+                                <View style={styles.fragmentRightColumn}>
+                                    {fragmentLoading ? (
+                                        <View style={styles.fragmentLoading}>
+                                            <Text style={styles.fragmentLoadingText}>Loading products...</Text>
+                                        </View>
+                                    ) : categoryProducts.length === 0 ? (
+                                        <View style={styles.fragmentEmpty}>
+                                            <Image
+                                                source={require("../../../assets/icons/empty-box.png")}
+                                                style={styles.fragmentEmptyIcon}
+                                            />
+                                            <Text style={styles.fragmentEmptyText}>No products found</Text>
+                                            <Text style={styles.fragmentEmptySubtext}>Try selecting another
+                                                category</Text>
+                                        </View>
+                                    ) : (
+                                        <FlatList
+                                            data={categoryProducts}
+                                            renderItem={renderFragmentProduct}
+                                            keyExtractor={(item) => item._id || item.id}
+                                            numColumns={2}
+                                            showsVerticalScrollIndicator={false}
+                                            contentContainerStyle={styles.fragmentProductsGrid}
+                                        />
+                                    )}
+                                </View>
+                            </View>
+                        </SafeAreaView>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Cart Popup - Only show when cart has items */}
+            {showCartPopup && cartItems.length > 0 && (
+                <Animated.View
+                    style={[styles.cartPopupContainer, {transform: [{translateX: slideAnim}]}]}
+                >
+                    <Pressable
+                        style={styles.cartPopup}
+                        activeOpacity={0.9}
+                        onPress={handleCartPopupClick}
+                    >
+                        <View style={styles.cartPopupContent}>
+                            <View style={styles.cartImagesContainer}>
+                                {getCartItemImages().map((imageSource, index) => (
+                                    <Image
+                                        key={index}
+                                        source={imageSource}
+                                        style={[styles.cartItemImage, {zIndex: 3 - index}]}
+                                        resizeMode="cover"
+                                    />
+                                ))}
+
+                                {cartItems.length > 1 && (
+                                    <View style={styles.moreItemsBadge}>
+                                        <Text style={styles.moreItemsText}>
+                                            +{cartItems.length - 1}
+                                        </Text>
+                                    </View>
+                                )}
+                            </View>
+
+                            <View style={styles.cartInfo}>
+                                <Text style={styles.cartItemsCount}>
+                                    View in cart
+                                </Text>
+                            </View>
+                        </View>
+                    </Pressable>
+                </Animated.View>
+            )}
+        </SafeAreaView>
+    );
 }
 
 const styles = StyleSheet.create({
@@ -1469,10 +1646,6 @@ const styles = StyleSheet.create({
         shadowColor: '#000',
     }, tabIconContainer: {
         marginBottom: 4,
-    }, tabIcon: {
-        width: 20, height: 20, tintColor: '#000',
-    }, activeTabIcon: {
-        tintColor: '#FFFFFF',
     }, tabText: {
         fontSize: 13, fontFamily: 'Poppins-SemiBold', color: '#000', textAlign: 'center',
     }, activeTabText: {
@@ -1918,5 +2091,29 @@ const styles = StyleSheet.create({
         fontSize: 15, fontFamily: 'Poppins-SemiBold', color: '#1B1B1B',
     }, tierPricingInfo: {
         fontSize: 9, fontFamily: 'Poppins-Regular', color: '#4CAD73', marginTop: 2, fontStyle: 'italic',
+    },
+    tabLoadingContainer: {
+        height: 70,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    tabLoadingText: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontFamily: 'Poppins-Medium',
+    },
+    tabIcon: {
+        width: 24,
+        height: 24,
+        borderRadius: 12, // For better appearance of remote images
+    },
+    remoteTabIcon: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+    },
+    activeTabIcon: {
+        tintColor: '#FFFFFF',
     },
 });

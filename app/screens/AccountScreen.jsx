@@ -558,7 +558,7 @@ export default function AccountScreen() {
                     >
                         <View style={styles.leftRow}>
                             <Image
-                                source={require("../../assets/icons/order.png")}
+                                source={require("../../assets/icons/orderDelivery.png")}
                                 style={styles.menuIcon}
                             />
                             <Text style={styles.menuLabel}>Your orders</Text>

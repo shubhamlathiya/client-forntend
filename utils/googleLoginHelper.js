@@ -3,14 +3,14 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {Alert} from "react-native";
 import {API_BASE_URL} from "../config/apiConfig";
 import {mergeGuestCart} from "../api/cartApi";
-import {setAccessToken} from "./apiClient";
+import apiClient, {setAccessToken} from "./apiClient";
 import * as SecureStore from "expo-secure-store"; // if you have it
 
 WebBrowser.maybeCompleteAuthSession();
 
-const APP_REDIRECT = "exp://192.168.0.119:8081/--/auth/callback";
+// const APP_REDIRECT = "exp://192.168.0.119:8081/--/auth/callback";
 // const APP_REDIRECT = "exp://10.244.170.75:8081/--/auth/callback";
-// const APP_REDIRECT = "clientforntend://auth/callback";
+const APP_REDIRECT = "clientforntend://auth/callback";
 //
 // ---------------------------
 // Google Login
@@ -183,7 +183,7 @@ export async function facebookLogin(router, setFacebookLoading) {
         } else {
             // If user data not in URL, fetch it using the access token
             try {
-                const userResponse = await axios.get(`${API_BASE_URL}/api/auth/me`, {
+                const userResponse = await apiClient.get(`${API_BASE_URL}/api/auth/me`, {
                     headers: {Authorization: `Bearer ${accessToken}`}
                 });
                 if (userResponse.data.success) {

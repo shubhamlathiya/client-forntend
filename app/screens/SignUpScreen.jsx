@@ -7,7 +7,7 @@ import {fonts} from '../../constants/fonts';
 import {globalStyles} from '../../constants/globalStyles';
 
 import {registerUser} from '../../api/authApi';
-import {googleLogin} from "../../utils/googleLoginHelper";
+import {facebookLogin, googleLogin} from "../../utils/googleLoginHelper";
 
 export default function SignUpScreen() {
     const router = useRouter();
@@ -18,6 +18,7 @@ export default function SignUpScreen() {
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [googleLoading, setGoogleLoading] = useState(false);
+    const [facebookLoading, setFacebookLoading] = useState(false);
 
     async function handleSignUp() {
         if (loading) return;
@@ -203,7 +204,7 @@ export default function SignUpScreen() {
                 </Pressable>
 
                 {/* Facebook Button */}
-                <Pressable style={globalStyles.socialBtn}>
+                <Pressable style={globalStyles.socialBtn} onPress={() => facebookLogin(router, setFacebookLoading)} disabled={facebookLoading}>
                     <Image
                         source={require("../../assets/facebook.png")}
                         style={globalStyles.socialIcon}

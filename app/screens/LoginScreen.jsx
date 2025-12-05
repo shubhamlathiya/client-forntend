@@ -200,7 +200,7 @@ export default function LoginScreen() {
                 </Pressable>
 
                 {/* Facebook Button */}
-                <Pressable style={globalStyles.socialBtn} onPress={() => facebookLogin(router, setFacebookLoading)} disabled={googleLoading}>
+                <Pressable style={globalStyles.socialBtn} onPress={() => facebookLogin(router, setFacebookLoading)} disabled={facebookLoading}>
                     <Image
                         source={require("../../assets/facebook.png")}
                         style={globalStyles.socialIcon}

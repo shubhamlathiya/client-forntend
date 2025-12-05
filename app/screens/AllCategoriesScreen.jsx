@@ -64,11 +64,22 @@ export default function AllCategoriesScreen() {
     }, []);
 
     const fetchCategories = async () => {
+        const capitalizeWords = (text) => {
+            if (!text || typeof text !== "string") return text;
+            return text
+                .split(" ")
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(" ");
+        };
+
         try {
             setLoading(true);
             const res = await getCategories();
 
-            const data = res?.data?.data || res?.data || (Array.isArray(res) ? res : []);
+            const data =
+                res?.data?.data ||
+                res?.data ||
+                (Array.isArray(res) ? res : []);
 
             if (!Array.isArray(data) || !data.length) {
                 setCategories([]);
@@ -82,22 +93,22 @@ export default function AllCategoriesScreen() {
             const finalList = parents.map(parent => {
                 const subcats = children.filter(c => c.parentId === parent._id);
 
-                // Add parent as a subcategory entry
+                // Format parent
                 const parentAsSub = {
                     _id: parent._id,
-                    name: parent.name,
+                    name: capitalizeWords(parent.name),
                     image: parent.image || null,
                     parentId: null
                 };
 
-                // If child subcategories exist → include parent + children
+                // Build subcategory list
                 const finalSubcategories =
                     subcats.length > 0
                         ? [
                             parentAsSub,
                             ...subcats.map(s => ({
                                 _id: s._id,
-                                name: s.name,
+                                name: capitalizeWords(s.name),
                                 image: s.image || null,
                                 parentId: s.parentId
                             }))
@@ -106,6 +117,7 @@ export default function AllCategoriesScreen() {
 
                 return {
                     ...parent,
+                    name: capitalizeWords(parent.name),
                     subcategories: finalSubcategories
                 };
             });
@@ -119,6 +131,7 @@ export default function AllCategoriesScreen() {
             setLoading(false);
         }
     };
+
 
     const handleCategoryPress = (item) => {
         router.push({

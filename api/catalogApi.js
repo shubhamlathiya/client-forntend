@@ -148,6 +148,7 @@ export const checkWishlist = async (userId, productId) => {
 export const getTabCategories = async () => {
     try {
         const response = await apiClient.get(`/api/tabCategory/tab-categories`);
+        console.log(response.data.data)
         return response.data;
     } catch (error) {
         console.error('Failed to fetch tab categories', error);

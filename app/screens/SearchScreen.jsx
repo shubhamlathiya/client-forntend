@@ -171,19 +171,19 @@ export default function SearchScreen() {
                     style={styles.productImage}
                     resizeMode="cover"
                 />
-                <Pressable style={styles.heartButton} onPress={async () => {
-                    try {
-                        const raw = await AsyncStorage.getItem('userData');
-                        const user = raw ? JSON.parse(raw) : null;
-                        const uid = user?._id || user?.id || user?.userId || null;
-                        if (!uid || !productId) return;
-                        const res = await toggleWishlist(uid, String(productId));
-                        const liked = Boolean(res?.data?.liked ?? res?.liked);
-                        setLikedMap(prev => ({ ...prev, [String(productId)]: liked }));
-                    } catch (_) {}
-                }}>
-                    <Image source={require('../../assets/icons/heart.png')} style={[styles.heartIcon, likedMap[String(productId)] ? styles.heartLiked : styles.heartUnliked]} />
-                </Pressable>
+                {/*<Pressable style={styles.heartButton} onPress={async () => {*/}
+                {/*    try {*/}
+                {/*        const raw = await AsyncStorage.getItem('userData');*/}
+                {/*        const user = raw ? JSON.parse(raw) : null;*/}
+                {/*        const uid = user?._id || user?.id || user?.userId || null;*/}
+                {/*        if (!uid || !productId) return;*/}
+                {/*        const res = await toggleWishlist(uid, String(productId));*/}
+                {/*        const liked = Boolean(res?.data?.liked ?? res?.liked);*/}
+                {/*        setLikedMap(prev => ({ ...prev, [String(productId)]: liked }));*/}
+                {/*    } catch (_) {}*/}
+                {/*}}>*/}
+                {/*    <Image source={require('../../assets/icons/heart.png')} style={[styles.heartIcon, likedMap[String(productId)] ? styles.heartLiked : styles.heartUnliked]} />*/}
+                {/*</Pressable>*/}
 
                 <View style={styles.productInfo}>
                     <Text style={styles.productName} numberOfLines={2}>
@@ -197,13 +197,9 @@ export default function SearchScreen() {
                                 <Text style={styles.discountText}>{priceInfo.discountPercent}% OFF</Text>
                             </View>)}
                     </View>
-
-                    <Text style={styles.deliveryTime}>Delivery in 16 mins</Text>
                 </View>
             </Pressable>);
     };
-
-    const popularSearches = ['Milk', 'Bread', 'Eggs', 'Rice', 'Apple', 'Banana', 'Potato', 'Onion', 'Tomato', 'Biscuits'];
 
     return (<View style={styles.container}>
             <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
@@ -237,55 +233,44 @@ export default function SearchScreen() {
             </View>
 
             {/* Search Results */}
-            {query ? (<View style={styles.resultsContainer}>
-                    <Text style={styles.resultsTitle}>
-                        {filteredProducts.length > 0 ? `Search Results for "${query}" (${filteredProducts.length})` : `No results found for "${query}"`}
-                    </Text>
+        {query && (
+            <View style={styles.resultsContainer}>
+                <Text style={styles.resultsTitle}>
+                    {filteredProducts.length > 0
+                        ? `Search Results for "${query}" (${filteredProducts.length})`
+                        : `No results found for "${query}"`}
+                </Text>
 
-                    {loading ? (<View style={styles.loadingContainer}>
-                            <ActivityIndicator size="large" color="#EC0505"/>
-                            <Text style={styles.loadingText}>Loading products...</Text>
-                        </View>) : (<FlatList
-                            data={filteredProducts}
-                            renderItem={renderProductItem}
-                            keyExtractor={(item) => item._id || item.id || Math.random().toString()}
-                            showsVerticalScrollIndicator={false}
-                            contentContainerStyle={styles.productsList}
-                            ListEmptyComponent={!loading && (<View style={styles.emptyContainer}>
-                                    <Image
-                                        source={require('../../assets/icons/search.png')}
-                                        style={styles.emptyIcon}
-                                    />
-                                    <Text style={styles.emptyTitle}>No products found</Text>
-                                    <Text style={styles.emptySubtitle}>
-                                        Try searching with different keywords
-                                    </Text>
-                                </View>)}
-                        />)}
-                </View>) : (/* Popular Searches when no query */
-                <ScrollView
-                    style={styles.popularContainer}
-                    showsVerticalScrollIndicator={false}
-                >
-                    <Text style={styles.popularTitle}>Popular Searches</Text>
-
-                    <View style={styles.popularTags}>
-                        {popularSearches.map((searchTerm, index) => (<Pressable
-                                key={index}
-                                style={styles.tag}
-                                onPress={() => setQuery(searchTerm)}
-                            >
-                                <Text style={styles.tagText}>{searchTerm}</Text>
-                            </Pressable>))}
+                {loading ? (
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color="#EC0505" />
+                        <Text style={styles.loadingText}>Loading products...</Text>
                     </View>
+                ) : (
+                    <FlatList
+                        data={filteredProducts}
+                        renderItem={renderProductItem}
+                        keyExtractor={(item) => item._id || item.id || String(item)}
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={styles.productsList}
+                        ListEmptyComponent={
+                            <View style={styles.emptyContainer}>
+                                <Image
+                                    source={require('../../assets/icons/search.png')}
+                                    style={styles.emptyIcon}
+                                />
+                                <Text style={styles.emptyTitle}>No products found</Text>
+                                <Text style={styles.emptySubtitle}>
+                                    Try searching with different keywords
+                                </Text>
+                            </View>
+                        }
+                    />
+                )}
+            </View>
+        )}
 
-                    {/* Recent Searches Section (you can implement this later) */}
-                    {/* <Text style={styles.sectionTitle}>Recent Searches</Text>
-                    <View style={styles.recentSearches}>
-                        {/* Map through recent searches * /}
-                    </View> */}
-                </ScrollView>)}
-        </View>);
+    </View>);
 }
 
 const styles = StyleSheet.create({

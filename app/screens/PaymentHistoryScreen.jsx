@@ -256,7 +256,7 @@ const PaymentHistoryScreen = () => {
             {loading ? (
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color="#10B981" />
-                    <Text style={styles.loadingText}>Loading payment history...</Text>
+                    <Text style={styles.loadingText}>Loading Payment History...</Text>
                 </View>
             ) : (
                 <SectionList

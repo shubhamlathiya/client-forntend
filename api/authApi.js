@@ -21,7 +21,7 @@ export const registerUser = async ({name = '', email, phone = '', password}) => 
 
     } catch (error) {
         // Only network / axios errors end up here
-        console.log("❌ API Error:", error?.response?.data || error.message);
+        console.log("API Error:", error?.response?.data || error.message);
 
         // Don't overwrite real backend errors
         throw new Error(error.message || 'Network error. Try again.');
@@ -59,6 +59,17 @@ export const resetPassword = async ({type = 'email', contact, token, newPassword
     return res.data;
 };
 
+export const verifyResetOTP = async (data) => {
+    const response = await apiClient.post('/api/auth/verify-reset-otp', data);
+    return response.data;
+};
+
+export const resendResetOTP = async (data) => {
+    const response = await apiClient.post('/api/auth/resend-reset-otp', data);
+    return response.data;
+};
+
+
 export const uploadProfileImage = async (userId, formData) => {
     try {
 
@@ -90,13 +101,13 @@ export const uploadProfileImage = async (userId, formData) => {
         return response.data;
 
     } catch (error) {
-        console.log("❌ Upload FAILED");
         console.log("Error message:", error?.message);
         const backendMessage = error?.response?.data?.message || error?.response?.data?.error || error?.message || "Upload failed";
 
         throw new Error(backendMessage);
     }
 };
+
 
 export const updateUserPhone = async (userId, phone) => {
     try {

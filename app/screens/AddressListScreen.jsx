@@ -65,7 +65,6 @@ export default function AddressListScreen() {
 
             // Store the selected address
             await AsyncStorage.setItem('selectedAddress', JSON.stringify(address));
-            console.log(address._id || address.id)
             // Always go back to previous screen
             if (router.canGoBack()) {
                 router.back();
@@ -227,7 +226,7 @@ export default function AddressListScreen() {
             <View style={styles.loadingContainer}>
                 <StatusBar backgroundColor="#EC0505" barStyle="light-content"/>
                 <ActivityIndicator size="large" color="#EC0505"/>
-                <Text style={styles.loadingText}>Loading addresses...</Text>
+                <Text style={styles.loadingText}>Loading Addresses...</Text>
             </View>
         );
     }

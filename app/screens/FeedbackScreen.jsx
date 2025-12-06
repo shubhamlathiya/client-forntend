@@ -11,14 +11,70 @@ import {
     Alert,
     SafeAreaView,
     TextInput,
-    Dimensions
+    Dimensions,
+    Platform
 } from "react-native";
 import {useRouter, useLocalSearchParams} from "expo-router";
-import {createReview, updateReview, getProductReviews} from "../../api/reviewApi";
+import {getProductRatingByUser} from "../../api/catalogApi";
 import {API_BASE_URL} from "../../config/apiConfig";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {createReview, getProductReviews, updateReview} from "../../api/reviewApi";
 
 const {height: screenHeight, width: screenWidth} = Dimensions.get("window");
+
+// Check if device has notch (iPhone X and above)
+const hasNotch = Platform.OS === 'ios' && (screenHeight >= 812 || screenWidth >= 812);
+
+// Safe area insets for different devices
+const getSafeAreaInsets = () => {
+    if (Platform.OS === 'ios') {
+        if (hasNotch) {
+            return {
+                top: 44, // Status bar + notch area
+                bottom: 34 // Home indicator area
+            };
+        }
+        return {
+            top: 20, // Regular status bar
+            bottom: 0
+        };
+    }
+    // Android
+    return {
+        top: StatusBar.currentHeight || 25,
+        bottom: 0
+    };
+};
+
+const safeAreaInsets = getSafeAreaInsets();
+
+// Responsive size calculator with constraints
+const RF = (size) => {
+    const scale = screenWidth / 375; // 375 is standard iPhone width
+    const normalizedSize = size * Math.min(scale, 1.5); // Max 1.5x scaling for tablets
+    return Math.round(normalizedSize);
+};
+
+const RH = (size) => {
+    const scale = screenHeight / 812; // 812 is standard iPhone height
+    return Math.round(size * Math.min(scale, 1.5));
+};
+
+// Check if device is tablet
+const isTablet = screenWidth >= 768;
+const isLargeTablet = screenWidth >= 1024;
+const isSmallPhone = screenWidth <= 320;
+
+// Responsive width percentage
+const responsiveWidth = (percentage) => {
+    return Math.round((screenWidth * percentage) / 100);
+};
+
+// Responsive height percentage (excluding safe areas)
+const responsiveHeight = (percentage) => {
+    const availableHeight = screenHeight - safeAreaInsets.top - safeAreaInsets.bottom;
+    return Math.round((availableHeight * percentage) / 100);
+};
 
 export default function FeedbackScreen() {
     const router = useRouter();
@@ -32,45 +88,128 @@ export default function FeedbackScreen() {
     const [productReviews, setProductReviews] = useState([]);
     const [reviewsLoading, setReviewsLoading] = useState(false);
     const [currentUserId, setCurrentUserId] = useState(null);
+    const [userReviewId, setUserReviewId] = useState(null);
+    const [loadingUserReview, setLoadingUserReview] = useState(true);
+    const [isEditing, setIsEditing] = useState(false);
+    const [existingReview, setExistingReview] = useState(null);
 
-    const {product: productParam, order: orderParam} = params;
+    const {product: productParam, order: orderParam, mode = 'new', existingRating: existingRatingParam} = params;
 
-    // Load user info once
+    // Load user info
     const loadCurrentUser = async () => {
         try {
             const stored = await AsyncStorage.getItem("userData");
             if (stored) {
                 const parsed = JSON.parse(stored);
-                setCurrentUserId(parsed?._id || parsed?.id);
+                const uid = parsed?._id || parsed?.id;
+                setCurrentUserId(uid);
+                return uid;
             }
         } catch (err) {
             console.log("Error loading user:", err);
         }
+        return null;
     };
 
     // Parse product and order params
     useEffect(() => {
-        if (productParam) {
+        const parseData = async () => {
             try {
-                setProduct(JSON.parse(productParam));
-            } catch (err) {
-                console.error("Error parsing product:", err);
+                // Load current user first
+                await loadCurrentUser();
+
+                // Parse product data
+                if (productParam) {
+                    try {
+                        const parsedProduct = typeof productParam === 'string' ? JSON.parse(productParam) : productParam;
+                        setProduct(parsedProduct);
+                    } catch (err) {
+                        console.error("Error parsing product:", err);
+                    }
+                }
+
+                // Parse order data
+                if (orderParam) {
+                    try {
+                        const parsedOrder = typeof orderParam === 'string' ? JSON.parse(orderParam) : orderParam;
+                        setOrder(parsedOrder);
+                    } catch (err) {
+                        console.error("Error parsing order:", err);
+                    }
+                }
+            } catch (error) {
+                console.error("Error in parseData:", error);
             }
-        }
-        if (orderParam) {
-            try {
-                setOrder(JSON.parse(orderParam));
-            } catch (err) {
-                console.error("Error parsing order:", err);
-            }
-        }
-        loadCurrentUser();
+        };
+
+        parseData();
     }, [productParam, orderParam]);
 
-    // Load reviews when product changes
+    // Check if user has already reviewed this product
+    useEffect(() => {
+        const checkUserReview = async () => {
+            if (!currentUserId || !product) return;
+
+            try {
+                setLoadingUserReview(true);
+                const productId = product.productId || product._id || product.id;
+
+                // Use the API endpoint to check user rating
+                const response = await getProductRatingByUser(currentUserId, productId);
+
+                // Handle response based on your API structure
+                if (response.success) {
+                    if (response.hasRated && response.data) {
+                        // User has already reviewed this product
+                        setUserReviewId(response.data.reviewId || response.data._id);
+                        setExistingReview(response.data);
+
+                        // Pre-fill form with existing review data
+                        setRating(response.data.rating || 0);
+                        setComment(response.data.comment || "");
+
+                        setIsEditing(true);
+                    } else {
+                        // User hasn't reviewed yet
+                        setIsEditing(false);
+                    }
+                } else {
+                    // Check if we have existing rating from params
+                    if (existingRatingParam) {
+                        try {
+                            const parsedRating = typeof existingRatingParam === 'string' ? JSON.parse(existingRatingParam) : existingRatingParam;
+                            setExistingReview(parsedRating);
+
+                            if (parsedRating.rating) setRating(parsedRating.rating);
+                            if (parsedRating.comment) setComment(parsedRating.comment);
+                            if (parsedRating.reviewId) setUserReviewId(parsedRating.reviewId);
+
+                            setIsEditing(true);
+                        } catch (err) {
+                            console.error("Error parsing existing rating:", err);
+                            setIsEditing(false);
+                        }
+                    } else {
+                        setIsEditing(false);
+                    }
+                }
+            } catch (error) {
+                console.error("Error checking user review:", error);
+                setIsEditing(false);
+            } finally {
+                setLoadingUserReview(false);
+            }
+        };
+
+        if (currentUserId && product) {
+            checkUserReview();
+        }
+    }, [currentUserId, product, existingRatingParam]);
+
+    // Load product reviews for display
     useEffect(() => {
         if (product) {
-            loadProductReviews(product.productId || product._id);
+            loadProductReviews(product.productId || product._id || product.id);
         }
     }, [product]);
 
@@ -78,7 +217,21 @@ export default function FeedbackScreen() {
         try {
             setReviewsLoading(true);
             const response = await getProductReviews(productId);
-            setProductReviews(Array.isArray(response.data?.productReviews) ? response.data.productReviews : []);
+
+            // Handle different response formats
+            let reviews = [];
+            if (response.data) {
+                reviews = response.data.items ||
+                    response.data.productReviews ||
+                    response.data.reviews ||
+                    [];
+            } else if (response.productReviews) {
+                reviews = response.productReviews;
+            } else if (Array.isArray(response)) {
+                reviews = response;
+            }
+
+            setProductReviews(Array.isArray(reviews) ? reviews : []);
         } catch (error) {
             console.error("Error loading reviews:", error);
             setProductReviews([]);
@@ -87,64 +240,99 @@ export default function FeedbackScreen() {
         }
     };
 
-    // Set rating/comment if user has already reviewed
-    useEffect(() => {
-        if (!currentUserId || !productReviews.length) return;
-
-        const review = productReviews.find((r) => r.userId === currentUserId);
-        if (review) {
-            setRating(review.rating);
-            setComment(review.comment || "");
+    // Handle review submission
+    const handleSubmitReview = async () => {
+        if (!rating) {
+            Alert.alert("Rating Required", "Please select a rating before submitting.");
+            return;
         }
-    }, [productReviews, currentUserId]);
 
-    const submitReview = async () => {
-        if (!rating) return Alert.alert("Error", "Please select a rating");
-        if (!product) return Alert.alert("Error", "No product selected");
+        if (!product) {
+            Alert.alert("Error", "No product selected.");
+            return;
+        }
+
+        if (!currentUserId) {
+            Alert.alert("Login Required", "Please login to submit a review.");
+            return;
+        }
+
+        const productId = product.productId || product._id || product.id;
 
         try {
             setSubmittingReview(true);
+
             const reviewData = {
-                productId: product.productId || product._id, rating, comment: comment.trim() || ""
+                productId,
+                rating,
+                comment: comment.trim() || ""
             };
-            await createReview(reviewData);
 
-            Alert.alert("Success", "Review submitted successfully!", [{
-                text: "OK", onPress: () => router.replace("/screens/MyOrderScreen")
-            }]);
+            let result;
+
+            if (isEditing && userReviewId) {
+                // Update existing review
+                result = await updateReview(userReviewId, reviewData);
+            } else {
+                // Create new review
+                result = await createReview(reviewData);
+            }
+
+            if (result.success) {
+                const message = isEditing ? "Review updated successfully!" : "Review submitted successfully!";
+                Alert.alert("Success", message, [
+                    {
+                        text: "OK",
+                        onPress: () => {
+                            // Navigate back to orders screen
+                            if (router.canGoBack()) {
+                                router.back();
+                            } else {
+                                router.replace("/screens/MyOrderScreen");
+                            }
+                        }
+                    }
+                ]);
+            } else {
+                // Handle duplicate review error
+                if (result.message?.includes("already") || result.status === 409) {
+                    Alert.alert(
+                        "Already Reviewed",
+                        "You have already reviewed this product. Would you like to edit your review instead?",
+                        [
+                            {
+                                text: "Cancel",
+                                style: "cancel"
+                            },
+                            {
+                                text: "Edit Review",
+                                onPress: () => {
+                                    // Set editing mode
+                                    setIsEditing(true);
+                                    // Try to get the review ID from response
+                                    if (result.reviewId || result.data?._id) {
+                                        setUserReviewId(result.reviewId || result.data._id);
+                                    }
+                                    // Refresh user review data
+                                    checkUserReview();
+                                }
+                            }
+                        ]
+                    );
+                } else {
+                    throw new Error(result.message || "Failed to submit review");
+                }
+            }
         } catch (error) {
-            console.error("Error submitting review:", error);
-            Alert.alert("Error", "Failed to submit review. Please try again.");
+            console.error("Review submission error:", error);
+            Alert.alert(
+                "Error",
+                error.message || "Failed to submit review. Please try again."
+            );
         } finally {
             setSubmittingReview(false);
         }
     };
-
-    const updateExistingReview = async (reviewId) => {
-        if (!rating) return Alert.alert("Error", "Please select a rating");
-
-        try {
-            setSubmittingReview(true);
-            const reviewData = {rating, comment: comment.trim() || ""};
-            await updateReview(reviewId, reviewData);
-
-            Alert.alert("Success", "Review updated successfully!", [{
-                text: "OK", onPress: () => router.replace("/screens/MyOrderScreen")
-            }]);
-        } catch (error) {
-            console.error("Error updating review:", error);
-            Alert.alert("Error", "Failed to update review. Please try again.");
-        } finally {
-            setSubmittingReview(false);
-        }
-    };
-
-    const hasUserReviewed = () => currentUserId && productReviews.some((r) => r.userId === currentUserId);
-
-    const getUserReview = () => currentUserId && productReviews.find((r) => r.userId === currentUserId);
-
-    const userReview = getUserReview();
-    const isEditing = !!userReview;
 
     const formatDate = (dateString) => {
         if (!dateString) return "Date not available";
@@ -154,170 +342,465 @@ export default function FeedbackScreen() {
 
     const getProductImage = () => {
         if (!product?.image) return require("../../assets/icons/order.png");
-        if (product.image.startsWith("http") || product.image.startsWith("file://")) return {uri: product.image};
+        if (product.image.startsWith("http") || product.image.startsWith("file://")) {
+            return {uri: product.image};
+        }
         return {uri: `${API_BASE_URL}${product.image.startsWith("/") ? product.image : "/" + product.image}`};
     };
 
     const handleBack = () => {
-        if (router.canGoBack()) router.back(); else router.replace("/screens/MyOrderScreen");
+        if (router.canGoBack()) {
+            router.replace("/screens/MyOrderScreen");
+        } else {
+            router.replace("/screens/MyOrderScreen");
+        }
     };
 
-    if (!product) {
-        return (<SafeAreaView style={styles.container}>
-                <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#4CAD73"/>
-                    <Text style={styles.loadingText}>Loading product information...</Text>
-                </View>
-            </SafeAreaView>);
-    }
-
-    const StarRating = ({rating, onRatingChange, size = 32, editable = true}) => (<View style={styles.starContainer}>
+    const StarRating = ({rating, onRatingChange, size = RF(36), editable = true}) => (
+        <View style={styles.starContainer}>
             {[1, 2, 3, 4, 5].map((star) => (
-                <Pressable key={star} onPress={() => editable && onRatingChange(star)} style={styles.starButton}
-                                  disabled={!editable}>
+                <Pressable
+                    key={star}
+                    onPress={() => editable && onRatingChange(star)}
+                    style={styles.starButton}
+                    disabled={!editable}
+                >
                     <Image
-                        source={star <= rating ? require("../../assets/icons/star_filled.png") : require("../../assets/icons/star_empty.png")}
+                        source={star <= rating ?
+                            require("../../assets/icons/star_filled.png") :
+                            require("../../assets/icons/star_empty.png")}
                         style={{width: size, height: size}}
                     />
-                </Pressable>))}
-        </View>);
-
-    return (<View style={styles.container}>
-            <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF"/>
-
-            {/* Header */}
-            <View style={styles.topBar}>
-                <Pressable onPress={handleBack}>
-                    <Image source={require("../../assets/icons/back_icon.png")} style={styles.iconBox}/>
                 </Pressable>
-                <Text style={styles.heading}>{isEditing ? "Edit Review" : "Write a Review"}</Text>
-                <View style={styles.placeholder}/>
-            </View>
+            ))}
+        </View>
+    );
 
-            <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+    if (loadingUserReview) {
+        return (
+            <SafeAreaView style={styles.container}>
+                <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
+                    <Pressable
+                        onPress={handleBack}
+                        style={styles.backButton}
+                        activeOpacity={0.7}
+                        hitSlop={{top: RF(10), bottom: RF(10), left: RF(10), right: RF(10)}}
+                    >
+                        <Image
+                            source={require("../../assets/icons/back_icon.png")}
+                            style={styles.backIcon}
+                        />
+                    </Pressable>
+                    <Text style={styles.headerTitle}>
+                        {isEditing ? "Edit Review" : "Write a Review"}
+                    </Text>
+                    <View style={styles.headerPlaceholder}/>
+                </View>
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size={isTablet ? "large" : "large"} color="#4CAD73"/>
+                    <Text style={styles.loadingText}>Loading Review Information...</Text>
+                </View>
+            </SafeAreaView>
+        );
+    }
+
+    if (!product) {
+        return (
+            <SafeAreaView style={styles.container}>
+                <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
+                    <Pressable
+                        onPress={handleBack}
+                        style={styles.backButton}
+                        activeOpacity={0.7}
+                        hitSlop={{top: RF(10), bottom: RF(10), left: RF(10), right: RF(10)}}
+                    >
+                        <Image
+                            source={require("../../assets/icons/back_icon.png")}
+                            style={styles.backIcon}
+                        />
+                    </Pressable>
+                    <Text style={styles.headerTitle}>
+                        {isEditing ? "Edit Review" : "Write a Review"}
+                    </Text>
+                    <View style={styles.headerPlaceholder}/>
+                </View>
+                <View style={styles.errorContainer}>
+                    <Text style={styles.errorText}>Product information not available</Text>
+                    <Pressable style={styles.goBackButton} onPress={handleBack}>
+                        <Text style={styles.goBackButtonText}>Go Back</Text>
+                    </Pressable>
+                </View>
+            </SafeAreaView>
+        );
+    }
+
+    const productId = product.productId || product._id || product.id;
+    const productName = product.name || product.title || "Product";
+    const productBrand = product.brand || "";
+    const orderNumber = order?.orderNumber || order?._id?.substring(0, 8) || "N/A";
+
+    return (
+        <View style={styles.container}>
+            <StatusBar
+                barStyle="dark-content"
+                backgroundColor="#FFFFFF"
+                translucent={false}
+            />
+
+            {/* Header - Updated to match OrderScreen */}
+            <SafeAreaView style={styles.safeAreaTop} edges={['top']}>
+                <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
+                    <Pressable
+                        onPress={handleBack}
+                        style={styles.backButton}
+                        activeOpacity={0.7}
+                        hitSlop={{top: RF(10), bottom: RF(10), left: RF(10), right: RF(10)}}
+                    >
+                        <Image
+                            source={require("../../assets/icons/back_icon.png")}
+                            style={styles.backIcon}
+                        />
+                    </Pressable>
+                    <Text style={styles.headerTitle}>
+                        {isEditing ? "Edit Review" : "Write a Review"}
+                    </Text>
+                    <View style={styles.headerPlaceholder} />
+                </View>
+            </SafeAreaView>
+
+            <ScrollView
+                style={styles.scrollView}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{
+                    paddingBottom: safeAreaInsets.bottom + RF(20),
+                    paddingTop: RF(16),
+                    paddingHorizontal: RF(16)
+                }}
+            >
                 {/* Product Info */}
                 <View style={styles.productReviewSection}>
-                    <Image source={getProductImage()} style={styles.reviewProductImage}
-                           defaultSource={require("../../assets/icons/order.png")}/>
+                    <Image
+                        source={getProductImage()}
+                        style={styles.reviewProductImage}
+                        defaultSource={require("../../assets/icons/order.png")}
+                    />
                     <View style={styles.reviewProductInfo}>
                         <Text style={styles.reviewProductName} numberOfLines={2}>
-                            {product.name || product.title || "Product"}
+                            {productName}
                         </Text>
-                        <Text style={styles.reviewProductBrand}>{product.brand || ""}</Text>
-                        {order && <Text style={styles.orderInfo}>Order
-                            #{(order.orderNumber || order._id?.substring(18) || "N/A").substring(0, 18)}...</Text>}
+                        {productBrand ? (
+                            <Text style={styles.reviewProductBrand}>{productBrand}</Text>
+                        ) : null}
+                        {order && (
+                            <Text style={styles.orderInfo}>
+                                Order #{orderNumber}
+                            </Text>
+                        )}
+                        {isEditing && (
+                            <View style={styles.editBadge}>
+                                <Text style={styles.editBadgeText}>
+                                    You have already reviewed this product
+                                </Text>
+                            </View>
+                        )}
                     </View>
                 </View>
 
                 {/* Rating Section */}
                 <View style={styles.ratingSection}>
-                    <Text style={styles.ratingTitle}>How would you rate this product?</Text>
-                    <StarRating rating={rating} onRatingChange={setRating} size={32} editable={true}/>
-                    <Text
-                        style={styles.ratingText}>{rating > 0 ? `${rating} Star${rating > 1 ? "s" : ""}` : "Tap to rate"}</Text>
+                    <Text style={styles.ratingTitle}>
+                        {isEditing ? "Update your rating" : "How would you rate this product?"}
+                    </Text>
+                    <StarRating
+                        rating={rating}
+                        onRatingChange={setRating}
+                        size={RF(36)}
+                        editable={!submittingReview}
+                    />
+                    <Text style={styles.ratingText}>
+                        {rating > 0 ? `${rating} Star${rating > 1 ? "s" : ""}` : "Tap to rate"}
+                    </Text>
                 </View>
 
                 {/* Comment Section */}
                 <View style={styles.commentSection}>
-                    <Text style={styles.commentTitle}>Share your experience (optional)</Text>
+                    <Text style={styles.commentTitle}>
+                        {isEditing ? "Update your comment (optional)" : "Share your experience (optional)"}
+                    </Text>
                     <TextInput
                         style={styles.commentInput}
-                        placeholder="What did you like or dislike about this product?"
+                        placeholder={isEditing ?
+                            "Update what you liked or disliked about this product..." :
+                            "What did you like or dislike about this product?"}
                         value={comment}
                         onChangeText={setComment}
                         multiline
                         numberOfLines={4}
                         textAlignVertical="top"
                         placeholderTextColor="#999"
+                        editable={!submittingReview}
                     />
                 </View>
 
-                {/* Existing Reviews */}
-                {productReviews.length > 0 && (<View style={styles.existingReviewsSection}>
-                        <Text style={styles.sectionTitle}>Recent Reviews</Text>
-                        {productReviews.slice(0, 3).map((review, index) => (
-                            <View key={review._id || index} style={styles.reviewItem}>
-                                <View style={styles.reviewHeader}>
-                                    <Text style={styles.reviewerName}>{review.userId?.name || "Anonymous User"}</Text>
-                                    <View style={styles.reviewRating}>
-                                        <Text style={styles.reviewRatingText}>{review.rating}</Text>
-                                        <Image source={require("../../assets/icons/star_filled.png")}
-                                               style={styles.smallStar}/>
-                                    </View>
-                                </View>
-                                {review.comment && <Text style={styles.reviewComment}>{review.comment}</Text>}
-                                <Text style={styles.reviewDate}>{formatDate(review.createdAt)}</Text>
-                            </View>))}
-                    </View>)}
-            </ScrollView>
+                {/* Submit Button */}
+                <View style={styles.reviewActions}>
+                    <Pressable
+                        style={[
+                            styles.submitButton,
+                            (!rating || submittingReview) && styles.submitButtonDisabled
+                        ]}
+                        onPress={handleSubmitReview}
+                        disabled={!rating || submittingReview}
+                    >
+                        {submittingReview ? (
+                            <ActivityIndicator size="small" color="#FFFFFF"/>
+                        ) : (
+                            <Text style={styles.submitButtonText}>
+                                {isEditing ? "Update Review" : "Submit Review"}
+                            </Text>
+                        )}
+                    </Pressable>
 
-            {/* Submit Button */}
-            <View style={styles.reviewActions}>
-                <Pressable
-                    style={[styles.submitButton, (!rating || submittingReview) && styles.submitButtonDisabled]}
-                    onPress={isEditing ? () => updateExistingReview(userReview._id) : submitReview}
-                    disabled={!rating || submittingReview}
-                >
-                    {submittingReview ? <ActivityIndicator size="small" color="#FFFFFF"/> :
-                        <Text style={styles.submitButtonText}>{isEditing ? "Update Review" : "Submit Review"}</Text>}
-                </Pressable>
-            </View>
-        </View>);
+                    <Pressable
+                        style={styles.cancelButton}
+                        onPress={handleBack}
+                        disabled={submittingReview}
+                    >
+                        <Text style={styles.cancelButtonText}>Cancel</Text>
+                    </Pressable>
+                </View>
+            </ScrollView>
+        </View>
+    );
 }
 
 const styles = StyleSheet.create({
-    container: {flex: 1, backgroundColor: "#FFFFFF"},
-    topBar: {padding: 20, marginTop: 20, flexDirection: "row", justifyContent: "space-between", alignItems: "center"},
-    heading: {fontSize: 20, fontWeight: "600", color: "#1B1B1B", textAlign: "center", flex: 1},
-    iconBox: {width: 32, height: 32, borderRadius: 8},
-    placeholder: {width: 32},
-    scrollView: {flex: 1, padding: 16},
-    loadingContainer: {flex: 1, justifyContent: "center", alignItems: "center", gap: 16},
-    loadingText: {fontSize: 16, color: "#868889"},
+    container: {
+        flex: 1,
+        backgroundColor: "#FFFFFF"
+    },
+    safeAreaTop: {
+        backgroundColor: '#FFFFFF',
+    },
+
+    // Header Styles - Updated to match OrderScreen
+    header: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: RF(16),
+        paddingVertical: RF(12),
+        backgroundColor: "#FFFFFF",
+        borderBottomWidth: 1,
+        borderBottomColor: "#F0F0F0",
+    },
+    backButton: {
+        padding: RF(4),
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    backIcon: {
+        width: RF(24),
+        height: RF(24),
+    },
+    headerTitle: {
+        fontSize: RF(18),
+        fontWeight: "600",
+        fontFamily: "Poppins-SemiBold",
+        color: "#1B1B1B",
+        textAlign: "center",
+        flex: 1,
+        marginHorizontal: RF(8),
+    },
+    headerPlaceholder: {
+        width: RF(32),
+    },
+
+    // Loading Styles
+    loadingContainer: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+        paddingBottom: RH(20),
+    },
+    loadingText: {
+        fontSize: RF(14),
+        fontFamily: "Poppins-Medium",
+        color: "#868889",
+        marginTop: RF(12),
+    },
+
+    // Error Styles
+    errorContainer: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+        paddingHorizontal: RF(20),
+    },
+    errorText: {
+        fontSize: RF(16),
+        fontFamily: "Poppins-Regular",
+        color: "#666",
+        marginBottom: RF(20),
+        textAlign: "center"
+    },
+    goBackButton: {
+        backgroundColor: "#4CAD73",
+        paddingHorizontal: RF(20),
+        paddingVertical: RF(12),
+        borderRadius: RF(8)
+    },
+    goBackButtonText: {
+        color: "#FFFFFF",
+        fontSize: RF(16),
+        fontFamily: "Poppins-SemiBold",
+        fontWeight: "600"
+    },
+
+    // ScrollView Styles
+    scrollView: {
+        flex: 1,
+    },
+
+    // Product Info Section
     productReviewSection: {
         flexDirection: "row",
         alignItems: "center",
-        marginBottom: 24,
-        padding: 16,
+        marginBottom: RF(24),
+        padding: RF(16),
         backgroundColor: "#F9F9F9",
-        borderRadius: 12
+        borderRadius: RF(12)
     },
-    reviewProductImage: {width: 80, height: 80, borderRadius: 8, marginRight: 16},
-    reviewProductInfo: {flex: 1},
-    reviewProductName: {fontSize: 18, fontWeight: "600", color: "#000000", marginBottom: 4},
-    reviewProductBrand: {fontSize: 14, color: "#868889", marginBottom: 4},
-    orderInfo: {fontSize: 12, color: "#4CAD73", fontWeight: "500"},
-    ratingSection: {alignItems: "center", marginBottom: 24, padding: 20, backgroundColor: "#F9F9F9", borderRadius: 12},
-    ratingTitle: {fontSize: 18, fontWeight: "600", color: "#000000", marginBottom: 20, textAlign: "center"},
-    starContainer: {flexDirection: "row", marginBottom: 12},
-    starButton: {padding: 8},
-    star: {width: 32, height: 32},
-    smallStar: {width: 16, height: 16, marginLeft: 4},
-    ratingText: {fontSize: 16, color: "#868889", textAlign: "center"},
-    commentSection: {marginBottom: 24},
-    commentTitle: {fontSize: 16, fontWeight: "600", color: "#000000", marginBottom: 12},
+    reviewProductImage: {
+        width: RF(80),
+        height: RF(80),
+        borderRadius: RF(8),
+        marginRight: RF(16)
+    },
+    reviewProductInfo: {
+        flex: 1
+    },
+    reviewProductName: {
+        fontSize: RF(16),
+        fontFamily: "Poppins-SemiBold",
+        fontWeight: "600",
+        color: "#000000",
+        marginBottom: RF(4)
+    },
+    reviewProductBrand: {
+        fontSize: RF(14),
+        fontFamily: "Poppins-Regular",
+        color: "#868889",
+        marginBottom: RF(4)
+    },
+    orderInfo: {
+        fontSize: RF(12),
+        fontFamily: "Poppins-Medium",
+        color: "#4CAD73",
+        fontWeight: "500"
+    },
+    editBadge: {
+        backgroundColor: "#FFF5E6",
+        paddingHorizontal: RF(8),
+        paddingVertical: RF(4),
+        borderRadius: RF(4),
+        alignSelf: "flex-start",
+        marginTop: RF(4)
+    },
+    editBadgeText: {
+        fontSize: RF(12),
+        fontFamily: "Poppins-Medium",
+        color: "#FFA500",
+        fontWeight: "500"
+    },
+
+    // Rating Section
+    ratingSection: {
+        alignItems: "center",
+        marginBottom: RF(24),
+        padding: RF(20),
+        backgroundColor: "#F9F9F9",
+        borderRadius: RF(12)
+    },
+    ratingTitle: {
+        fontSize: RF(18),
+        fontFamily: "Poppins-SemiBold",
+        fontWeight: "600",
+        color: "#000000",
+        marginBottom: RF(20),
+        textAlign: "center"
+    },
+    starContainer: {
+        flexDirection: "row",
+        marginBottom: RF(12),
+        gap: RF(8)
+    },
+    starButton: {
+        padding: RF(4)
+    },
+    ratingText: {
+        fontSize: RF(16),
+        fontFamily: "Poppins-Regular",
+        color: "#868889",
+        textAlign: "center",
+        marginTop: RF(8)
+    },
+
+    // Comment Section
+    commentSection: {
+        marginBottom: RF(24)
+    },
+    commentTitle: {
+        fontSize: RF(16),
+        fontFamily: "Poppins-SemiBold",
+        fontWeight: "600",
+        color: "#000000",
+        marginBottom: RF(12)
+    },
     commentInput: {
         borderWidth: 1,
         borderColor: "#E5E5E5",
-        borderRadius: 8,
-        padding: 16,
-        fontSize: 16,
-        minHeight: 120,
+        borderRadius: RF(8),
+        padding: RF(16),
+        fontSize: RF(14),
+        minHeight: RH(120),
         textAlignVertical: "top",
         color: "#000000",
-        backgroundColor: "#F9F9F9"
+        backgroundColor: "#F9F9F9",
+        fontFamily: "Poppins-Regular"
     },
-    existingReviewsSection: {marginBottom: 24},
-    sectionTitle: {fontSize: 18, fontWeight: "600", color: "#000000", marginBottom: 16},
-    reviewItem: {padding: 16, backgroundColor: "#F9F9F9", borderRadius: 8, marginBottom: 12},
-    reviewHeader: {flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8},
-    reviewerName: {fontSize: 16, fontWeight: "600", color: "#000000"},
-    reviewRating: {flexDirection: "row", alignItems: "center"},
-    reviewRatingText: {fontSize: 16, fontWeight: "600", color: "#000000", marginRight: 4},
-    reviewComment: {fontSize: 14, color: "#000000", marginBottom: 8, lineHeight: 20},
-    reviewDate: {fontSize: 12, color: "#868889"},
-    reviewActions: {padding: 16, borderTopWidth: 1, borderTopColor: "#F5F5F5"},
-    submitButton: {backgroundColor: "#4CAD73", paddingVertical: 16, borderRadius: 8, alignItems: "center"},
-    submitButtonDisabled: {backgroundColor: "#CCCCCC"},
-    submitButtonText: {color: "#FFFFFF", fontSize: 16, fontWeight: "600"}
+
+    // Action Buttons
+    reviewActions: {
+        gap: RF(12)
+    },
+    submitButton: {
+        backgroundColor: "#4CAD73",
+        paddingVertical: RF(16),
+        borderRadius: RF(8),
+        alignItems: "center"
+    },
+    submitButtonDisabled: {
+        backgroundColor: "#CCCCCC"
+    },
+    submitButtonText: {
+        color: "#FFFFFF",
+        fontSize: RF(16),
+        fontFamily: "Poppins-SemiBold",
+        fontWeight: "600"
+    },
+    cancelButton: {
+        paddingVertical: RF(16),
+        borderRadius: RF(8),
+        alignItems: "center",
+        borderWidth: 1,
+        borderColor: "#E5E5E5",
+        backgroundColor: "#FFFFFF"
+    },
+    cancelButtonText: {
+        color: "#666666",
+        fontSize: RF(16),
+        fontFamily: "Poppins-SemiBold",
+        fontWeight: "600"
+    }
 });

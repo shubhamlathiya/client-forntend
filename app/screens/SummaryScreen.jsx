@@ -335,7 +335,7 @@ export default function SummaryScreen() {
         return (
             <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#4CAD73"/>
-                <Text style={styles.loadingText}>Loading summary…</Text>
+                <Text style={styles.loadingText}>Loading Summary…</Text>
             </View>
         );
     }

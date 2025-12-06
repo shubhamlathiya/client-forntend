@@ -6,6 +6,7 @@ import PaymentHistoryScreen from "./screens/PaymentHistoryScreen";
 import TransactionDetailScreen from "./screens/TransactionDetailScreen";
 import ProductsScreen from "./screens/ProductsScreen";
 import NotificationProvider from "../providers/NotificationProvider";
+import AuthOtp from "./screens/demo/authOtp";
 
 
 export default function RootLayout() {
@@ -47,6 +48,7 @@ export default function RootLayout() {
                     <Stack.Screen name="screens/WishlistScreen" options={{headerShown: false}}/>
                     <Stack.Screen name="screens/NeedHelpScreen" options={{headerShown: false}}/>
                     <Stack.Screen name="screens/TicketDetailScreen" options={{headerShown: false}}/>
+                    <Stack.Screen name="screens/demo/authOtp" options={{headerShown: false}}/>
 
                 </Stack>
             </LoginTypeProvider>

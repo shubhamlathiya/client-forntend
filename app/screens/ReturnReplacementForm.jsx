@@ -59,7 +59,7 @@ export default function ReturnReplacementForm() {
       }
 
       if (res?.success) {
-        showMessage('Request submitted successfully.');
+        showMessage('Request Submitted Successfully.');
         router.replace('/screens/MyOrderScreen');
       } else {
         const msg = res?.error || res?.message || 'Failed to submit request';
@@ -77,7 +77,7 @@ export default function ReturnReplacementForm() {
   return (
       <SafeAreaView style={{ flex: 1 }}>
         <View style={styles.container}>
-          <AppHeader title={actionType === 'replacement' ? 'Replacement Request' : 'Return Request'} />
+          <AppHeader title={actionType === 'Replacement' ? 'Replacement Request' : 'Return Request'} />
           <ScrollView style={styles.content}>
             <View style={styles.card}>
               <Text style={styles.label}>Order ID</Text>

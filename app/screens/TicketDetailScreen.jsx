@@ -68,7 +68,7 @@ export default function TicketDetailScreen() {
         try {
             await updateTicket(String(id), {subject, description, priority, status});
             await load();
-            alert('Ticket updated');
+            alert('Ticket Updated');
         } catch (e) {
             alert('Failed to update ticket');
         } finally {
@@ -92,7 +92,7 @@ export default function TicketDetailScreen() {
                 <View style={styles.loader}><ActivityIndicator size="large" color="#4CAD73"/><Text
                     style={styles.loaderText}>Loading...</Text></View>
             ) : !ticket ? (
-                <View style={styles.loader}><Text style={styles.loaderText}>Ticket not found</Text></View>
+                <View style={styles.loader}><Text style={styles.loaderText}>Ticket Not Found</Text></View>
             ) : (
                 <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
                     <View style={styles.section}>

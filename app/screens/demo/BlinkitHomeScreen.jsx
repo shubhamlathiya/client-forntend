@@ -18,7 +18,13 @@ import {
 } from 'react-native';
 import {useFocusEffect, useRouter} from "expo-router";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {getCategories, getProducts, getProductsByCategory, getSaleCategories, getTabCategories} from "../../../api/catalogApi";
+import {
+    getCategories,
+    getProducts,
+    getProductsByCategory,
+    getSaleCategories,
+    getTabCategories
+} from "../../../api/catalogApi";
 import {API_BASE_URL} from "../../../config/apiConfig";
 import {getAddresses} from "../../../api/addressApi";
 import {addCartItem, getCart, updateCartItem, removeCartItem, getTierPricing} from "../../../api/cartApi";
@@ -92,13 +98,14 @@ export default function BlinkitHomeScreen() {
     const [cartItems, setCartItems] = useState([]);
     const [showCartPopup, setShowCartPopup] = useState(true);
     const [cartPopupTimeout, setCartPopupTimeout] = useState(null);
+    const [productStocks, setProductStocks] = useState({});
 
     const slideAnim = useRef(new Animated.Value(-300)).current;
 
     // New state for tab view
     const [activeTab, setActiveTab] = useState('all');
     const [tabProducts, setTabProducts] = useState({});
-    const [headerColor, setHeaderColor] = useState('#EC0505');
+    const [headerColor, setHeaderColor] = useState('#4CAF72');
 
     // State for dynamic tabs
     const [tabCategories, setTabCategories] = useState([]);
@@ -139,7 +146,7 @@ export default function BlinkitHomeScreen() {
                         },
                     },
                 ],
-                { cancelable: false }
+                {cancelable: false}
             );
             return false;
         }
@@ -150,7 +157,6 @@ export default function BlinkitHomeScreen() {
             });
         }
 
-        console.log("Notification permission granted");
     };
 
     useEffect(() => {
@@ -204,7 +210,7 @@ export default function BlinkitHomeScreen() {
                     id: tab._id || tab.id || 'all',
                     name: capitalizeWords(tab.name || 'Unnamed Tab'),
                     icon: tab.icon
-                        ? { uri: `${API_BASE_URL}${tab.icon}` }
+                        ? {uri: `${API_BASE_URL}${tab.icon}`}
                         : require('../../../assets/icons/all.png'),
                     color: tab.color || '#4CAF72',
                     headerColor: tab.headerColor || '#4CAF72',
@@ -284,7 +290,7 @@ export default function BlinkitHomeScreen() {
             if (tab.categories && tab.categories.length > 0) {
                 // Fetch products from each category
                 const categoryPromises = tab.categories.map(categoryId =>
-                    getProductsByCategory(categoryId, { limit: 20 })
+                    getProductsByCategory(categoryId, {limit: 20})
                 );
 
                 const categoryResults = await Promise.allSettled(categoryPromises);
@@ -314,7 +320,7 @@ export default function BlinkitHomeScreen() {
                 products = uniqueProducts;
             } else {
                 // Fallback to fetching all products if no categories specified
-                const res = await getProducts({ page: 1, limit: 50 });
+                const res = await getProducts({page: 1, limit: 50});
                 products = extractProducts(res);
 
                 // Try to filter by tab name if possible
@@ -344,7 +350,7 @@ export default function BlinkitHomeScreen() {
     const loadAllTabProducts = async () => {
         try {
             setTabLoading(true);
-            const res = await getProducts({ page: 1, limit: 50 });
+            const res = await getProducts({page: 1, limit: 50});
             const products = extractProducts(res);
             const processedProducts = products.map(p => processProductData(p, 'all'));
 
@@ -600,6 +606,21 @@ export default function BlinkitHomeScreen() {
     const handleAddToCart = async (product, isFragment = false) => {
         try {
             const productId = product.id || product._id;
+            const variantId = product.variantId || (product.variants?.[0]?._id) || null;
+
+            // Check stock availability
+            const stock = getProductStock(productId, variantId);
+            if (stock <= 0) {
+                Alert.alert('Out of Stock', 'This product is currently out of stock.');
+                return;
+            }
+
+            // Check if trying to add more than available stock
+            const cartQuantity = getCartQuantity(productId, variantId);
+            if (cartQuantity >= stock) {
+                Alert.alert('Stock Limit', `Only ${stock} items available in stock.`);
+                return;
+            }
 
             if (isBusinessUser && product.minQty && product.minQty > 1) {
                 Alert.alert('Minimum Quantity Required', `Minimum order quantity for this product is ${product.minQty} units for business customers.`, [{text: 'OK'}]);
@@ -611,7 +632,7 @@ export default function BlinkitHomeScreen() {
             const cartItem = {
                 productId: productId,
                 quantity: product.minQty || 1,
-                variantId: product.variantId || null
+                variantId: variantId
             };
 
             await addCartItem(cartItem);
@@ -622,6 +643,8 @@ export default function BlinkitHomeScreen() {
 
             if (error.response?.data?.message?.includes('Minimum quantity')) {
                 Alert.alert('Minimum Quantity', error.response.data.message);
+            } else if (error.response?.data?.message?.includes('out of stock') || error.response?.data?.message?.includes('insufficient stock')) {
+                Alert.alert('Out of Stock', 'This product is currently out of stock.');
             } else {
                 Alert.alert('Error', 'Failed to add product to cart. Please try again.');
             }
@@ -631,8 +654,36 @@ export default function BlinkitHomeScreen() {
         }
     };
 
+    const getProductStock = (productId, variantId = null) => {
+        // First check in current tab products
+        const allProducts = [...featuredProducts, ...Object.values(tabProducts).flat()];
+        const product = allProducts.find(p => p.id === productId);
+
+        if (product) {
+            if (variantId) {
+                const variant = product.variants?.find(v => v._id === variantId);
+                return variant?.stock || 0;
+            }
+            return product.stock || 0;
+        }
+
+        return 0; // Default to 0 if product not found
+    };
+
     const handleUpdateQuantity = async (productId, variantId, newQuantity) => {
         try {
+            // Check stock before increasing quantity
+            if (newQuantity > 0) {
+                const stock = getProductStock(productId, variantId);
+                const cartQuantity = getCartQuantity(productId, variantId);
+
+                // If increasing quantity, check stock
+                if (newQuantity > cartQuantity && newQuantity > stock) {
+                    Alert.alert('Stock Limit', `Only ${stock} items available in stock.`);
+                    return;
+                }
+            }
+
             const itemId = getCartItemId(productId, variantId);
 
             if (!itemId) {
@@ -649,7 +700,12 @@ export default function BlinkitHomeScreen() {
             }
         } catch (error) {
             console.error('Error updating quantity:', error);
-            Alert.alert('Error', 'Failed to update quantity');
+            if (error.response?.data?.message?.includes('out of stock') || error.response?.data?.message?.includes('insufficient stock')) {
+                Alert.alert('Out of Stock', 'Cannot add more items. Product is out of stock.');
+                await loadCartItems(); // Refresh cart to show correct quantities
+            } else {
+                Alert.alert('Error', 'Failed to update quantity');
+            }
         }
     };
 
@@ -731,32 +787,41 @@ export default function BlinkitHomeScreen() {
     const renderFragmentProduct = ({item, index}) => {
         const priceInfo = calculateProductPrice(item);
         const productId = item._id || item.id;
-        const cartQuantity = getCartQuantity(productId, item.variantId);
+        const variantId = item.variantId;
+        const cartQuantity = getCartQuantity(productId, variantId);
+        const stock = getProductStock(productId, variantId);
         const imageSource = item.image?.uri ? {uri: item.image.uri} : require("../../../assets/Rectangle 24904.png");
+        const isOutOfStock = stock <= 0;
 
         return (
             <Pressable
-                style={[styles.fragmentProductCard, index % 2 === 0 ? styles.fragmentLeftCard : styles.fragmentRightCard]}
+                style={[styles.fragmentProductCard, index % 2 === 0 ? styles.fragmentLeftCard : styles.fragmentRightCard, isOutOfStock && styles.outOfStockCard]}
                 onPress={() => handleFragmentProductPress(item)}
             >
+                {!isOutOfStock && stock <= 10 && (
+                    <View style={styles.lowStockBadge}>
+                        <Text style={styles.lowStockText}>Only {stock} left</Text>
+                    </View>
+                )}
+
                 <Image
                     source={imageSource}
-                    style={styles.fragmentProductImage}
+                    style={[styles.fragmentProductImage]}
                     resizeMode="cover"
                 />
 
                 <View style={styles.fragmentProductInfo}>
-                    <Text style={styles.fragmentProductName} numberOfLines={2}>
+                    <Text style={[styles.fragmentProductName]} numberOfLines={2}>
                         {item.title || item.name}
                     </Text>
 
                     <View style={styles.rowBetween}>
                         <View style={styles.leftPriceBox}>
-                            <Text style={styles.fragmentProductPrice}>
+                            <Text style={[styles.fragmentProductPrice]}>
                                 ₹{priceInfo.finalPrice}
                             </Text>
 
-                            {priceInfo.hasDiscount && (
+                            {priceInfo.hasDiscount && !isOutOfStock && (
                                 <View style={styles.discountBox}>
                                     <Text style={styles.fragmentProductOriginalPrice}>
                                         ₹{priceInfo.basePrice}
@@ -766,31 +831,44 @@ export default function BlinkitHomeScreen() {
                                     </Text>
                                 </View>
                             )}
+
+                            {!isOutOfStock && (
+                                <Text style={styles.stockInfo}>
+                                    {stock > 10 ? 'In Stock' : `Only ${stock} left`}
+                                </Text>
+                            )}
                         </View>
                     </View>
                     <View style={styles.rowBetween}>
-                        {cartQuantity > 0 ? (
+                        {isOutOfStock ? (
+                            <View style={styles.outOfStockButton}>
+                                <Text style={styles.outOfStockButtonText}>Out of Stock</Text>
+                            </View>
+                        ) : cartQuantity > 0 ? (
                             <View style={styles.quantityControl}>
                                 <Pressable
-                                    style={styles.quantityButton}
-                                    onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity - 1)}
+                                    style={[styles.quantityButton]}
+                                    onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity - 1)}
                                 >
-                                    <Text style={styles.quantityMinus}>-</Text>
+                                    <Text
+                                        style={[styles.quantityMinus]}>-</Text>
                                 </Pressable>
 
                                 <Text style={styles.quantityText}>{cartQuantity}</Text>
 
                                 <Pressable
-                                    style={styles.quantityButton}
-                                    onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity + 1)}
+                                    style={[styles.quantityButton, cartQuantity >= stock && styles.quantityButtonDisabled]}
+                                    onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity + 1)}
+                                    disabled={cartQuantity >= stock}
                                 >
-                                    <Text style={styles.quantityPlus}>+</Text>
+                                    <Text
+                                        style={[styles.quantityPlus, cartQuantity >= stock && styles.quantityButtonDisabledText]}>+</Text>
                                 </Pressable>
                             </View>
                         ) : (
                             <Pressable
-                                style={[styles.fragmentAddButton, addingToCart[productId] && styles.fragmentAddButtonDisabled]}
-                                disabled={addingToCart[productId]}
+                                style={[styles.fragmentAddButton, (addingToCart[productId] || isOutOfStock) && styles.fragmentAddButtonDisabled]}
+                                disabled={addingToCart[productId] || isOutOfStock}
                                 onPress={() => handleAddToCart(item, true)}
                             >
                                 <Text style={styles.fragmentAddButtonText}>
@@ -812,13 +890,16 @@ export default function BlinkitHomeScreen() {
     const renderTabProduct = ({item}) => {
         const priceInfo = calculateProductPrice(item);
         const productId = item.id;
-        const cartQuantity = getCartQuantity(productId, item.variantId);
+        const variantId = item.variantId;
+        const cartQuantity = getCartQuantity(productId, variantId);
+        const stock = getProductStock(productId, variantId);
         const imageSource = item.image?.uri ? {uri: item.image.uri} : require("../../../assets/Rectangle 24904.png");
-        const productTiers = getProductTierPricing(productId, item.variantId);
+        const productTiers = getProductTierPricing(productId, variantId);
+        const isOutOfStock = stock <= 0;
 
         return (
             <Pressable
-                style={styles.tabProductCard}
+                style={[styles.tabProductCard,isOutOfStock && styles.outOfStockCard]}
                 onPress={() => router.push(`/screens/ProductDetailScreen?id=${item.id}`)}
             >
                 {isBusinessUser && priceInfo.minQty > 1 && (
@@ -827,24 +908,30 @@ export default function BlinkitHomeScreen() {
                     </View>
                 )}
 
+                {!isOutOfStock && stock < 10 && (
+                    <View style={styles.lowStockBadge}>
+                        <Text style={styles.lowStockText}>Only {stock} left</Text>
+                    </View>
+                )}
+
                 <Image
                     source={imageSource}
-                    style={styles.tabProductImage}
+                    style={[styles.tabProductImage]}
                     resizeMode="cover"
                 />
 
                 <View style={styles.tabProductInfo}>
-                    <Text style={styles.tabProductName} numberOfLines={2}>
+                    <Text style={[styles.tabProductName]} numberOfLines={2}>
                         {item.name}
                     </Text>
 
                     <View style={styles.rowBetween}>
                         <View style={styles.leftPriceBox}>
-                            <Text style={styles.tabProductPrice}>
+                            <Text style={[styles.tabProductPrice]}>
                                 ₹{priceInfo.finalPrice}
                             </Text>
 
-                            {priceInfo.hasDiscount && (
+                            {priceInfo.hasDiscount && !isOutOfStock && (
                                 <View style={styles.discountBox}>
                                     <Text style={styles.tabProductOriginalPrice}>
                                         ₹{priceInfo.basePrice}
@@ -855,42 +942,56 @@ export default function BlinkitHomeScreen() {
                                 </View>
                             )}
 
-                            {isBusinessUser && priceInfo.minQty > 1 && (
+                            {isBusinessUser && priceInfo.minQty > 1 && !isOutOfStock && (
                                 <Text style={styles.businessMinQty}>
                                     Min. {priceInfo.minQty} units
                                 </Text>
                             )}
 
-                            {isBusinessUser && productTiers.length > 0 && (
+                            {!isOutOfStock && isBusinessUser && productTiers.length > 0 && (
                                 <Text style={styles.tierPricingInfo}>
                                     {productTiers.length} tier{productTiers.length > 1 ? 's' : ''} available
                                 </Text>
                             )}
+
+                            {!isOutOfStock && (
+                                <Text style={styles.stockInfo}>
+                                    {stock > 10 ? 'In Stock' : `Only ${stock} left`}
+                                </Text>
+                            )}
                         </View>
                     </View>
+
                     <View style={styles.rowBetween}>
-                        {cartQuantity > 0 ? (
+                        {isOutOfStock ? (
+                            <View style={styles.outOfStockButton}>
+                                <Text style={styles.outOfStockButtonText}>Out of Stock</Text>
+                            </View>
+                        ) : cartQuantity > 0 ? (
                             <View style={styles.quantityControl}>
                                 <Pressable
-                                    style={styles.quantityButton}
-                                    onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity - 1)}
+                                    style={[styles.quantityButton]}
+                                    onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity - 1)}
                                 >
-                                    <Text style={styles.quantityMinus}>-</Text>
+                                    <Text
+                                        style={[styles.quantityMinus]}>-</Text>
                                 </Pressable>
 
                                 <Text style={styles.quantityText}>{cartQuantity}</Text>
 
                                 <Pressable
-                                    style={styles.quantityButton}
-                                    onPress={() => handleUpdateQuantity(productId, item.variantId, cartQuantity + 1)}
+                                    style={[styles.quantityButton, cartQuantity >= stock && styles.quantityButtonDisabled]}
+                                    onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity + 1)}
+                                    disabled={cartQuantity >= stock}
                                 >
-                                    <Text style={styles.quantityPlus}>+</Text>
+                                    <Text
+                                        style={[styles.quantityPlus, cartQuantity >= stock && styles.quantityButtonDisabledText]}>+</Text>
                                 </Pressable>
                             </View>
                         ) : (
                             <Pressable
                                 style={[styles.tabAddButton, addingToCart[productId] && styles.tabAddButtonDisabled]}
-                                disabled={addingToCart[productId]}
+                                disabled={addingToCart[productId] || isOutOfStock}
                                 onPress={() => handleAddToCart(item)}
                             >
                                 <Text style={styles.tabAddButtonText}>
@@ -904,6 +1005,7 @@ export default function BlinkitHomeScreen() {
         );
     };
 
+
     const fetchCategories = async () => {
         const capitalizeWords = (text) => {
             if (!text || typeof text !== "string") return text;
@@ -916,8 +1018,8 @@ export default function BlinkitHomeScreen() {
         try {
             setLoading(true);
 
-            const categoryRes = await getCategories({ status: true, limit: 100 });
-            const saleRes = await getSaleCategories({ limit: 100 });
+            const categoryRes = await getCategories({status: true, limit: 100});
+            const saleRes = await getSaleCategories({limit: 100});
 
             let categoryList = [];
             if (categoryRes?.success) {
@@ -1078,6 +1180,12 @@ export default function BlinkitHomeScreen() {
         const id = product?._id || product?.id || `fallback-${Math.random()}`;
         const priceInfo = calculateProductPrice(product);
 
+        // Extract stock information
+        let stock = 0;
+        if (product?.variants && Array.isArray(product.variants) && product.variants.length > 0) {
+            stock = product.variants[0]?.stock || 0;
+        }
+
         return {
             id,
             name: product?.title || product?.name || `${tabId} Product ${Math.floor(Math.random() * 100)}`,
@@ -1089,7 +1197,9 @@ export default function BlinkitHomeScreen() {
             image: product?.thumbnail ? {uri: `${API_BASE_URL}${product.thumbnail}`} : require("../../../assets/Rectangle 24904.png"),
             variantId: product.variants?.[0]?._id || null,
             minQty: priceInfo.minQty || 1,
-            tierPricing: isBusinessUser ? getProductTierPricing(id, product.variants?.[0]?._id) : []
+            tierPricing: isBusinessUser ? getProductTierPricing(id, product.variants?.[0]?._id) : [],
+            stock: stock, // Add stock information
+            variants: product.variants || [] // Keep variants for stock management
         };
     };
 
@@ -1138,32 +1248,41 @@ export default function BlinkitHomeScreen() {
     const renderFeaturedProduct = (product) => {
         const priceInfo = calculateProductPrice(product);
         const productId = product._id || product.id;
-        const cartQuantity = getCartQuantity(productId, product.variantId);
+        const variantId = product.variantId;
+        const cartQuantity = getCartQuantity(productId, variantId);
+        const stock = getProductStock(productId, variantId);
         const imageSource = product.image?.uri ? {uri: product.image.uri} : require("../../../assets/Rectangle 24904.png");
+        const isOutOfStock = stock <= 0;
 
         return (
             <Pressable
                 key={productId}
-                style={styles.productCard}
+                style={[styles.productCard, isOutOfStock && styles.outOfStockCard]}
                 onPress={() => handleProductPress(product)}
             >
+                {!isOutOfStock && stock <= 10 && (
+                    <View style={styles.lowStockBadge}>
+                        <Text style={styles.lowStockText}>Only {stock} left</Text>
+                    </View>
+                )}
+
                 <Image
                     source={imageSource}
-                    style={styles.productImage}
+                    style={[styles.productImage]}
                     resizeMode="cover"
                 />
 
                 <View style={styles.fragmentProductInfo}>
-                    <Text style={styles.fragmentProductName} numberOfLines={2}>
+                    <Text style={[styles.fragmentProductName]} numberOfLines={2}>
                         {product.name}
                     </Text>
 
                     <View style={styles.leftPriceBox}>
-                        <Text style={styles.fragmentProductPrice}>
+                        <Text style={[styles.fragmentProductPrice]}>
                             ₹{priceInfo.finalPrice}
                         </Text>
 
-                        {priceInfo.hasDiscount && (
+                        {priceInfo.hasDiscount && !isOutOfStock && (
                             <View style={styles.discountBox}>
                                 <Text style={styles.fragmentProductOriginalPrice}>
                                     ₹{priceInfo.basePrice}
@@ -1173,31 +1292,44 @@ export default function BlinkitHomeScreen() {
                                 </Text>
                             </View>
                         )}
+
+                        {!isOutOfStock && (
+                            <Text style={styles.stockInfo}>
+                                {stock > 10 ? 'In Stock' : `Only ${stock} left`}
+                            </Text>
+                        )}
                     </View>
 
                     <View style={styles.bottomQuantityContainer}>
-                        {cartQuantity > 0 ? (
+                        {isOutOfStock ? (
+                            <View style={styles.outOfStockButton}>
+                                <Text style={styles.outOfStockButtonText}>Out of Stock</Text>
+                            </View>
+                        ) : cartQuantity > 0 ? (
                             <View style={styles.quantityControl}>
                                 <Pressable
-                                    style={styles.quantityButton}
-                                    onPress={() => handleUpdateQuantity(productId, product.variantId, cartQuantity - 1)}
+                                    style={[styles.quantityButton]}
+                                    onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity - 1)}
                                 >
-                                    <Text style={styles.quantityMinus}>-</Text>
+                                    <Text
+                                        style={[styles.quantityMinus]}>-</Text>
                                 </Pressable>
 
                                 <Text style={styles.quantityText}>{cartQuantity}</Text>
 
                                 <Pressable
-                                    style={styles.quantityButton}
-                                    onPress={() => handleUpdateQuantity(productId, product.variantId, cartQuantity + 1)}
+                                    style={[styles.quantityButton, cartQuantity >= stock && styles.quantityButtonDisabled]}
+                                    onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity + 1)}
+                                    disabled={cartQuantity >= stock}
                                 >
-                                    <Text style={styles.quantityPlus}>+</Text>
+                                    <Text
+                                        style={[styles.quantityPlus, cartQuantity >= stock && styles.quantityButtonDisabledText]}>+</Text>
                                 </Pressable>
                             </View>
                         ) : (
                             <Pressable
-                                style={[styles.fragmentAddButton, addingToCart[productId] && styles.fragmentAddButtonDisabled,]}
-                                disabled={addingToCart[productId]}
+                                style={[styles.fragmentAddButton, (addingToCart[productId] || isOutOfStock) && styles.fragmentAddButtonDisabled]}
+                                disabled={addingToCart[productId] || isOutOfStock}
                                 onPress={() => handleAddToCart(product)}
                             >
                                 <Text style={styles.fragmentAddButtonText}>
@@ -1210,6 +1342,7 @@ export default function BlinkitHomeScreen() {
             </Pressable>
         );
     };
+
 
     const handleCartPopupClick = () => {
         router.push('/screens/CartScreen');
@@ -1391,7 +1524,7 @@ export default function BlinkitHomeScreen() {
 
                     {tabLoading ? (
                         <View style={styles.loadingContainer}>
-                            <Text style={styles.loadingText}>Loading products...</Text>
+                            <Text style={styles.loadingText}>Loading Products...</Text>
                         </View>
                     ) : (
                         <FlatList
@@ -1623,7 +1756,7 @@ const styles = StyleSheet.create({
     },
 
     quantityMinus: {
-        fontSize: 15, color: '#666', fontWeight: 'bold', textAlign: 'center',
+        fontSize: 18, color: '#666', fontWeight: 'bold', textAlign: 'center',
     },
 
     quantityPlus: {
@@ -1709,7 +1842,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 16,
     }, blinkitText: {
         fontFamily: 'Poppins',
-        fontSize: 12,
+        fontSize: 13,
         fontWeight: '700',
         lineHeight: 18,
         letterSpacing: -0.3,
@@ -1727,7 +1860,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 16,
     }, homeText: {
         fontFamily: 'Poppins',
-        fontSize: 12,
+        fontSize: 13,
         fontWeight: '700',
         lineHeight: 18,
         letterSpacing: 1,
@@ -2115,5 +2248,79 @@ const styles = StyleSheet.create({
     },
     activeTabIcon: {
         tintColor: '#FFFFFF',
+    },
+    outOfStockCard: {
+        opacity: 0.7,
+    },
+
+    outOfStockOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+        zIndex: 10,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 12,
+    },
+
+    outOfStockText: {
+        color: '#999',
+        fontFamily: 'Poppins-SemiBold',
+        fontSize: 10,
+    },
+
+    outOfStockImage: {
+        opacity: 0.5,
+    },
+
+    lowStockBadge: {
+        position: 'absolute',
+        top: 8,
+        left: 8,
+        backgroundColor: '#FFA726',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        zIndex: 1,
+    },
+
+    lowStockText: {
+        color: '#FFFFFF',
+        fontSize: 8,
+        fontFamily: 'Poppins-Bold',
+    },
+
+    stockInfo: {
+        fontSize: 10,
+        fontFamily: 'Poppins-Regular',
+        color: '#4CAF50',
+        marginTop: 2,
+    },
+
+    outOfStockButton: {
+        backgroundColor: '#F5F5F5',
+        borderRadius: 6,
+        paddingVertical: 4,
+        paddingHorizontal: 12,
+        borderWidth: 1,
+        borderColor: '#E0E0E0',
+    },
+
+    outOfStockButtonText: {
+        fontSize: 10,
+        fontFamily: 'Poppins-SemiBold',
+        color: '#999',
+    },
+
+    quantityButtonDisabled: {
+        backgroundColor: '#F5F5F5',
+        borderColor: '#E0E0E0',
+    },
+
+    quantityButtonDisabledText: {
+        color: '#CCC',
     },
 });

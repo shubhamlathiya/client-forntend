@@ -280,7 +280,7 @@ const TransactionsScreen = () => {
             {loading && page === 1 ? (
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color="#10B981" />
-                    <Text style={styles.loadingText}>Loading transactions...</Text>
+                    <Text style={styles.loadingText}>Loading Transactions...</Text>
                 </View>
             ) : (
                 <FlatList

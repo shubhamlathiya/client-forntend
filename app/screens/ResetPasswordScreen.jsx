@@ -7,23 +7,37 @@ import {resetPassword} from '../../api/authApi';
 import * as SecureStore from 'expo-secure-store';
 
 export default function ResetPasswordScreen() {
-    const {contact, type} = useLocalSearchParams();
+    const params = useLocalSearchParams();
     const router = useRouter();
-    const [token, setToken] = useState('');
+
+    const contact = String(params.contact || '');
+    const type = String(params.type || 'email');
+    const initialResetToken = String(params.resetToken || '');
+    const userId = String(params.userId || '');
+
+    const [token, setToken] = useState(initialResetToken);
     const [newPassword, setNewPassword] = useState('');
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        // Prefill token automatically from OTP stored during verification
-        (async () => {
-            try {
-                const stored = await SecureStore.getItemAsync('resetToken');
-                if (stored) setToken(stored);
-            } catch {
-            }
-        })();
-    }, []);
+        // If resetToken was not passed, try loading from SecureStore
+        if (!initialResetToken) {
+            (async () => {
+                try {
+                    const stored = await SecureStore.getItemAsync('resetToken');
+                    if (stored) setToken(stored);
+                } catch {}
+            })();
+        }
+    }, [initialResetToken]);
 
+    const handleBack = () => {
+        if (router.canGoBack()) {
+            router.replace('/screens/LoginScreen');
+        } else {
+            router.replace('/screens/LoginScreen');
+        }
+    };
     async function handleReset() {
         if (loading) return;
         if (!token || !newPassword) {
@@ -45,7 +59,8 @@ export default function ResetPasswordScreen() {
             }
             router.replace('/screens/LoginScreen');
         } catch (error) {
-            const message = error?.response?.data?.message || 'Failed to reset password';
+            console.log(error.message);
+            const message = error.message || 'Failed to reset password';
             Alert.alert('Error', message);
         } finally {
             setLoading(false);
@@ -55,7 +70,7 @@ export default function ResetPasswordScreen() {
     return (
         <SafeAreaView style={styles.container}>
             <View style={globalStyles.header}>
-                <Pressable style={globalStyles.backButton}>
+                <Pressable style={globalStyles.backButton} onPress={handleBack}>
                     <Image source={require('../../assets/icons/back_icon.png')} style={globalStyles.backIcon}/>
                 </Pressable>
                 <Text style={globalStyles.title}>Reset Password</Text>

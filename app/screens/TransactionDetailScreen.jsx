@@ -105,7 +105,7 @@ const TransactionDetailScreen = () => {
             <SafeAreaView style={styles.container}>
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color="#10B981" />
-                    <Text style={styles.loadingText}>Loading transaction details...</Text>
+                    <Text style={styles.loadingText}>Loading Transaction Details...</Text>
                 </View>
             </SafeAreaView>
         );
@@ -116,7 +116,7 @@ const TransactionDetailScreen = () => {
             <SafeAreaView style={styles.container}>
                 <View style={styles.errorContainer}>
                     <Ionicons name="alert-circle" size={64} color="#EF4444" />
-                    <Text style={styles.errorText}>Transaction not found</Text>
+                    <Text style={styles.errorText}>Transaction Not Found</Text>
                     <Pressable
                         style={styles.backButton}
                         onPress={() => router.back()}

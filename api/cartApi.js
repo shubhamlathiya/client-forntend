@@ -89,7 +89,7 @@ export const addCartItem = async ({productId, variantId = null, quantity = 1}) =
         quantity,
         sessionId,
     };
-    console.log(body);
+
     const res = await apiClient.post('/api/cart/item', body);
     return res.data;
 };
@@ -272,7 +272,6 @@ export const getTierPricing = async (productId = null, variantId = null) => {
         if (variantId) params.variantId = variantId;
 
         const res = await apiClient.get('/api/pricing/tier', { params })
-        console.log(res.data);
         return res.data;
     } catch (error) {
         console.error("Get tier pricing error:", error);

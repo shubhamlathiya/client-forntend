@@ -1,5 +1,5 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import {useFocusEffect, useLocalSearchParams, useRouter} from "expo-router";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
     Image,
     ScrollView,
@@ -9,13 +9,16 @@ import {
     View,
     ActivityIndicator,
     SafeAreaView,
-    Dimensions
+    Dimensions,
+    Alert,
+    RefreshControl,
+    Animated
 } from "react-native";
-import { addCartItem } from '../../api/cartApi';
+import { addCartItem, getCart, removeCartItem, updateCartItem } from '../../api/cartApi';
 import { getProductById, getProductFaqs, toggleWishlist, checkWishlist } from '../../api/catalogApi';
 import { API_BASE_URL } from '../../config/apiConfig';
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getOrCreateSessionId } from "../../api/sessionManager";
+import { Ionicons } from '@expo/vector-icons';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -26,28 +29,41 @@ export default function ProductDetailScreen() {
     // State management
     const [quantity, setQuantity] = useState(1);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [product, setProduct] = useState(null);
     const [variants, setVariants] = useState([]);
     const [selectedVariantId, setSelectedVariantId] = useState(null);
-    const [related, setRelated] = useState([]);
     const [isBusinessUser, setIsBusinessUser] = useState(false);
-    const [loadingRelated, setLoadingRelated] = useState(false);
     const [faqs, setFaqs] = useState([]);
     const [reviews, setReviews] = useState([]);
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     const [isLiked, setIsLiked] = useState(false);
     const [userId, setUserId] = useState(null);
+    const [availableStock, setAvailableStock] = useState(0);
+    const [currentCartQuantity, setCurrentCartQuantity] = useState(0);
+    const [isCheckingWishlist, setIsCheckingWishlist] = useState(false);
+    const [updatingCart, setUpdatingCart] = useState(false);
+    const [selectedVariantDetails, setSelectedVariantDetails] = useState(null);
+    const [showAddToCartSuccess, setShowAddToCartSuccess] = useState(false);
+    const [selectedAttributes, setSelectedAttributes] = useState({});
+    const [groupedVariants, setGroupedVariants] = useState({});
+
+    // Animation refs
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+
+    // Refs to prevent memory leaks
+    const mountedRef = useRef(true);
 
     // Navigation handlers
     const handleBack = () => {
         if (router.canGoBack()) {
-            router.back();
+            router.replace('/Home');
         } else {
             router.replace('/Home');
         }
     };
 
-    // User type check
+    // Check user type
     const checkUserType = async () => {
         try {
             const loginType = await AsyncStorage.getItem('loginType');
@@ -57,98 +73,287 @@ export default function ProductDetailScreen() {
         }
     };
 
+    // Load user ID from storage
+    const loadUserId = async () => {
+        try {
+            const raw = await AsyncStorage.getItem('userData');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                const uid = parsed?._id || parsed?.id || parsed?.userId || null;
+                if (mountedRef.current) {
+                    setUserId(uid);
+                }
+                return uid;
+            }
+        } catch (error) {
+            console.error('Error loading user ID:', error);
+        }
+        return null;
+    };
+
+    // Check wishlist status
+    const checkWishlistStatus = useCallback(async (uid, pid) => {
+        if (!uid || !pid) return false;
+
+        try {
+            setIsCheckingWishlist(true);
+            const res = await checkWishlist(uid, pid);
+            const liked = Boolean(res.data.isLiked ?? res?.data?.liked ?? res?.inWishlist ?? res?.data?.inWishlist);
+
+            if (mountedRef.current) {
+                setIsLiked(liked);
+            }
+            return liked;
+        } catch (error) {
+            console.warn('Error checking wishlist:', error);
+            return false;
+        } finally {
+            if (mountedRef.current) {
+                setIsCheckingWishlist(false);
+            }
+        }
+    }, []);
+
+    // Check cart quantity for current product/variant
+    const checkCartQuantity = useCallback(async () => {
+        try {
+            const cartResponse = await getCart();
+            const cartItems = cartResponse?.data?.items || cartResponse?.data || cartResponse || [];
+
+            const productId = product?._id || product?.id || id;
+            const variantId = variants.length > 0 ? selectedVariantId : null;
+
+            const matchingItem = cartItems.find(item => {
+                const itemProductId = item.productId?._id || item.productId || item.product;
+                const itemVariantId = item.variantId?._id || item.variantId || item.variant;
+
+                if (variantId) {
+                    return String(itemProductId) === String(productId) &&
+                        String(itemVariantId) === String(variantId);
+                } else {
+                    return String(itemProductId) === String(productId);
+                }
+            });
+
+            const cartQty = matchingItem ? Number(matchingItem.quantity) : 0;
+
+            if (mountedRef.current) {
+                setCurrentCartQuantity(cartQty);
+            }
+
+            return cartQty;
+        } catch (error) {
+            console.warn('Error checking cart quantity:', error);
+            return 0;
+        }
+    }, [product, id, variants, selectedVariantId]);
+
+    // Calculate available stock (stock - cart quantity)
+    const calculateAvailableStock = useCallback(() => {
+        const selectedVariant = getSelectedVariant();
+        let stock = 0;
+
+        if (variants.length > 0 && selectedVariant) {
+            stock = selectedVariant.stock || selectedVariant.quantity || 0;
+        } else {
+            stock = product?.stock || product?.quantity || 0;
+        }
+
+        const available = Math.max(0, stock - currentCartQuantity);
+
+        if (mountedRef.current) {
+            setAvailableStock(available);
+        }
+
+        return available;
+    }, [variants, product, selectedVariantId, currentCartQuantity]);
+
+    // Group variants by attribute types
+    const groupVariantsByAttributes = useCallback((variantList) => {
+        const groups = {};
+
+        variantList.forEach(variant => {
+            const attributes = variant.attributes || [];
+            attributes.forEach(attr => {
+                const type = attr?.type || attr?.name || 'attribute';
+                const value = attr?.value || attr?.valueName || attr?.name || '';
+
+                if (!groups[type]) {
+                    groups[type] = {
+                        name: type.charAt(0).toUpperCase() + type.slice(1),
+                        values: []
+                    };
+                }
+
+                // Add value if not already in list
+                if (!groups[type].values.includes(value)) {
+                    groups[type].values.push(value);
+                }
+            });
+        });
+
+        // Sort values for better display
+        Object.keys(groups).forEach(type => {
+            groups[type].values.sort();
+        });
+
+        return groups;
+    }, []);
+
+    // Find variant based on selected attributes
+    const findVariantByAttributes = useCallback((selectedAttrs) => {
+        return variants.find(variant => {
+            const variantAttrs = variant.attributes || [];
+
+            // Check if all selected attributes match the variant
+            return Object.keys(selectedAttrs).every(attrType => {
+                const selectedValue = selectedAttrs[attrType];
+                const variantAttr = variantAttrs.find(attr =>
+                    (attr?.type || attr?.name) === attrType
+                );
+                return variantAttr && (variantAttr.value || variantAttr.name) === selectedValue;
+            });
+        });
+    }, [variants]);
+
     // Load product data
+    const loadProductData = async () => {
+        setLoading(true);
+        try {
+            let productData = null;
+
+            // Parse product from params if available
+            if (productParam) {
+                try {
+                    productData = typeof productParam === 'string'
+                        ? JSON.parse(productParam)
+                        : productParam;
+                } catch (err) {
+                    console.warn('Failed to parse product from params', err);
+                }
+            }
+
+            // Fetch from API if no product data
+            if (!productData && id) {
+                const response = await getProductById(String(id));
+                productData = response?.data || response?.product || response || null;
+            }
+
+            if (productData && mountedRef.current) {
+                setProduct(productData);
+
+                // Set variants
+                const variantData = productData.variants || [];
+                setVariants(variantData);
+
+                // Group variants by attributes
+                const grouped = groupVariantsByAttributes(variantData);
+                setGroupedVariants(grouped);
+
+                // Initialize selected attributes
+                if (variantData.length > 0) {
+                    const firstAvailable = variantData.find(v => (v?.stock ?? v?.quantity ?? 1) > 0) || variantData[0];
+                    const firstVariantId = firstAvailable?._id || firstAvailable?.id;
+
+                    // Set initial attributes from first variant
+                    const initialAttrs = {};
+                    const firstAttrs = firstAvailable.attributes || [];
+                    firstAttrs.forEach(attr => {
+                        const type = attr?.type || attr?.name;
+                        const value = attr?.value || attr?.name;
+                        if (type && value) {
+                            initialAttrs[type] = value;
+                        }
+                    });
+
+                    setSelectedAttributes(initialAttrs);
+                    setSelectedVariantId(firstVariantId);
+                    setSelectedVariantDetails(firstAvailable);
+                }
+
+                // Set reviews
+                const reviewData = productData.reviews || [];
+                setReviews(reviewData);
+
+                // Fetch FAQs
+                try {
+                    const faqResponse = await getProductFaqs(String(id));
+                    const faqData = faqResponse?.data || [];
+                    setFaqs(Array.isArray(faqData) ? faqData : []);
+                } catch (faqError) {
+                    console.warn('Failed to fetch FAQs:', faqError);
+                    setFaqs([]);
+                }
+            }
+        } catch (error) {
+            console.warn('Product load error:', error);
+            Alert.alert('Error', 'Failed to load product details');
+        } finally {
+            if (mountedRef.current) {
+                setLoading(false);
+                setRefreshing(false);
+            }
+        }
+    };
+
+    // Initial load
     useEffect(() => {
+        mountedRef.current = true;
         checkUserType();
+        loadProductData();
+
+        return () => {
+            mountedRef.current = false;
+        };
+    }, [id, productParam]);
+
+    // Check wishlist status and cart quantity when product or user changes
+    useEffect(() => {
         let mounted = true;
 
-        const loadProductData = async () => {
-            setLoading(true);
-            try {
-                let productData = null;
+        const checkStatus = async () => {
+            const uid = await loadUserId();
+            const pid = String(product?._id || product?.id || id || '');
 
-                // Parse product from params if available
-                if (productParam) {
-                    try {
-                        productData = typeof productParam === 'string'
-                            ? JSON.parse(productParam)
-                            : productParam;
-                    } catch (err) {
-                        console.warn('Failed to parse product from params', err);
-                    }
-                }
+            if (uid && pid && mounted) {
+                await checkWishlistStatus(uid, pid);
+            }
 
-                // Fetch from API if no product data
-                if (!productData && id) {
-                    const response = await getProductById(String(id));
-                    productData = response?.data || response?.product || response || null;
-                }
-
-                if (productData && mounted) {
-                    setProduct(productData);
-
-                    // Set variants
-                    const variantData = productData.variants || [];
-                    setVariants(variantData);
-
-                    // Set reviews
-                    const reviewData = productData.reviews || [];
-                    setReviews(reviewData);
-
-                    // Set initial selected variant
-                    if (variantData.length > 0) {
-                        const firstAvailable = variantData.find(v => (v?.stock ?? 1) > 0) || variantData[0];
-                        setSelectedVariantId(firstAvailable?._id || firstAvailable?.id);
-                    }
-
-                    // Fetch FAQs
-                    try {
-                        const faqResponse = await getProductFaqs(String(id));
-                        const faqData = faqResponse?.data || [];
-                        setFaqs(Array.isArray(faqData) ? faqData : []);
-                    } catch (faqError) {
-                        console.warn('Failed to fetch FAQs:', faqError);
-                        setFaqs([]);
-                    }
-                }
-            } catch (error) {
-                console.warn('Product load error:', error);
-            } finally {
-                if (mounted) {
-                    setLoading(false);
-                }
+            // Check cart quantity
+            if (product && mounted) {
+                await checkCartQuantity();
             }
         };
 
-        loadProductData();
+        checkStatus();
 
         return () => {
             mounted = false;
         };
-    }, [id, productParam]);
+    }, [product, id, checkWishlistStatus, checkCartQuantity]);
 
+    // Update selected variant when attributes change
     useEffect(() => {
-        let mounted = true;
-        (async () => {
-            try {
-                const raw = await AsyncStorage.getItem('userData');
-                if (raw) {
-                    const parsed = JSON.parse(raw);
-                    const uid = parsed?._id || parsed?.id || parsed?.userId || null;
-                    if (mounted) setUserId(uid);
-                    const pid = String(product?._id || product?.id || id || '');
-                    if (uid && pid) {
-                        try {
-                            const res = await checkWishlist(uid, pid);
-                            const liked = Boolean(res?.liked ?? res?.data?.liked ?? res?.inWishlist ?? res?.data?.inWishlist);
-                            if (mounted) setIsLiked(liked);
-                        } catch (_) {}
-                    }
-                }
-            } catch (_) {}
-        })();
-        return () => { mounted = false; };
-    }, [id, product]);
+        if (Object.keys(selectedAttributes).length > 0 && variants.length > 0) {
+            const foundVariant = findVariantByAttributes(selectedAttributes);
+            if (foundVariant) {
+                const variantId = foundVariant?._id || foundVariant?.id;
+                setSelectedVariantId(variantId);
+                setSelectedVariantDetails(foundVariant);
+            } else {
+                // If no variant matches the selected attributes, clear selection
+                setSelectedVariantId(null);
+                setSelectedVariantDetails(null);
+            }
+        }
+    }, [selectedAttributes, variants, findVariantByAttributes]);
+
+    // Update available stock when cart quantity or selected variant changes
+    useEffect(() => {
+        if (product || variants.length > 0) {
+            calculateAvailableStock();
+        }
+    }, [currentCartQuantity, selectedVariantId, product, variants, calculateAvailableStock]);
 
     // Image scroll handler
     const handleImageScroll = (event) => {
@@ -157,45 +362,209 @@ export default function ProductDetailScreen() {
         setActiveImageIndex(index);
     };
 
-    // Quantity handlers
+    // Handle attribute selection
+    const handleAttributeSelect = (attributeType, value) => {
+        setSelectedAttributes(prev => ({
+            ...prev,
+            [attributeType]: value
+        }));
+        // Reset quantity to 1 when attribute changes
+        setQuantity(1);
+    };
+
+    // Check if an attribute value is available (has stock)
+    const isAttributeAvailable = (attributeType, value) => {
+        return variants.some(variant => {
+            const variantAttrs = variant.attributes || [];
+            const hasAttribute = variantAttrs.some(attr =>
+                (attr?.type || attr?.name) === attributeType &&
+                (attr?.value || attr?.name) === value
+            );
+            const hasStock = (variant.stock || variant.quantity || 0) > 0;
+            return hasAttribute && hasStock;
+        });
+    };
+
+    // Get available values for an attribute type based on current selections
+    const getAvailableValues = (attributeType) => {
+        const filteredVariants = variants.filter(variant => {
+            // Check if variant matches all currently selected attributes except the one being evaluated
+            return Object.keys(selectedAttributes).every(type => {
+                if (type === attributeType) return true; // Skip the attribute we're checking
+
+                const selectedValue = selectedAttributes[type];
+                const variantAttr = (variant.attributes || []).find(attr =>
+                    (attr?.type || attr?.name) === type
+                );
+                return variantAttr && (variantAttr.value || variantAttr.name) === selectedValue;
+            });
+        });
+
+        const availableValues = new Set();
+        filteredVariants.forEach(variant => {
+            const variantAttr = (variant.attributes || []).find(attr =>
+                (attr?.type || attr?.name) === attributeType
+            );
+            if (variantAttr && (variant.stock || variant.quantity || 0) > 0) {
+                availableValues.add(variantAttr.value || variantAttr.name);
+            }
+        });
+
+        return Array.from(availableValues);
+    };
+
+    // Quantity handlers with stock validation
     const increaseQuantity = () => {
-        setQuantity(prev => prev + 1);
-    };
+        const available = calculateAvailableStock();
+        if (quantity < available) {
+            setQuantity(prev => prev + 1);
 
-    const decreaseQuantity = () => {
-        setQuantity(prev => prev > 1 ? prev - 1 : 1);
-    };
-
-    // Add to cart handler
-    const handleAddToCart = async () => {
-        try {
-            const productId = product?._id || product?.id || id;
-            const variantId = variants.length > 0 ? selectedVariantId : null;
-
-            const cartData = {
-                productId: String(productId),
-                variantId: variantId ? String(variantId) : null,
-                quantity: Number(quantity),
-            };
-
-            console.log("Adding to cart:", cartData);
-
-            await addCartItem(cartData);
-            router.push("/Cart");
-        } catch (error) {
-            console.warn('Add to Cart Error:', error);
-            // You might want to show an error message to the user here
+            // Animation effect
+            Animated.sequence([
+                Animated.timing(scaleAnim, {
+                    toValue: 1.2,
+                    duration: 100,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(scaleAnim, {
+                    toValue: 1,
+                    duration: 100,
+                    useNativeDriver: true,
+                }),
+            ]).start();
+        } else {
+            Alert.alert('Stock Limit', `Only ${available} items available in stock`);
         }
     };
 
+    const decreaseQuantity = () => {
+        if (quantity > 1) {
+            setQuantity(prev => prev - 1);
+
+            // Animation effect
+            Animated.sequence([
+                Animated.timing(scaleAnim, {
+                    toValue: 0.8,
+                    duration: 100,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(scaleAnim, {
+                    toValue: 1,
+                    duration: 100,
+                    useNativeDriver: true,
+                }),
+            ]).start();
+        }
+    };
+
+    // Add to cart handler with stock validation
+    const handleAddToCart = async () => {
+        if (updatingCart) return;
+
+        // Check if all required attributes are selected
+        const attributeTypes = Object.keys(groupedVariants);
+        const missingAttributes = attributeTypes.filter(type => !selectedAttributes[type]);
+
+        if (missingAttributes.length > 0) {
+            Alert.alert(
+                'Selection Required',
+                `Please select ${missingAttributes.map(a => a.toLowerCase()).join(' and ')}`
+            );
+            return;
+        }
+
+        // Check if a valid variant is selected
+        if (!selectedVariantId) {
+            Alert.alert('Invalid Selection', 'Please select a valid combination');
+            return;
+        }
+
+        try {
+            setUpdatingCart(true);
+            const productId = product?._id || product?.id || id;
+            const variantId = selectedVariantId;
+
+            // Get current stock
+            const available = calculateAvailableStock();
+
+            // Validate quantity
+            if (quantity > available) {
+                Alert.alert(
+                    'Stock Limit Exceeded',
+                    `You can only add ${available} items.`
+                );
+                return;
+            }
+
+            const cartData = {
+                productId: String(productId),
+                variantId: String(variantId),
+                quantity: Number(quantity),
+            };
+
+
+            const response = await addCartItem(cartData);
+
+            if (response.success || response.data) {
+                // Show success animation
+                setShowAddToCartSuccess(true);
+                setTimeout(() => setShowAddToCartSuccess(false), 2000);
+
+                // Refresh cart quantity
+                await checkCartQuantity();
+
+                // Reset local quantity to 1
+                setQuantity(1);
+
+                // Navigate to cart
+                router.push("/Cart");
+            } else {
+                throw new Error('Failed to add to cart');
+            }
+        } catch (error) {
+            console.warn('Add to Cart Error:', error);
+            const errorMessage = error.response?.data?.message || error.message || 'Failed to add product to cart';
+            Alert.alert('Error', errorMessage);
+        } finally {
+            setUpdatingCart(false);
+        }
+    };
+
+    // Wishlist toggle handler
     const handleWishlist = async () => {
         try {
             const pid = String(product?._id || product?.id || id || '');
-            if (!userId || !pid) return;
+            if (!userId || !pid) {
+                Alert.alert('Sign In Required', 'Please sign in to manage your wishlist.');
+                return;
+            }
+
+            // Optimistic update
+            const previousState = isLiked;
+            setIsLiked(!previousState);
+
             const res = await toggleWishlist(userId, pid);
-            const liked = Boolean(res?.data?.liked ?? res?.liked);
-            setIsLiked(liked);
-        } catch (_) {}
+
+            // Verify the response
+            const newLiked = Boolean(res?.data?.liked ?? res?.liked ?? !previousState);
+
+            if (mountedRef.current) {
+                setIsLiked(newLiked);
+            }
+
+            // Show feedback
+            Alert.alert(
+                newLiked ? 'Added To Wishlist' : 'Removed From Wishlist',
+                newLiked ? 'Product added to your wishlist!' : 'Product removed from your wishlist!'
+            );
+        } catch (error) {
+            // Revert on error
+            if (mountedRef.current) {
+                setIsLiked(prev => !prev);
+            }
+            console.warn('Wishlist Toggle error:', error);
+            Alert.alert('Error', 'Failed to update wishlist. Please try again.');
+        }
     };
 
     // Utility functions
@@ -206,22 +575,22 @@ export default function ProductDetailScreen() {
     const getDisplayPrice = () => {
         const selectedVariant = getSelectedVariant();
         if (variants.length > 0 && selectedVariant) {
-            return selectedVariant.finalPrice || selectedVariant.basePrice || 0;
+            return selectedVariant.finalPrice || selectedVariant.basePrice || selectedVariant.price || 0;
         }
         return product?.finalPrice || product?.basePrice || product?.price || 0;
     };
 
-    const getDiscountPercentage = () => {
-        let basePrice, finalPrice;
+    const getBasePrice = () => {
         const selectedVariant = getSelectedVariant();
-
         if (variants.length > 0 && selectedVariant) {
-            basePrice = selectedVariant.basePrice;
-            finalPrice = selectedVariant.finalPrice;
-        } else {
-            basePrice = product?.basePrice;
-            finalPrice = product?.finalPrice;
+            return selectedVariant.basePrice || selectedVariant.price || 0;
         }
+        return product?.basePrice || product?.price || 0;
+    };
+
+    const getDiscountPercentage = () => {
+        const basePrice = getBasePrice();
+        const finalPrice = getDisplayPrice();
 
         if (basePrice && finalPrice && basePrice > finalPrice) {
             return Math.round(((basePrice - finalPrice) / basePrice) * 100);
@@ -230,27 +599,49 @@ export default function ProductDetailScreen() {
     };
 
     const isOutOfStock = () => {
-        const selectedVariant = getSelectedVariant();
-        if (variants.length > 0 && selectedVariant) {
-            return selectedVariant.stock === 0;
-        }
-        return product?.stock === 0;
+        return availableStock <= 0;
     };
+
+    // Handle refresh
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        await loadProductData();
+        const uid = await loadUserId();
+        const pid = String(product?._id || product?.id || id || '');
+        if (uid && pid) {
+            await checkWishlistStatus(uid, pid);
+        }
+    }, [product, id]);
+
+    // Add focus listener to refresh data when screen comes into focus
+    useFocusEffect(
+        useCallback(() => {
+            if (!mountedRef.current) return;
+
+            // Refresh wishlist status
+            const pid = String(product?._id || product?.id || id || '');
+            if (userId && pid) {
+                checkWishlistStatus(userId, pid);
+            }
+        }, [userId, product, id, checkWishlistStatus])
+    );
 
     const hasVariants = variants.length > 0;
     const selectedVariant = getSelectedVariant();
     const displayPrice = getDisplayPrice();
+    const basePrice = getBasePrice();
     const discountPercentage = getDiscountPercentage();
+    const hasDiscount = discountPercentage > 0;
     const outOfStock = isOutOfStock();
     const productImages = product?.images || [];
     const productCategories = product?.categoryIds || [];
 
     // Loading state
-    if (loading) {
+    if (loading && !refreshing) {
         return (
             <View style={styles.loaderContainer}>
                 <ActivityIndicator size="large" color="#4CAD73" />
-                <Text style={styles.loaderText}>Loading product details...</Text>
+                <Text style={styles.loaderText}>Loading Product Details...</Text>
             </View>
         );
     }
@@ -259,8 +650,8 @@ export default function ProductDetailScreen() {
     if (!product) {
         return (
             <View style={styles.errorContainer}>
-                <Text style={styles.errorText}>Product not found</Text>
-                <Pressable style={styles.backButton} onPress={handleBack}>
+                <Text style={styles.errorText}>Product Not Found</Text>
+                <Pressable style={styles.backButtonError} onPress={handleBack}>
                     <Text style={styles.backButtonText}>Go Back</Text>
                 </Pressable>
             </View>
@@ -269,14 +660,28 @@ export default function ProductDetailScreen() {
 
     return (
         <View style={styles.container}>
-            {/* Header with Back Button - Separate from image section */}
+            {/* Header with Back Button */}
             <SafeAreaView style={styles.headerSafeArea}>
                 <View style={styles.header}>
                     <Pressable style={styles.backButton} onPress={handleBack}>
-                        <Image
-                            source={require("../../assets/icons/back_icon.png")}
-                            style={styles.backIcon}
-                        />
+                        <Ionicons name="arrow-back" size={24} color="#000" />
+                    </Pressable>
+
+                    {/* Wishlist Button in Header */}
+                    <Pressable
+                        style={styles.headerWishlistButton}
+                        onPress={handleWishlist}
+                        disabled={isCheckingWishlist}
+                    >
+                        {isCheckingWishlist ? (
+                            <ActivityIndicator size="small" color="#DC1010" />
+                        ) : (
+                            <Ionicons
+                                name={isLiked ? "heart" : "heart-outline"}
+                                size={24}
+                                color={isLiked ? "#DC1010" : "#000"}
+                            />
+                        )}
                     </Pressable>
                 </View>
             </SafeAreaView>
@@ -286,25 +691,17 @@ export default function ProductDetailScreen() {
                 style={styles.scrollView}
                 showsVerticalScrollIndicator={false}
                 bounces={false}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={onRefresh}
+                        colors={['#4CAD73']}
+                        tintColor="#4CAD73"
+                    />
+                }
             >
-                {/* Product Images Section - Clean without header overlap */}
+                {/* Product Images Section */}
                 <View style={styles.imageSection}>
-                    <Pressable
-                        style={styles.wishlistButton}
-                        onPress={handleWishlist}
-                        activeOpacity={0.8}
-                    >
-                        <Image
-                            source={
-                                isLiked
-                                    ? require("../../assets/icons/heart_filled.png")   // when liked
-                                    : require("../../assets/icons/heart_empty.png")    // when not liked
-                            }
-                            style={styles.wishlistIcon}
-                            resizeMode="contain"
-                        />
-                    </Pressable>
-
                     <ScrollView
                         horizontal
                         pagingEnabled
@@ -312,23 +709,33 @@ export default function ProductDetailScreen() {
                         onScroll={handleImageScroll}
                         scrollEventThrottle={16}
                     >
-                        {productImages.map((img, index) => {
-                            const imageUrl = typeof img === 'string' ? img : (img?.url || img?.path);
-                            console.log(`${API_BASE_URL}${imageUrl}`)
-                            const source = imageUrl
-                                ? { uri: `${API_BASE_URL}${imageUrl}` }
-                                : require("../../assets/sample-product.png");
+                        {productImages.length > 0 ? (
+                            productImages.map((img, index) => {
+                                const imageUrl = typeof img === 'string' ? img : (img?.url || img?.path);
+                                const source = imageUrl
+                                    ? { uri: `${API_BASE_URL}${imageUrl}` }
+                                    : require("../../assets/sample-product.png");
 
-                            return (
-                                <View key={`image-${index}`} style={styles.imageWrapper}>
-                                    <Image
-                                        source={source}
-                                        style={styles.productImage}
-                                        resizeMode="contain"
-                                    />
-                                </View>
-                            );
-                        })}
+                                return (
+                                    <View key={`image-${index}`} style={styles.imageWrapper}>
+                                        <Image
+                                            source={source}
+                                            style={styles.productImage}
+                                            resizeMode="contain"
+                                            defaultSource={require("../../assets/sample-product.png")}
+                                        />
+                                    </View>
+                                );
+                            })
+                        ) : (
+                            <View style={styles.imageWrapper}>
+                                <Image
+                                    source={require("../../assets/sample-product.png")}
+                                    style={styles.productImage}
+                                    resizeMode="contain"
+                                />
+                            </View>
+                        )}
                     </ScrollView>
 
                     {/* Image Indicators */}
@@ -346,12 +753,6 @@ export default function ProductDetailScreen() {
                         </View>
                     )}
 
-                    {/* Discount Badge */}
-                    {discountPercentage > 0 && (
-                        <View style={styles.discountBadge}>
-                            <Text style={styles.discountBadgeText}>{discountPercentage}% OFF</Text>
-                        </View>
-                    )}
                 </View>
 
                 {/* Product Details Section */}
@@ -369,27 +770,31 @@ export default function ProductDetailScreen() {
                                     <Image
                                         source={{ uri: `${API_BASE_URL}${product.brandId.logo}` }}
                                         style={styles.brandLogo}
+                                        defaultSource={require("../../assets/sample-product.png")}
                                     />
                                 )}
                                 <Text style={styles.brandName}>{product.brandId.name}</Text>
+                                {/* Discount Badge */}
+                                {hasDiscount && (
+                                    <View style={styles.discountBadge}>
+                                        <Text style={styles.discountBadgeText}>{discountPercentage}% OFF</Text>
+                                    </View>
+                                )}
                             </View>
                         )}
+
 
                         {/* Rating */}
                         <View style={styles.ratingRow}>
                             <View style={styles.starsContainer}>
                                 {[1, 2, 3, 4, 5].map((star) => (
-                                    <Text
+                                    <Ionicons
                                         key={`star-${star}`}
-                                        style={[
-                                            styles.star,
-                                            star <= Math.floor(product?.ratingAverage || 0)
-                                                ? styles.starFilled
-                                                : styles.starEmpty
-                                        ]}
-                                    >
-                                        ★
-                                    </Text>
+                                        name={star <= Math.floor(product?.ratingAverage || 0) ? "star" : "star-outline"}
+                                        size={16}
+                                        color="#FFC107"
+                                        style={styles.star}
+                                    />
                                 ))}
                             </View>
                             <Text style={styles.ratingValue}>
@@ -403,36 +808,39 @@ export default function ProductDetailScreen() {
                         {/* Pricing */}
                         <View style={styles.pricingSection}>
                             <View style={styles.priceRow}>
-                                {((hasVariants && selectedVariant?.basePrice) || product?.basePrice) &&
-                                    ((hasVariants && selectedVariant?.basePrice > displayPrice) ||
-                                        (product?.basePrice > displayPrice)) && (
-                                        <Text style={styles.oldPrice}>
-                                            ₹{Number(hasVariants ? selectedVariant.basePrice : product.basePrice).toFixed(2)}
-                                        </Text>
-                                    )}
-                                <Text style={styles.currentPrice}>₹{Number(displayPrice).toFixed(2)}</Text>
-                                {discountPercentage > 0 && (
-                                    <Text style={styles.discountText}>{discountPercentage}% off</Text>
+                                {hasDiscount && basePrice > displayPrice && (
+                                    <Text style={styles.oldPrice}>
+                                        ₹{Number(basePrice).toFixed(2)}
+                                    </Text>
                                 )}
+                                <Text style={styles.currentPrice}>₹{Number(displayPrice).toFixed(2)}</Text>
                             </View>
 
                             {/* Stock Status */}
-                            <Text style={[
-                                styles.stockStatus,
-                                outOfStock ? styles.outOfStock : styles.inStock
-                            ]}>
-                                {outOfStock ? 'Out of stock' : `${hasVariants ? selectedVariant?.stock : product?.stock} in stock`}
-                            </Text>
+                            <View style={styles.stockContainer}>
+                                <View style={[styles.stockBadge, outOfStock ? styles.outOfStockBadge : styles.inStockBadge]}>
+                                    <Ionicons
+                                        name={outOfStock ? "close-circle" : "checkmark-circle"}
+                                        size={14}
+                                        color="#FFF"
+                                    />
+                                    <Text style={styles.stockBadgeText}>
+                                        {outOfStock ? 'Out of Stock' : `${availableStock} in Stock`}
+                                    </Text>
+                                </View>
+                            </View>
                         </View>
                     </View>
 
                     {/* Description */}
-                    <View style={styles.descriptionSection}>
-                        <Text style={styles.sectionTitle}>Description</Text>
-                        <Text style={styles.descriptionText}>
-                            {product?.description || 'No description available.'}
-                        </Text>
-                    </View>
+                    {product?.description && (
+                        <View style={styles.descriptionSection}>
+                            <Text style={styles.sectionTitle}>Description</Text>
+                            <Text style={styles.descriptionText}>
+                                {product.description}
+                            </Text>
+                        </View>
+                    )}
 
                     {/* Categories */}
                     {productCategories.length > 0 && (
@@ -452,79 +860,69 @@ export default function ProductDetailScreen() {
                         </View>
                     )}
 
-                    {/* Variants */}
-                    {hasVariants && (
-                        <View style={styles.variantsSection}>
-                            <Text style={styles.sectionTitle}>Select Variant</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                                <View style={styles.variantsContainer}>
-                                    {variants.map((variant, index) => {
-                                        const variantId = variant?._id || variant?.id;
-                                        const isSelected = variantId === selectedVariantId;
-                                        const isOutOfStock = variant.stock === 0;
-                                        const variantName = Array.isArray(variant?.attributes) && variant.attributes.length
-                                            ? variant.attributes.map(attr => attr?.value || attr?.name || '').join(' / ')
-                                            : (variant?.name || variant?.sku || `Variant ${index + 1}`);
+                    {/* Variants Selection */}
+                    {hasVariants && Object.keys(groupedVariants).length > 0 && (
+                        Object.keys(groupedVariants).map(attributeType => (
+                            <View key={attributeType} style={styles.variantsSection}>
+                                <Text style={styles.sectionTitle}>
+                                    Select {groupedVariants[attributeType].name}
+                                </Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                                    <View style={styles.variantsContainer}>
+                                        {groupedVariants[attributeType].values.map((value, index) => {
+                                            const isSelected = selectedAttributes[attributeType] === value;
+                                            const isAvailable = isAttributeAvailable(attributeType, value);
+                                            const isActive = getAvailableValues(attributeType).includes(value);
 
-                                        return (
-                                            <Pressable
-                                                key={`variant-${variantId || index}`}
-                                                style={[
-                                                    styles.variantChip,
-                                                    isSelected && styles.variantChipSelected,
-                                                    isOutOfStock && styles.variantChipDisabled
-                                                ]}
-                                                onPress={() => !isOutOfStock && setSelectedVariantId(variantId)}
-                                                disabled={isOutOfStock}
-                                            >
-                                                <Text style={[
-                                                    styles.variantText,
-                                                    isSelected && styles.variantTextSelected,
-                                                    isOutOfStock && styles.variantTextDisabled
-                                                ]}>
-                                                    {variantName}
-                                                    {isOutOfStock && ' (Out of stock)'}
-                                                </Text>
-                                            </Pressable>
-                                        );
-                                    })}
-                                </View>
-                            </ScrollView>
-                        </View>
+                                            return (
+                                                <Pressable
+                                                    key={`${attributeType}-${value}-${index}`}
+                                                    style={[
+                                                        styles.variantChip,
+                                                        isSelected && styles.variantChipSelected,
+                                                        !isActive && styles.variantChipDisabled,
+                                                        !isAvailable && styles.variantChipOutOfStock
+                                                    ]}
+                                                    onPress={() => isActive && handleAttributeSelect(attributeType, value)}
+                                                    disabled={!isActive}
+                                                >
+                                                    <Text style={[
+                                                        styles.variantText,
+                                                        isSelected && styles.variantTextSelected,
+                                                        !isActive && styles.variantTextDisabled,
+                                                        !isAvailable && styles.variantTextOutOfStock
+                                                    ]}>
+                                                        {value}
+                                                        {!isAvailable && ' (Out)'}
+                                                    </Text>
+                                                </Pressable>
+                                            );
+                                        })}
+                                    </View>
+                                </ScrollView>
+                            </View>
+                        ))
                     )}
 
-                    {/* Features */}
-                    <View style={styles.featuresSection}>
-                        <Text style={styles.sectionTitle}>Product Features</Text>
-                        <View style={styles.featuresGrid}>
-                            <View style={styles.featureRow}>
-                                <View style={styles.featureItem}>
-                                    <Text style={styles.featureIcon}>🌱</Text>
-                                    <Text style={styles.featureValue}>100%</Text>
-                                    <Text style={styles.featureLabel}>Organic</Text>
-                                </View>
-                                <View style={styles.featureItem}>
-                                    <Text style={styles.featureIcon}>📅</Text>
-                                    <Text style={styles.featureValue}>1 Year</Text>
-                                    <Text style={styles.featureLabel}>Expiration</Text>
-                                </View>
-                            </View>
-                            <View style={styles.featureRow}>
-                                <View style={styles.featureItem}>
-                                    <Text style={styles.featureIcon}>❤️</Text>
-                                    <Text style={styles.featureValue}>
-                                        {product?.ratingAverage?.toFixed(1) || '0.0'}
-                                    </Text>
-                                    <Text style={styles.featureLabel}>Rating</Text>
-                                </View>
-                                <View style={styles.featureItem}>
-                                    <Text style={styles.featureIcon}>🔥</Text>
-                                    <Text style={styles.featureValue}>80 kcal</Text>
-                                    <Text style={styles.featureLabel}>100g</Text>
-                                </View>
+                    {/* Selected Variant Details */}
+                    {selectedVariantDetails && (
+                        <View style={styles.selectedVariantSection}>
+                            <Text style={styles.sectionTitle}>Selected Variant</Text>
+                            <View style={styles.variantDetails}>
+                                <Text style={styles.variantSku}>
+                                    SKU: {selectedVariantDetails.sku || 'N/A'}
+                                </Text>
+                                <Text style={styles.variantAttributes}>
+                                    Attributes: {selectedVariantDetails.attributes?.map(attr =>
+                                    `${attr?.type || attr?.name}: ${attr?.value || attr?.name}`
+                                ).join(', ')}
+                                </Text>
+                                <Text style={styles.variantStock}>
+                                    Available Stock: {selectedVariantDetails.stock || selectedVariantDetails.quantity || 0}
+                                </Text>
                             </View>
                         </View>
-                    </View>
+                    )}
 
                     {/* Reviews */}
                     {reviews.length > 0 && (
@@ -537,7 +935,7 @@ export default function ProductDetailScreen() {
                                             {review.userId?.name || 'Anonymous Customer'}
                                         </Text>
                                         <View style={styles.reviewRating}>
-                                            <Text style={styles.starFilled}>★</Text>
+                                            <Ionicons name="star" size={14} color="#FFC107" />
                                             <Text style={styles.ratingNumber}>{review.rating}</Text>
                                         </View>
                                     </View>
@@ -564,29 +962,30 @@ export default function ProductDetailScreen() {
                             ))}
                         </View>
                     )}
-
-                    {/* Related Products Loading */}
-                    {loadingRelated && (
-                        <View style={styles.loadingSection}>
-                            <ActivityIndicator size="small" color="#4CAD73" />
-                            <Text style={styles.loadingText}>Loading related products...</Text>
-                        </View>
-                    )}
                 </View>
             </ScrollView>
 
-            {/* Fixed Bottom Action Bar */}
+            {/* Success Message */}
+            {showAddToCartSuccess && (
+                <Animated.View style={styles.successOverlay}>
+                    <Ionicons name="checkmark-circle" size={32} color="#4CAD73" />
+                    <Text style={styles.successText}>Added to cart successfully!</Text>
+                </Animated.View>
+            )}
+
+            {/* Fixed Bottom Action Bar - Redesigned */}
             <SafeAreaView style={styles.bottomSafeArea}>
                 <View style={styles.bottomActionBar}>
+                    {/* Quantity Selector */}
                     <View style={styles.quantitySelector}>
                         <Text style={styles.quantityLabel}>Quantity</Text>
                         <View style={styles.quantityControls}>
                             <Pressable
                                 style={[styles.quantityButton, outOfStock && styles.buttonDisabled]}
                                 onPress={decreaseQuantity}
-                                disabled={outOfStock}
+                                disabled={outOfStock || quantity === 1}
                             >
-                                <Text style={styles.quantityButtonText}>-</Text>
+                                <Text style={[styles.quantityButtonText, outOfStock && styles.textDisabled]}>-</Text>
                             </Pressable>
                             <Text style={[styles.quantityValue, outOfStock && styles.textDisabled]}>
                                 {quantity}
@@ -594,21 +993,26 @@ export default function ProductDetailScreen() {
                             <Pressable
                                 style={[styles.quantityButton, outOfStock && styles.buttonDisabled]}
                                 onPress={increaseQuantity}
-                                disabled={outOfStock}
+                                disabled={outOfStock || quantity >= availableStock}
                             >
-                                <Text style={styles.quantityButtonText}>+</Text>
+                                <Text style={[styles.quantityButtonText, outOfStock && styles.textDisabled]}>+</Text>
                             </Pressable>
                         </View>
                     </View>
 
+                    {/* Add to Cart Button */}
                     <Pressable
                         style={[styles.addToCartButton, outOfStock && styles.buttonDisabled]}
                         onPress={handleAddToCart}
-                        disabled={outOfStock}
+                        disabled={outOfStock || updatingCart || !selectedVariantId}
                     >
-                        <Text style={styles.addToCartButtonText}>
-                            {outOfStock ? 'Out of Stock' : 'Add to Cart'}
-                        </Text>
+                        {updatingCart ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                            <Text style={styles.addToCartButtonText}>
+                                {outOfStock ? 'Out of Stock' : 'Add to Cart'}
+                            </Text>
+                        )}
                     </Pressable>
                 </View>
             </SafeAreaView>
@@ -619,13 +1023,13 @@ export default function ProductDetailScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: "#F5F6FA",
+        backgroundColor: "#F8F9FA",
     },
     loaderContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#F5F6FA',
+        backgroundColor: '#F8F9FA',
     },
     loaderText: {
         marginTop: 16,
@@ -637,7 +1041,7 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#F5F6FA',
+        backgroundColor: '#F8F9FA',
         padding: 20,
     },
     errorText: {
@@ -646,25 +1050,38 @@ const styles = StyleSheet.create({
         fontFamily: 'Poppins',
         marginBottom: 20,
     },
-    // Header Styles - Separate from image
+    backButtonError: {
+        backgroundColor: '#4CAD73',
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderRadius: 8,
+    },
+    backButtonText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontFamily: 'Poppins',
+        fontWeight: '600',
+    },
+    // Header Styles
     headerSafeArea: {
         backgroundColor: 'transparent',
         position: 'absolute',
-        top: 30,
+        top: 50,
         left: 0,
         right: 0,
         zIndex: 1000,
     },
     header: {
         paddingHorizontal: 16,
-        paddingTop: 10,
-        paddingBottom: 10,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
     },
     backButton: {
-        width: 40,
-        height: 40,
-        backgroundColor: '#FFFFFF',
-        borderRadius: 20,
+        width: 44,
+        height: 44,
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        borderRadius: 22,
         justifyContent: 'center',
         alignItems: 'center',
         shadowColor: '#000',
@@ -673,23 +1090,31 @@ const styles = StyleSheet.create({
         shadowRadius: 4,
         elevation: 3,
     },
-    backIcon: {
-        width: 20,
-        height: 20,
-        resizeMode: 'contain',
+    headerWishlistButton: {
+        width: 44,
+        height: 44,
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        borderRadius: 22,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
     },
     scrollView: {
         flex: 1,
     },
-    // Image Section - Clean without header overlap
+    // Image Section
     imageSection: {
-        height: 320,
+        height: 380,
         backgroundColor: "#F2F2F2",
         position: 'relative',
     },
     imageWrapper: {
         width: screenWidth,
-        height: 320,
+        height: 380,
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -716,13 +1141,10 @@ const styles = StyleSheet.create({
         backgroundColor: "#C4C4C4",
     },
     discountBadge: {
-        position: 'absolute',
-        top: 40,
-        right: 20,
         backgroundColor: '#FF4444',
         paddingHorizontal: 12,
         paddingVertical: 6,
-        borderRadius: 16,
+        borderRadius: 6,
     },
     discountBadgeText: {
         color: '#FFFFFF',
@@ -730,38 +1152,14 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         fontFamily: 'Poppins',
     },
-    wishlistButton: {
-        position: 'absolute',
-        top: 70,
-        right: 20,
-        zIndex: 20,
-        backgroundColor: '#FFFFFF',
-        padding: 8,
-        borderRadius: 20,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    wishlistIcon: {
-        width: 30,
-        height: 30,
-    },
-    wishlistIconLiked: {
-        tintColor: '#DC1010',
-    },
-    wishlistIconUnliked: {
-        tintColor: '#1B1B1B',
-    },
     detailsSection: {
         backgroundColor: "#FFFFFF",
-        borderTopLeftRadius: 40,
-        borderTopRightRadius: 40,
-        marginTop: -40,
-        paddingTop: 40,
-        paddingHorizontal: 24,
-        paddingBottom: 120,
+        borderTopLeftRadius: 30,
+        borderTopRightRadius: 30,
+        marginTop: -30,
+        paddingTop: 30,
+        paddingHorizontal: 20,
+        paddingBottom: 140,
     },
     productBasicInfo: {
         gap: 12,
@@ -798,14 +1196,7 @@ const styles = StyleSheet.create({
         flexDirection: "row",
     },
     star: {
-        fontSize: 16,
         marginRight: 2,
-    },
-    starFilled: {
-        color: "#FFC107",
-    },
-    starEmpty: {
-        color: "#E0E0E0",
     },
     ratingValue: {
         fontSize: 14,
@@ -819,7 +1210,7 @@ const styles = StyleSheet.create({
         color: "#868889",
     },
     pricingSection: {
-        gap: 8,
+        gap: 12,
     },
     priceRow: {
         flexDirection: "row",
@@ -834,31 +1225,34 @@ const styles = StyleSheet.create({
         textDecorationLine: "line-through",
     },
     currentPrice: {
-        fontSize: 24,
+        fontSize: 28,
         fontFamily: "Poppins",
-        fontWeight: "600",
+        fontWeight: "700",
         color: "#4CAD73",
     },
-    discountText: {
-        fontSize: 14,
-        fontFamily: "Poppins",
-        fontWeight: "500",
-        color: "#FF4444",
-        backgroundColor: '#FFE6E6',
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 6,
+    stockContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
     },
-    stockStatus: {
-        fontSize: 14,
-        fontFamily: "Poppins",
-        fontWeight: "500",
+    stockBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 16,
     },
-    inStock: {
-        color: "#4CAD73",
+    inStockBadge: {
+        backgroundColor: '#4CAD73',
     },
-    outOfStock: {
-        color: "#FF4444",
+    outOfStockBadge: {
+        backgroundColor: '#FF4444',
+    },
+    stockBadgeText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontFamily: 'Poppins',
+        fontWeight: '500',
     },
     descriptionSection: {
         marginBottom: 24,
@@ -895,11 +1289,12 @@ const styles = StyleSheet.create({
         color: "#555",
     },
     variantsSection: {
-        marginBottom: 24,
+        marginBottom: 16,
     },
     variantsContainer: {
         flexDirection: 'row',
         gap: 8,
+        flexWrap: 'wrap',
     },
     variantChip: {
         borderWidth: 1,
@@ -908,15 +1303,20 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 8,
         borderRadius: 20,
+        marginBottom: 8,
     },
     variantChipSelected: {
         borderColor: '#4CAD73',
         backgroundColor: 'rgba(76, 173, 115, 0.1)',
     },
     variantChipDisabled: {
+        borderColor: '#E6E6E6',
+        backgroundColor: '#F5F5F5',
+        opacity: 0.5,
+    },
+    variantChipOutOfStock: {
         borderColor: '#FFCCCB',
         backgroundColor: '#FFF5F5',
-        opacity: 0.6,
     },
     variantText: {
         fontSize: 14,
@@ -928,39 +1328,38 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
     variantTextDisabled: {
-        color: '#666',
+        color: '#999',
     },
-    featuresSection: {
-        marginBottom: 24,
+    variantTextOutOfStock: {
+        color: '#FF4444',
     },
-    featuresGrid: {
-        gap: 16,
-    },
-    featureRow: {
-        flexDirection: 'row',
-        gap: 16,
-    },
-    featureItem: {
-        flex: 1,
-        backgroundColor: '#F9F9F9',
+    selectedVariantSection: {
+        backgroundColor: '#F8F9FA',
         padding: 16,
         borderRadius: 12,
-        alignItems: 'center',
+        marginBottom: 24,
+        borderLeftWidth: 3,
+        borderLeftColor: '#4CAD73',
+    },
+    variantDetails: {
         gap: 8,
     },
-    featureIcon: {
-        fontSize: 24,
-    },
-    featureValue: {
-        fontSize: 16,
+    variantSku: {
+        fontSize: 14,
         fontFamily: "Poppins",
-        fontWeight: "600",
-        color: "#23AA49",
+        fontWeight: "500",
+        color: "#333",
     },
-    featureLabel: {
-        fontSize: 12,
+    variantAttributes: {
+        fontSize: 14,
         fontFamily: "Poppins",
-        color: "#979899",
+        color: "#666",
+    },
+    variantStock: {
+        fontSize: 14,
+        fontFamily: "Poppins",
+        color: "#4CAD73",
+        fontWeight: '600',
     },
     reviewsSection: {
         marginBottom: 24,
@@ -993,6 +1392,7 @@ const styles = StyleSheet.create({
         fontFamily: "Poppins",
         fontWeight: "500",
         color: "#333",
+        marginLeft: 2,
     },
     reviewComment: {
         fontSize: 14,
@@ -1030,29 +1430,39 @@ const styles = StyleSheet.create({
         color: "#666",
         lineHeight: 20,
     },
-    loadingSection: {
-        flexDirection: 'row',
+    // Success Animation
+    successOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        paddingVertical: 12,
         alignItems: 'center',
-        justifyContent: 'center',
-        gap: 12,
-        padding: 20,
+        zIndex: 100,
+        shadowColor: '#4CAD73',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 5,
     },
-    loadingText: {
+    successText: {
         fontSize: 14,
         fontFamily: "Poppins",
-        color: "#666",
+        fontWeight: "600",
+        color: "#4CAD73",
+        marginTop: 4,
     },
-    // Bottom Action Bar with Safe Area
+    // Bottom Action Bar Styles
     bottomSafeArea: {
         backgroundColor: '#FFFFFF',
     },
     bottomActionBar: {
         backgroundColor: '#FFFFFF',
-        padding: 18,
-        marginBottom: 8,
+        padding: 16,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 18,
+        justifyContent: 'space-between',
         borderTopWidth: 1,
         borderTopColor: '#E6E6E6',
         shadowColor: '#000',
@@ -1062,23 +1472,29 @@ const styles = StyleSheet.create({
         elevation: 8,
     },
     quantitySelector: {
-        alignItems: 'center',
-    },
-    quantityLabel: {
-        fontSize: 14,
-        fontFamily: "Poppins",
-        color: "#838383",
-    },
-    quantityControls: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
     },
+    quantityLabel: {
+        fontSize: 14,
+        fontFamily: "Poppins",
+        fontWeight: "600",
+        color: "#333",
+    },
+    quantityControls: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F5F5F5',
+        borderRadius: 20,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+    },
     quantityButton: {
-        width: 30,
-        height: 30,
+        width: 32,
+        height: 32,
         backgroundColor: '#4CAD73',
-        borderRadius: 18,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -1086,20 +1502,23 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: 18,
         fontWeight: 'bold',
+        fontFamily: 'Poppins',
     },
     quantityValue: {
-        fontSize: 18,
+        fontSize: 16,
         fontFamily: "Poppins",
         fontWeight: "600",
         color: "#000000",
+        marginHorizontal: 16,
         minWidth: 30,
         textAlign: 'center',
     },
     addToCartButton: {
         flex: 1,
-        height: 50,
+        marginLeft: 16,
+        height: 48,
         backgroundColor: "#4CAD73",
-        borderRadius: 12,
+        borderRadius: 8,
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -1110,9 +1529,9 @@ const styles = StyleSheet.create({
         color: "#FFFFFF",
     },
     buttonDisabled: {
-        backgroundColor: '#AFAFAF',
+        backgroundColor: '#CCCCCC',
     },
     textDisabled: {
-        color: '#AFAFAF',
+        color: '#999999',
     },
 });

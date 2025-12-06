@@ -1,4 +1,5 @@
 import apiClient from "../utils/apiClient";
+import ApiClient from "../utils/apiClient";
 
 export const getSaleCategories = async ({
                                             page = 1,
@@ -38,7 +39,6 @@ export const getProducts = async ({page = 1, limit = 20, categoryId = undefined}
         const params = {page, limit};
         if (categoryId) params.categoryId = categoryId;
         const response = await apiClient.get(`/api/catalog/products`, {params});
-        // console.log('[Catalog getProducts] resp:', response?.data.data.items);
         return response.data;
     } catch (error) {
         console.error('Failed to fetch products', error);
@@ -61,7 +61,7 @@ export const getProductById = async (id) => {
     if (!id) throw new Error('Product id is required');
     try {
         const response = await apiClient.get(`/api/catalog/products/${id}`);
-        console.log(response.data)
+        console.log(response.data.data.variants.attributes)
         return response.data;
     } catch (error) {
         console.error(`Failed to fetch product ${id}`, error);
@@ -96,7 +96,7 @@ export const getProductFaqs = async (productId) => {
 // Wishlist APIs
 export const addToWishlist = async (userId, productId) => {
     try {
-        const response = await apiClient.post(`/api/wishlist/add`, { userId, productId });
+        const response = await apiClient.post(`/api/wishlist/add`, {userId, productId});
         return response.data;
     } catch (error) {
         console.error('Failed to add to wishlist', error);
@@ -106,7 +106,7 @@ export const addToWishlist = async (userId, productId) => {
 
 export const removeFromWishlist = async (userId, productId) => {
     try {
-        const response = await apiClient.delete(`/api/wishlist/remove`, { data: { userId, productId } });
+        const response = await apiClient.delete(`/api/wishlist/remove`, {data: {userId, productId}});
         return response.data;
     } catch (error) {
         console.error('Failed to remove from wishlist', error);
@@ -116,7 +116,7 @@ export const removeFromWishlist = async (userId, productId) => {
 
 export const toggleWishlist = async (userId, productId) => {
     try {
-        const response = await apiClient.post(`/api/wishlist/toggle`, { userId, productId });
+        const response = await apiClient.post(`/api/wishlist/toggle`, {userId, productId});
         return response.data;
     } catch (error) {
         console.error('Failed to toggle wishlist', error);
@@ -136,7 +136,8 @@ export const getWishlist = async (userId) => {
 
 export const checkWishlist = async (userId, productId) => {
     try {
-        const response = await apiClient.get(`/api/wishlist/checked/${productId}` );
+        const response = await apiClient.get(`/api/wishlist/checked/${productId}`);
+        // console.log(response.data.data.isLiked);
         return response.data;
     } catch (error) {
         console.error('Failed to check wishlist', error);
@@ -158,10 +159,24 @@ export const getTabCategories = async () => {
 
 export const getProductsByTab = async (tabId, params = {}) => {
     try {
-        const response = await apiClient.get(`/api/tabs/${tabId}/products`, { params });
+        const response = await apiClient.get(`/api/tabs/${tabId}/products`, {params});
         return response.data;
     } catch (error) {
         console.error(`Error fetching products for tab ${tabId}:`, error);
+        throw error;
+    }
+};
+
+
+// catalogApi.js - Add this function
+export const getProductRatingByUser = async (userId, productId) => {
+    try {
+        const response = await apiClient.get(
+            `/api/catalog/reviews/products/${productId}/userrating`
+        );
+        return response.data;
+    } catch (error) {
+        console.error('Error getting user rating:', error);
         throw error;
     }
 };

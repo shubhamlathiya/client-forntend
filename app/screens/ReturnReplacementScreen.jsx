@@ -210,7 +210,7 @@ export default function ReturnReplacementScreen() {
     };
 
     const formatCurrency = (amount) => {
-        return `₹${Number(amount || 0).toFixed(2)}`;
+        return `₹${Number(amount).toFixed(2)}`;
     };
 
     const totalAmount = orderDetails?.totals?.grandTotal || orderDetails?.priceBreakdown?.grandTotal || orderDetails?.totalPrice || 0;
@@ -391,7 +391,8 @@ export default function ReturnReplacementScreen() {
 
                                             <View style={styles.priceRow}>
                                                 <Text style={[styles.productPrice, {fontSize: RF(14)}]}>
-                                                    {formatCurrency(item.price)}
+                                                    ₹{totalAmount}
+                                                    {/*{formatCurrency(item.price)}*/}
                                                 </Text>
                                                 <Text style={[styles.quantityText, {fontSize: RF(12)}]}>
                                                     × {item.quantity}
@@ -403,7 +404,7 @@ export default function ReturnReplacementScreen() {
                                                 <View style={styles.returnQtySummary}>
                                                     <Text style={[styles.returnQtyText, {fontSize: RF(12)}]}>
                                                         {type === 'replacement' ? 'Replacing' : 'Returning'}:
-                                                        <Text style={styles.returnQtyNumber}> {item.returnQty}</Text>
+                                                        <Text style={styles.returnQtyNumber}> {item.returnQty} </Text>
                                                         of {item.quantity}
                                                     </Text>
                                                 </View>

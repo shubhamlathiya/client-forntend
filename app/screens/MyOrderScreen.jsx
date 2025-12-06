@@ -1,12 +1,14 @@
-import React, {useState, useEffect} from "react";
+import React, {useState, useEffect, useCallback} from "react";
 import {
     View, Text, StyleSheet, ScrollView, Pressable, StatusBar, Image, ActivityIndicator, Alert, RefreshControl,
     Modal, SafeAreaView, Dimensions, Platform
 } from "react-native";
-import {useRouter} from "expo-router";
+import {useRouter, useFocusEffect} from "expo-router";
 import {getOrders} from "../../api/ordersApi";
+import {getProductRatingByUser} from "../../api/catalogApi"; // New API to check if user already rated
 import {API_BASE_URL} from "../../config/apiConfig";
 import OrderActionMenu from "../../components/ui/OrderActionMenu";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 
@@ -73,6 +75,25 @@ export default function MyOrderScreen() {
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [detailModalVisible, setDetailModalVisible] = useState(false);
     const [selectedOrderDetail, setSelectedOrderDetail] = useState(null);
+    const [userRatings, setUserRatings] = useState({}); // Store user ratings for products
+    const [userId, setUserId] = useState(null);
+
+    // Load user ID from AsyncStorage
+    useEffect(() => {
+        const loadUserId = async () => {
+            try {
+                const userData = await AsyncStorage.getItem('userData');
+                if (userData) {
+                    const parsedData = JSON.parse(userData);
+                    const uid = parsedData?._id || parsedData?.id || parsedData?.userId || null;
+                    setUserId(uid);
+                }
+            } catch (error) {
+                console.error('Error loading user ID:', error);
+            }
+        };
+        loadUserId();
+    }, []);
 
     const showMessage = (msg, isError = false) => {
         if (isError) {
@@ -81,6 +102,56 @@ export default function MyOrderScreen() {
             Alert.alert('Success', msg);
         }
     };
+
+    // Check if user has already rated a product
+    const checkUserRating = useCallback(async (productId) => {
+        if (!userId || !productId) return null;
+
+        try {
+            const response = await getProductRatingByUser(userId, productId);
+            return response?.data?.rating || response?.rating || null;
+        } catch (error) {
+            console.error('Error checking user rating:', error);
+            return null;
+        }
+    }, [userId]);
+
+    // Load user ratings for all products in orders
+    const loadUserRatings = useCallback(async (orderList) => {
+        if (!userId || !orderList || orderList.length === 0) return;
+
+        const ratingsMap = {};
+        const productPromises = [];
+
+        // Collect all product IDs from orders
+        orderList.forEach(order => {
+            if (order.items && Array.isArray(order.items)) {
+                order.items.forEach(item => {
+                    if (item.productId && !ratingsMap[item.productId]) {
+                        productPromises.push(
+                            checkUserRating(item.productId)
+                                .then(rating => {
+                                    if (rating) {
+                                        ratingsMap[item.productId] = {
+                                            hasRated: true,
+                                            rating: rating,
+                                            canEdit: true
+                                        };
+                                    }
+                                })
+                        );
+                    }
+                });
+            }
+        });
+
+        try {
+            await Promise.all(productPromises);
+            setUserRatings(prev => ({...prev, ...ratingsMap}));
+        } catch (error) {
+            console.error('Error loading user ratings:', error);
+        }
+    }, [userId, checkUserRating]);
 
     const loadOrders = async (isRefresh = false) => {
         try {
@@ -95,6 +166,9 @@ export default function MyOrderScreen() {
             const ordersList = Array.isArray(list) ? list : (list?.orders || []);
             setOrders(ordersList);
 
+            // Load user ratings for products in orders
+            await loadUserRatings(ordersList);
+
         } catch (error) {
             console.error('Orders load error:', error);
             showMessage('Failed to load orders', true);
@@ -108,58 +182,14 @@ export default function MyOrderScreen() {
         loadOrders();
     }, []);
 
-    const getStatusColor = (status) => {
-        const statusLower = status?.toLowerCase();
-        switch (statusLower) {
-            case "pending":
-            case "processing":
-            case "confirmed":
-            case "placed":
-                return "#09CA67";
-            case "shipped":
-            case "out_for_delivery":
-                return "#FFA500";
-            case "delivered":
-            case "completed":
-                return "#4CAD73";
-            case "cancelled":
-            case "refunded":
-            case "returned":
-                return "#F34E4E";
-            default:
-                return "#868889";
-        }
-    };
-
-    const getStatusText = (status) => {
-        const statusLower = status?.toLowerCase();
-        switch (statusLower) {
-            case "pending":
-                return "Pending";
-            case "processing":
-                return "Processing";
-            case "confirmed":
-                return "Confirmed";
-            case "placed":
-                return "Placed";
-            case "shipped":
-                return "Shipped";
-            case "out_for_delivery":
-                return "Out for Delivery";
-            case "delivered":
-                return "Delivered";
-            case "completed":
-                return "Completed";
-            case "cancelled":
-                return "Cancelled";
-            case "refunded":
-                return "Refunded";
-            case "returned":
-                return "Returned";
-            default:
-                return status || "Pending";
-        }
-    };
+    // Refresh ratings when screen comes into focus
+    useFocusEffect(
+        useCallback(() => {
+            if (orders.length > 0 && userId) {
+                loadUserRatings(orders);
+            }
+        }, [orders, userId, loadUserRatings])
+    );
 
     // Check if order is eligible for return/replacement
     const isOrderEligibleForReturn = (order) => {
@@ -223,24 +253,174 @@ export default function MyOrderScreen() {
         setMenuVisible(true);
     };
 
-    const handleReorder = (order) => {
-        showMessage('Reorder functionality will be implemented soon');
+    const handleRateProduct = async (product, order) => {
+        if (!userId) {
+            Alert.alert('Login Required', 'Please login to rate products');
+            return;
+        }
+
+        const productId = product.productId || product._id;
+        if (!productId) {
+            Alert.alert('Error', 'Product information not available');
+            return;
+        }
+
+        // Check if user has already rated this product
+        const existingRating = userRatings[productId];
+
+        if (existingRating?.hasRated) {
+            router.push({
+                pathname: '/screens/FeedbackScreen',
+                params: {
+                    product: JSON.stringify(product),
+                    order: JSON.stringify(order),
+                    mode: 'edit',
+                    existingRating: JSON.stringify(existingRating.rating)
+                }
+            });
+        } else {
+            // User hasn't rated yet - allow new rating
+            router.push({
+                pathname: '/screens/FeedbackScreen',
+                params: {
+                    product: JSON.stringify(product),
+                    order: JSON.stringify(order),
+                    mode: 'new'
+                }
+            });
+        }
+    };
+    const getStatusColor = (status) => {
+        const statusLower = status?.toLowerCase();
+        switch (statusLower) {
+            case "pending":
+                return "#FFA500";
+            case "processing":
+                return "#4A90E2";
+            case "confirmed":
+            case "placed":
+                return "#09CA67";
+            case "shipped":
+                return "#FF9800";
+            case "out_for_delivery":
+                return "#FF6B35";
+            case "delivered":
+                return "#4CAD73";
+            case "completed":
+                return "#4CAD73";
+            case "cancelled":
+                return "#F34E4E";
+            case "refunded":
+                return "#2196F3";
+            case "returned":
+                return "#9C27B0";
+            default:
+                return "#868889";
+        }
     };
 
-    const handleRateProduct = (product, order) => {
-        router.push({
-            pathname: '/screens/FeedbackScreen',
-            params: {
-                product: JSON.stringify(product),
-                order: JSON.stringify(order)
-            }
-        });
+    const getStatusText = (status) => {
+        const statusLower = status?.toLowerCase();
+        switch (statusLower) {
+            case "pending":
+                return "Payment Pending";
+            case "processing":
+                return "Processing";
+            case "confirmed":
+                return "Confirmed";
+            case "placed":
+                return "Order Placed";
+            case "shipped":
+                return "Shipped";
+            case "out_for_delivery":
+                return "Out for Delivery";
+            case "delivered":
+                return "Delivered";
+            case "completed":
+                return "Completed";
+            case "cancelled":
+                return "Cancelled";
+            case "refunded":
+                return "Refunded";
+            case "returned":
+                return "Returned";
+            default:
+                return status || "Pending";
+        }
     };
 
+// Get return/replacement status color
+    const getReturnStatusColor = (status) => {
+        const statusLower = status?.toLowerCase();
+        switch (statusLower) {
+            case "requested":
+                return "#FFA500";
+            case "approved":
+            case "processed":
+                return "#4CAD73";
+            case "completed":
+            case "refunded":
+            case "replaced":
+                return "#2196F3";
+            case "rejected":
+            case "cancelled":
+                return "#F34E4E";
+            default:
+                return "#868889";
+        }
+    };
+
+    const getReturnStatusText = (status) => {
+        const statusLower = status?.toLowerCase();
+        switch (statusLower) {
+            case "requested":
+                return "Requested";
+            case "approved":
+                return "Approved";
+            case "processed":
+                return "Processing";
+            case "completed":
+                return "Completed";
+            case "refunded":
+                return "Refunded";
+            case "replaced":
+                return "Replaced";
+            case "rejected":
+                return "Rejected";
+            case "cancelled":
+                return "Cancelled";
+            default:
+                return status || "Pending";
+        }
+    };
+
+    // Get return/replacement details
+    const getReturnDetails = (order) => {
+        if (order?.returnRequested) {
+            return {
+                type: 'return',
+                status: order.returnStatus || 'requested',
+                resolution: order.returnResolution,
+                refundAmount: order.returnRefundAmount || 0,
+                items: order.returnItems || [],
+                requestedAt: order.returnRequestedAt || order.placedAt
+            };
+        }
+        if (order?.replacementRequested) {
+            return {
+                type: 'replacement',
+                status: order.replacementStatus || 'requested',
+                items: order.replacementItems || [],
+                requestedAt: order.replacementRequestedAt || order.placedAt
+            };
+        }
+        return null;
+    };
     const OrderCard = ({order, index}) => {
         const totalAmount = order?.totals?.grandTotal || order?.priceBreakdown?.grandTotal || order?.total || 0;
         const itemCount = order?.items?.length || 0;
         const isEligibleForReturn = isOrderEligibleForReturn(order);
+        const returnDetails = getReturnDetails(order);
         const productImages = order?.items?.slice(0, 3).map(item => {
             let imageUrl = item.image || null;
             if (imageUrl && !imageUrl.startsWith('http') && !imageUrl.startsWith('file://')) {
@@ -266,7 +446,7 @@ export default function MyOrderScreen() {
 
                     <View style={styles.orderInfo}>
                         <Text style={styles.orderNumber} numberOfLines={1}>
-                            Order #{order.orderNumber || order._id?.substring(0, 8) || 'N/A'}
+                            #{order.orderNumber || order._id?.substring(0, 8) || 'N/A'}
                         </Text>
                         <View style={styles.orderMeta}>
                             <Text style={styles.orderAmount}>
@@ -324,21 +504,19 @@ export default function MyOrderScreen() {
                     </Text>
                 </View>
 
-                {/* Order Footer */}
-                <View style={styles.orderFooter}>
-                    <View style={styles.actionButtons}>
-                        {/*<Pressable*/}
-                        {/*    style={styles.textButton}*/}
-                        {/*    onPress={(e) => {*/}
-                        {/*        e.stopPropagation?.();*/}
-                        {/*        handleReorder(order);*/}
-                        {/*    }}*/}
-                        {/*    activeOpacity={0.7}*/}
-                        {/*>*/}
-                        {/*    <Text style={styles.textButtonText}>Reorder</Text>*/}
-                        {/*</Pressable>*/}
+                {/* Return Status Badge */}
+                {returnDetails && (
+                    <View
+                        style={[styles.returnStatusBadge, {backgroundColor: getReturnStatusColor(returnDetails.status)}]}>
+                        <Text style={styles.returnStatusText} numberOfLines={1}>
+                            {returnDetails.type === 'return' ? 'Return' : 'Replacement'} {getReturnStatusText(returnDetails.status)}
+                        </Text>
+                    </View>
+                )}
 
-                        {(order.status === 'delivered' || order.status === 'completed') && (
+                {(order.status === 'delivered' || order.status === 'completed') && (
+                    <View style={styles.orderFooter}>
+                        <View style={styles.actionButtons}>
                             <Pressable
                                 style={styles.textButton}
                                 onPress={(e) => {
@@ -349,11 +527,15 @@ export default function MyOrderScreen() {
                                 }}
                                 activeOpacity={0.7}
                             >
-                                <Text style={styles.textButtonText}>Rate Order</Text>
+                                <Text style={styles.textButtonText}>
+                                    {order.items?.[0]?.productId && userRatings[order.items[0].productId]?.hasRated
+                                        ? 'Edit Rating'
+                                        : 'Rate Order'
+                                    }
+                                </Text>
                             </Pressable>
-                        )}
-                    </View>
-                </View>
+                        </View>
+                    </View>)}
             </Pressable>
         );
     };
@@ -367,33 +549,98 @@ export default function MyOrderScreen() {
         const shipping = order?.totals?.shipping || order?.priceBreakdown?.shipping || 0;
         const discount = order?.totals?.discount || order?.priceBreakdown?.discount || 0;
         const isEligibleForReturn = isOrderEligibleForReturn(order);
+        const returnDetails = getReturnDetails(order);
 
-        const timeline = order.timeline || generateDefaultTimeline(order);
-
-        function generateDefaultTimeline(orderData) {
+        // Generate order timeline based on status
+        const generateOrderTimeline = (orderData) => {
             const status = orderData.status?.toLowerCase();
-            const baseTimeline = [
-                {event: "Order Placed", completed: true, date: orderData.placedAt},
-                {event: "Order Confirmed", completed: true, date: orderData.placedAt},
+            const placedAt = orderData.placedAt;
+
+            const timeline = [
+                {
+                    event: "Order Placed",
+                    completed: true,
+                    date: placedAt,
+
+                },
+                {
+                    event: "Order Confirmed",
+                    completed: ['confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered', 'completed'].includes(status),
+                    date: null,
+                },
+                {
+                    event: "Processing",
+                    completed: ['processing', 'shipped', 'out_for_delivery', 'delivered', 'completed'].includes(status),
+                    date: null,
+
+                },
                 {
                     event: "Shipped",
                     completed: ['shipped', 'out_for_delivery', 'delivered', 'completed'].includes(status),
-                    date: null
+                    date: null,
+
                 },
                 {
                     event: "Out for Delivery",
                     completed: ['out_for_delivery', 'delivered', 'completed'].includes(status),
-                    date: null
+                    date: null,
+
                 },
                 {
                     event: "Delivered",
                     completed: ['delivered', 'completed'].includes(status),
-                    date: null
+                    date: null,
+
                 }
             ];
 
-            return baseTimeline;
-        }
+            return timeline;
+        };
+
+        // Generate return timeline
+        const generateReturnTimeline = (orderData, returnData) => {
+            if (!returnData) return [];
+
+            const status = returnData.status?.toLowerCase();
+            const requestedAt = returnData.requestedAt || orderData.placedAt;
+
+            const timeline = [
+                {
+                    event: `${returnData.type === 'return' ? 'Return' : 'Replacement'} Requested`,
+                    completed: true,
+                    date: requestedAt,
+                },
+                {
+                    event: "Request Approved",
+                    completed: ['approved', 'processed', 'completed', 'refunded', 'replaced'].includes(status),
+                    date: null,
+                },
+                {
+                    event: returnData.type === 'return' ? "Processing Refund" : "Processing Replacement",
+                    completed: ['processed', 'completed', 'refunded', 'replaced'].includes(status),
+                    date: null,
+                },
+                {
+                    event: returnData.type === 'return' ? "Refund Completed" : "Replacement Completed",
+                    completed: ['completed', 'refunded', 'replaced'].includes(status),
+                    date: null,
+                }
+            ];
+
+            // Add rejected/cancelled status if applicable
+            if (status === 'rejected' || status === 'cancelled') {
+                timeline.push({
+                    event: status === 'rejected' ? "Request Rejected" : "Request Cancelled",
+                    completed: true,
+                    date: null,
+                });
+            }
+
+            return timeline;
+        };
+
+        const orderTimeline = generateOrderTimeline(order);
+        const returnTimeline = generateReturnTimeline(order, returnDetails);
 
         const TimelineItem = ({item, isLast, index}) => {
             return (
@@ -408,7 +655,9 @@ export default function MyOrderScreen() {
                         <View style={[
                             styles.timelineDot,
                             item.completed ? styles.timelineDotCompleted : styles.timelineDotIncomplete
-                        ]}/>
+                        ]}>
+                            <Text style={styles.timelineIcon}>{item.icon}</Text>
+                        </View>
                     </View>
 
                     <View style={styles.timelineContent}>
@@ -417,9 +666,6 @@ export default function MyOrderScreen() {
                             item.completed ? styles.timelineEventCompleted : styles.timelineEventIncomplete
                         ]} numberOfLines={1}>
                             {item.event}
-                        </Text>
-                        <Text style={styles.timelineDate} numberOfLines={1}>
-                            {item.date ? formatDateTime(item.date) : 'Pending'}
                         </Text>
                     </View>
                 </View>
@@ -434,7 +680,7 @@ export default function MyOrderScreen() {
                 onRequestClose={onClose}
             >
                 <SafeAreaView style={styles.fullScreenModalContainer}>
-                    <View style={[styles.fullScreenModalHeader, { paddingTop: safeAreaInsets.top }]}>
+                    <View style={[styles.fullScreenModalHeader, {paddingTop: safeAreaInsets.top}]}>
                         <Pressable
                             onPress={onClose}
                             style={styles.closeButton}
@@ -453,7 +699,7 @@ export default function MyOrderScreen() {
                     <ScrollView
                         style={styles.fullScreenModalContent}
                         showsVerticalScrollIndicator={false}
-                        contentContainerStyle={{ paddingBottom: safeAreaInsets.bottom + RF(20) }}
+                        contentContainerStyle={{paddingBottom: safeAreaInsets.bottom + RF(20)}}
                     >
                         {/* Order Summary */}
                         <View style={styles.detailSection}>
@@ -478,6 +724,19 @@ export default function MyOrderScreen() {
                                     </Text>
                                 </View>
                             </View>
+
+                            {/* Return Status */}
+                            {returnDetails && (
+                                <View style={styles.summaryRow}>
+                                    <Text style={styles.summaryLabel}>Return Status:</Text>
+                                    <View
+                                        style={[styles.returnStatusBadge, {backgroundColor: getReturnStatusColor(returnDetails.status)}]}>
+                                        <Text style={styles.returnStatusText}>
+                                            {returnDetails.type === 'return' ? 'Return' : 'Replacement'} {getReturnStatusText(returnDetails.status)}
+                                        </Text>
+                                    </View>
+                                </View>
+                            )}
                         </View>
 
                         {/* Items */}
@@ -491,8 +750,20 @@ export default function MyOrderScreen() {
                                     itemImage = `${API_BASE_URL}${itemImage.startsWith('/') ? itemImage : '/' + itemImage}`;
                                 }
 
+                                const productId = item.productId || item._id;
+                                const hasRated = productId ? userRatings[productId]?.hasRated : false;
+                                const userRating = productId ? userRatings[productId]?.rating : null;
+
+                                // Check if this item is in returnItems
+                                const isReturnItem = returnDetails?.items?.some(returnItem =>
+                                    returnItem.productId === productId
+                                );
+
                                 return (
-                                    <View key={index} style={styles.itemRow}>
+                                    <View key={index} style={[
+                                        styles.itemRow,
+                                        isReturnItem && styles.returnItemRow
+                                    ]}>
                                         <Image
                                             source={itemImage ? {uri: itemImage} : require("../../assets/icons/order.png")}
                                             style={styles.itemImage}
@@ -506,11 +777,16 @@ export default function MyOrderScreen() {
                                                 {item.brand || ''}
                                             </Text>
                                             <Text style={styles.itemPrice} numberOfLines={1}>
-                                                {formatCurrency(item.unitPrice || 0)} x {item.quantity || 1}
+                                                {formatCurrency(item.finalPrice || 0)} x {item.quantity || 1}
                                             </Text>
                                             {item.variantAttributes && (
                                                 <Text style={styles.itemVariant} numberOfLines={1}>
                                                     {item.variantAttributes}
+                                                </Text>
+                                            )}
+                                            {isReturnItem && (
+                                                <Text style={styles.returnItemText}>
+                                                    Return Requested
                                                 </Text>
                                             )}
                                         </View>
@@ -518,17 +794,31 @@ export default function MyOrderScreen() {
                                             {formatCurrency(item.finalPrice || (item.unitPrice * item.quantity) || 0)}
                                         </Text>
 
+                                        {/* Rate/Edit Rating Button - only for delivered/completed orders */}
                                         {(order.status === 'delivered' || order.status === 'completed') && (
                                             <Pressable
-                                                style={styles.rateProductButton}
+                                                style={[
+                                                    styles.rateProductButton,
+                                                ]}
                                                 onPress={() => {
                                                     onClose();
                                                     handleRateProduct(item, order);
                                                 }}
                                                 activeOpacity={0.7}
                                             >
-                                                <Text style={styles.rateProductText}>Rate</Text>
+                                                <Text style={styles.rateProductText}>
+                                                    {hasRated ? 'Edit' : 'Rate'}
+                                                </Text>
                                             </Pressable>
+                                        )}
+
+                                        {/* Show rating if exists */}
+                                        {hasRated && userRating && (
+                                            <View style={styles.ratingBadge}>
+                                                <Text style={styles.ratingBadgeText}>
+                                                    ★ {userRating.rating || userRating}
+                                                </Text>
+                                            </View>
                                         )}
                                     </View>
                                 );
@@ -558,6 +848,14 @@ export default function MyOrderScreen() {
                                 <Text style={styles.priceLabel}>Tax:</Text>
                                 <Text style={styles.priceValue}>{formatCurrency(tax)}</Text>
                             </View>
+                            {returnDetails?.refundAmount > 0 && (
+                                <View style={styles.priceRow}>
+                                    <Text style={styles.priceLabel}>Refund Amount:</Text>
+                                    <Text style={[styles.priceValue, styles.refundAmountText]}>
+                                        -{formatCurrency(returnDetails.refundAmount)}
+                                    </Text>
+                                </View>
+                            )}
                             <View style={styles.totalRow}>
                                 <Text style={styles.totalLabel}>Total Amount:</Text>
                                 <Text style={styles.totalValue}>{formatCurrency(totalAmount)}</Text>
@@ -568,43 +866,36 @@ export default function MyOrderScreen() {
                         <View style={styles.detailSection}>
                             <Text style={styles.sectionTitle}>Order Timeline</Text>
                             <View style={styles.timelineContainer}>
-                                {timeline.map((timelineItem, index) => (
+                                {orderTimeline.map((timelineItem, index) => (
                                     <TimelineItem
-                                        key={index}
+                                        key={`order-${index}`}
                                         item={timelineItem}
-                                        isLast={index === timeline.length - 1}
+                                        isLast={index === orderTimeline.length - 1}
                                         index={index}
                                     />
                                 ))}
                             </View>
                         </View>
 
-                        {/* Payment Information */}
-                        {order.payment && (
+                        {/* Return Timeline (if return requested) */}
+                        {returnTimeline.length > 0 && (
                             <View style={styles.detailSection}>
-                                <Text style={styles.sectionTitle}>Payment Information</Text>
-                                <View style={styles.summaryRow}>
-                                    <Text style={styles.summaryLabel}>Payment Method:</Text>
-                                    <Text style={styles.summaryValue} numberOfLines={1}>
-                                        {order.payment.method ?
-                                            order.payment.method.charAt(0).toUpperCase() + order.payment.method.slice(1) :
-                                            'N/A'}
-                                    </Text>
-                                </View>
-                                <View style={styles.summaryRow}>
-                                    <Text style={styles.summaryLabel}>Payment Status:</Text>
-                                    <Text style={styles.summaryValue} numberOfLines={1}>
-                                        {order.payment.status ?
-                                            order.payment.status.charAt(0).toUpperCase() + order.payment.status.slice(1) :
-                                            'N/A'}
-                                    </Text>
-                                </View>
-                                <View style={styles.summaryRow}>
-                                    <Text style={styles.summaryLabel}>Paid Amount:</Text>
-                                    <Text style={styles.summaryValue}>{formatCurrency(order.payment.amount || 0)}</Text>
+                                <Text style={styles.sectionTitle}>
+                                    {returnDetails?.type === 'return' ? 'Return' : 'Replacement'} Timeline
+                                </Text>
+                                <View style={styles.timelineContainer}>
+                                    {returnTimeline.map((timelineItem, index) => (
+                                        <TimelineItem
+                                            key={`return-${index}`}
+                                            item={timelineItem}
+                                            isLast={index === returnTimeline.length - 1}
+                                            index={index}
+                                        />
+                                    ))}
                                 </View>
                             </View>
                         )}
+
 
                         {/* Shipping Address */}
                         {order.shippingAddress && (
@@ -629,7 +920,7 @@ export default function MyOrderScreen() {
                         )}
 
                         {/* Return/Replacement Button (if eligible) */}
-                        {isEligibleForReturn && (
+                        {isEligibleForReturn && !returnDetails && (
                             <View style={styles.detailSection}>
                                 <Pressable
                                     style={styles.returnActionButton}
@@ -668,8 +959,8 @@ export default function MyOrderScreen() {
 
     if (loading) {
         return (
-            <SafeAreaView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
-                <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
+            <SafeAreaView style={{flex: 1, backgroundColor: "#FFFFFF"}}>
+                <View style={[styles.header, {paddingTop: safeAreaInsets.top}]}>
                     <Pressable
                         onPress={() => router.back()}
                         style={styles.backButton}
@@ -682,11 +973,11 @@ export default function MyOrderScreen() {
                         />
                     </Pressable>
                     <Text style={styles.headerTitle}>My Orders</Text>
-                    <View style={styles.headerPlaceholder} />
+                    <View style={styles.headerPlaceholder}/>
                 </View>
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size={isTablet ? "large" : "large"} color="#4CAD73"/>
-                    <Text style={styles.loadingText}>Loading your orders...</Text>
+                    <Text style={styles.loadingText}>Loading Your Orders...</Text>
                 </View>
             </SafeAreaView>
         );
@@ -710,7 +1001,7 @@ export default function MyOrderScreen() {
 
             {/* Header */}
             <SafeAreaView style={styles.safeAreaTop} edges={['top']}>
-                <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
+                <View style={[styles.header, {paddingTop: safeAreaInsets.top}]}>
                     <Pressable
                         onPress={handleBack}
                         style={styles.backButton}
@@ -723,7 +1014,7 @@ export default function MyOrderScreen() {
                         />
                     </Pressable>
                     <Text style={styles.headerTitle}>My Orders</Text>
-                    <View style={styles.headerPlaceholder} />
+                    <View style={styles.headerPlaceholder}/>
                 </View>
             </SafeAreaView>
 
@@ -741,7 +1032,7 @@ export default function MyOrderScreen() {
                     />
                 }
                 contentContainerStyle={{
-                    paddingBottom: safeAreaInsets.bottom + RF(20),
+                    paddingBottom: safeAreaInsets.bottom + RF(100),
                     paddingTop: RF(16)
                 }}
             >
@@ -805,9 +1096,6 @@ export default function MyOrderScreen() {
                                     'This order is not eligible for return/replacement. Orders must be delivered/completed and within the return period.'
                                 );
                             }
-                            break;
-                        case 'track':
-                            showMessage('Track order functionality will be implemented soon');
                             break;
                     }
                 }}
@@ -924,7 +1212,7 @@ const styles = StyleSheet.create({
         borderRadius: RF(12),
         padding: RF(16),
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: RF(2) },
+        shadowOffset: {width: 0, height: RF(2)},
         shadowOpacity: 0.1,
         shadowRadius: RF(4),
         elevation: 3,
@@ -1172,18 +1460,6 @@ const styles = StyleSheet.create({
         color: "#1B1B1B",
         marginRight: RF(8),
     },
-    rateProductButton: {
-        backgroundColor: "#4CAD73",
-        paddingHorizontal: RF(12),
-        paddingVertical: RF(6),
-        borderRadius: RF(6),
-    },
-    rateProductText: {
-        color: "#FFFFFF",
-        fontSize: RF(12),
-        fontFamily: "Poppins-SemiBold",
-    },
-
     // Price Breakdown Styles
     priceRow: {
         flexDirection: "row",
@@ -1325,7 +1601,7 @@ const styles = StyleSheet.create({
         paddingTop: RF(8),
         elevation: 12,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
+        shadowOffset: {width: 0, height: -2},
         shadowOpacity: 0.1,
         shadowRadius: 4,
     },
@@ -1376,5 +1652,94 @@ const styles = StyleSheet.create({
         fontSize: RF(14),
         fontFamily: 'Poppins-SemiBold',
         color: '#666666',
+    },
+    allRatedText: {
+        fontSize: RF(12),
+        fontFamily: "Poppins-Medium",
+        color: "#4CAD73",
+        fontStyle: 'italic',
+    },
+    ratingActionContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: RF(8),
+    },
+    ratingBadge: {
+        backgroundColor: '#FFF5E6',
+        paddingHorizontal: RF(8),
+        paddingVertical: RF(4),
+        borderRadius: RF(12),
+        borderWidth: 1,
+        borderColor: '#4CAD73',
+    },
+    ratingBadgeText: {
+        fontSize: RF(12),
+        fontFamily: "Poppins-Medium",
+        color: "#4CAD73",
+    },
+    editRatingButton: {
+        backgroundColor: '#FFF5E6',
+        borderWidth: 1,
+        borderColor: '#4CAD73',
+        paddingHorizontal: RF(12),
+        paddingVertical: RF(6),
+        borderRadius: RF(6),
+    },
+    editRatingButtonText: {
+        color: '#4CAD73',
+        fontSize: RF(12),
+        fontFamily: "Poppins-SemiBold",
+    },
+    rateProductButton: {
+        backgroundColor: "#4CAD73",
+        paddingHorizontal: RF(12),
+        paddingVertical: RF(6),
+        borderRadius: RF(6),
+    },
+    rateProductText: {
+        color: "#FFFFFF",
+        fontSize: RF(12),
+        fontFamily: "Poppins-SemiBold",
+    },
+
+    // Return Status Badge
+    returnStatusBadge: {
+        alignSelf: 'flex-start',
+        paddingHorizontal: RF(12),
+        paddingVertical: RF(6),
+        borderRadius: RF(16),
+        marginBottom: RF(12),
+        marginTop: RF(4),
+    },
+    returnStatusText: {
+        fontSize: RF(12),
+        fontFamily: "Poppins-Medium",
+        color: "#FFFFFF",
+    },
+
+    // Timeline Icon in Dot
+    timelineIcon: {
+        fontSize: RF(8),
+        textAlign: 'center',
+        color: '#FFFFFF',
+    },
+
+    // Return Item Row
+    returnItemRow: {
+        backgroundColor: '#FFF0F0',
+        borderWidth: 1,
+        borderColor: '#FF6B6B',
+    },
+    returnItemText: {
+        fontSize: RF(10),
+        fontFamily: "Poppins-Medium",
+        color: "#FF6B6B",
+        marginTop: RF(2),
+    },
+
+    // Refund Amount Text
+    refundAmountText: {
+        color: "#4CAD73",
+        fontFamily: "Poppins-SemiBold",
     },
 });

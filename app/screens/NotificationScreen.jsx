@@ -102,13 +102,12 @@ export default function NotificationScreen() {
             const parsed = JSON.parse(userData);
             return parsed?.id || parsed?._id|| null;
         } catch (error) {
-            console.log('⚠️ Get user ID error:', error.message);
+            console.log('Get user ID error:', error.message);
             return null;
         }
     };
 
     const requestNotificationPermission = async () => {
-        console.log("hy 123")
         const {status: existingStatus} = await Notifications.getPermissionsAsync();
         let finalStatus = existingStatus;
 
@@ -473,7 +472,7 @@ export default function NotificationScreen() {
                 ListHeaderComponent={
                     loading && notifications.length === 0 ? (
                         <View style={styles.loadingContainer}>
-                            <Text style={styles.loadingText}>Loading notifications...</Text>
+                            <Text style={styles.loadingText}>Loading Notifications...</Text>
                         </View>
                     ) : null
                 }

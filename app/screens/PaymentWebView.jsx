@@ -11,7 +11,7 @@ async function fetchUserDataFromStorage() {
         }
         return null;
     } catch (error) {
-        console.error('❌ Error fetching user data:', error);
+        console.error('Error fetching user data:', error);
         return null;
     }
 }
@@ -233,7 +233,7 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
                         // Add handler for payment success
                         handler: function(response) {
                             addDebugLog('Payment success handler called');
-                            console.log('💰 Payment Success Response:', response);
+                            console.log('Payment Success Response:', response);
                             modalOpen = false;
                             window.ReactNativeWebView.postMessage(JSON.stringify({
                                 type: 'SUCCESS',
@@ -255,7 +255,7 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
                     // SUCCESS handler (backup)
                     rzp1.on('payment.success', function(response) {
                         addDebugLog('Payment success event received');
-                        console.log('✅ Payment Success Event:', response);
+                        console.log('Payment Success Event:', response);
                         modalOpen = false;
                         window.ReactNativeWebView.postMessage(JSON.stringify({
                             type: 'SUCCESS',
@@ -266,7 +266,7 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
                     // FAILED handler with maximum details
                     rzp1.on('payment.failed', function (response) {
     addDebugLog('Payment failed event received');
-    console.log('❌ Payment Failed - RAW Response:', response);
+    console.log('Payment Failed - RAW Response:', response);
 
     const safeError = response?.error || {};
 
@@ -294,7 +294,7 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
                     // Other handlers
                     rzp1.on('payment.cancelled', function(response) {
                         addDebugLog('Payment cancelled by user');
-                        console.log('⚠️ Payment Cancelled:', response);
+                        console.log('Payment Cancelled:', response);
                         modalOpen = false;
                         window.ReactNativeWebView.postMessage(JSON.stringify({
                             type: 'CANCELLED',
@@ -330,7 +330,7 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
 
                 } catch (error) {
                     addDebugLog('Initialization error: ' + error.message);
-                    console.error('💥 Initialization Error Details:', error);
+                    console.error('Initialization Error Details:', error);
                     showError('Failed to initialize payment: ' + error.message);
                     
                     window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -357,7 +357,7 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
                 }));
             } else {
                 addDebugLog('Razorpay SDK loaded successfully');
-                console.log('✅ Razorpay SDK Version:', Razorpay.version);
+                console.log('Razorpay SDK Version:', Razorpay.version);
                 
                 // Initialize when ready
                 if (document.readyState === 'loading') {
@@ -374,7 +374,7 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
             // Global error handler
             window.addEventListener('error', function(e) {
                 addDebugLog('Global error: ' + e.message);
-                console.error('🌐 Global Error Event:', e);
+                console.error('Global Error Event:', e);
             });
 
         </script>
@@ -394,19 +394,19 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
                     break;
 
                 case 'FAILED':
-                    console.error('💥 Payment failed with COMPLETE details:', JSON.stringify(message.data, null, 2));
+                    console.error('Payment failed with COMPLETE details:', JSON.stringify(message.data, null, 2));
 
 
                     onError(message.data);
                     break;
 
                 case 'CANCELLED':
-                    console.log('👤 Payment cancelled by user');
+                    console.log('Payment cancelled by user');
                     onClose();
                     break;
 
                 case 'MODAL_CLOSED':
-                    console.log('🔒 Payment modal closed');
+                    console.log('Payment modal closed');
                     onClose();
                     break;
 
@@ -419,31 +419,31 @@ export default function PaymentWebView({ orderData, onSuccess, onError, onClose 
                     break;
 
                 case 'CONSOLE_WARN':
-                    console.warn('🌐 WebView Warn:', message.data);
+                    console.warn('WebView Warn:', message.data);
                     break;
 
                 case 'INIT_ERROR':
-                    console.error('🚨 Payment initialization error:', message.data);
+                    console.error('Payment initialization error:', message.data);
                     onError(message.data);
                     break;
 
                 case 'SDK_LOAD_ERROR':
-                    console.error('🌐 Razorpay SDK load error:', message.data);
+                    console.error('Razorpay SDK load error:', message.data);
                     onError(message.data);
                     break;
 
                 default:
-                    console.log('❓ Unknown message type:', message.type, message.data);
+                    console.log('Unknown message type:', message.type, message.data);
             }
         } catch (error) {
-            console.error('❌ Error parsing WebView message:', error);
+            console.error('Error parsing WebView message:', error);
             onError({ description: 'Error processing payment response.' });
         }
     };
 
     const handleError = (syntheticEvent) => {
         const { nativeEvent } = syntheticEvent;
-        console.error('🌐 WebView loading error:', nativeEvent);
+        console.error('WebView loading error:', nativeEvent);
         onError({ description: 'Failed to load payment page.' });
         setIsLoading(false);
     };

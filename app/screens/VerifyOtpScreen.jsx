@@ -1,20 +1,26 @@
-// screens/VerifyOtpScreen.js
+// screens/VerifyOtpScreen.js - Updated version
 import React, {useRef, useState} from "react";
-import {View, Text, TextInput, Pressable, StyleSheet, Image,Alert} from "react-native";
+import {View, Text, TextInput, Pressable, StyleSheet, Image,Alert, ActivityIndicator} from "react-native";
 import {SafeAreaView} from "react-native-safe-area-context";
 import {globalStyles} from "../../constants/globalStyles";
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { verifyEmail, resendVerification, forgotPassword } from '../../api/authApi';
-import * as SecureStore from 'expo-secure-store';
+import { verifyResetOTP, resendResetOTP } from '../../api/authApi'; // Updated imports
 
 export default function VerifyOtpScreen() {
     const [otp, setOtp] = useState(["", "", "", "", "", ""]);
-    const [otpCode, setOtpCode] = useState("");
     const [loading, setLoading] = useState(false);
-    const { email, contact, type, mode } = useLocalSearchParams();
+    const [resendLoading, setResendLoading] = useState(false);
+    const { contact, type, mode } = useLocalSearchParams();
     const router = useRouter();
     const inputsRef = useRef([]);
 
+    const handleBack = () => {
+        if (router.canGoBack()) {
+            router.replace('/screens/LoginScreen');
+        } else {
+            router.replace('/screens/LoginScreen');
+        }
+    };
     const handleChange = (value, index) => {
         const newOtp = [...otp];
         newOtp[index] = value;
@@ -27,9 +33,6 @@ export default function VerifyOtpScreen() {
         if (!value && index > 0) {
             inputsRef.current[index - 1]?.focus();
         }
-
-        const code = newOtp.join('');
-        setOtpCode(code);
     };
 
     const handleKeyPress = (e, index) => {
@@ -40,66 +43,84 @@ export default function VerifyOtpScreen() {
 
     async function handleConfirm() {
         if (loading) return;
+
         const code = otp.join('');
         if (code.length !== 6) {
             Alert.alert('Error', 'Please enter the 6-digit code');
             return;
         }
-        // Reset-password mode: treat OTP as token and navigate directly
-        if (String(mode || '') === 'reset') {
-            try {
-                await SecureStore.setItemAsync('resetToken', code);
-                const identifier = String(contact || email || '');
-                const contactType = String(type || 'email');
-                router.replace({ pathname: '/screens/ResetPasswordScreen', params: { contact: identifier, type: contactType } });
-                return;
-            } catch (error) {
-                Alert.alert('Error', 'Failed to proceed to reset password');
-                return;
-            }
-        }
 
-        setLoading(true);
-        try {
-            const identifier = String(contact || email || '');
-            const data = await verifyEmail({ email: identifier, otp: code });
-            Alert.alert('Success', data?.message || 'Email verified successfully');
-            router.replace('/screens/LoginScreen');
-        } catch (error) {
-            const message = error?.response?.data?.message || 'Verification failed';
-            Alert.alert('Error', message);
-        } finally {
-            setLoading(false);
+        // Only handle reset password mode
+        if (String(mode || '') === 'reset') {
+            setLoading(true);
+            try {
+                const response = await verifyResetOTP({
+                    type: type || 'email',
+                    contact: String(contact || ''),
+                    token: code
+                });
+                if (response.success) {
+                    // Navigate to reset password screen with the secure token
+                    router.push({
+                        pathname: '/screens/ResetPasswordScreen',
+                        params: {
+                            contact: String(contact || ''),
+                            type: type || 'email',
+                            resetToken: response.data?.resetToken,
+                            userId: response.data?.userId
+                        }
+                    });
+                } else {
+                    Alert.alert('Error', response.message || 'OTP verification failed');
+                }
+            } catch (error) {
+                const message = error?.response?.data?.message || 'OTP Not Match';
+                Alert.alert('Error', message);
+            } finally {
+                setLoading(false);
+            }
         }
     }
 
     async function handleResend() {
+        if (resendLoading) return;
+
+        setResendLoading(true);
         try {
-            const identifier = String(contact || email || '');
-            const contactType = String(type || 'email');
-            if (String(mode || '') === 'reset') {
-                const data = await forgotPassword({ type: contactType, contact: identifier });
-                Alert.alert('Info', data?.message || 'Reset OTP resent');
+            const response = await resendResetOTP({
+                type: type || 'email',
+                contact: String(contact || '')
+            });
+
+            if (response.success) {
+                Alert.alert('Success', response.message || 'New OTP sent');
             } else {
-                const data = await resendVerification({ type: contactType, contact: identifier });
-                Alert.alert('Info', data?.message || 'OTP resent');
+                Alert.alert('Error', response.message || 'Failed to resend OTP');
             }
         } catch (error) {
             const message = error?.response?.data?.message || 'Failed to resend OTP';
             Alert.alert('Error', message);
+        } finally {
+            setResendLoading(false);
         }
     }
 
     return (
         <SafeAreaView style={styles.container}>
             <View style={globalStyles.header}>
-
-                <Image source={require("../../assets/icons/back_icon.png")} style={globalStyles.backIcon}/>
+                <Pressable onPress={handleBack}>
+                    <Image
+                        source={require("../../assets/icons/back_icon.png")}
+                        style={globalStyles.backIcon}
+                    />
+                </Pressable>
                 <Text style={globalStyles.title}>Verify OTP</Text>
             </View>
 
             <View style={{alignItems: "center"}}>
-                <Text style={styles.label}>Please enter the 6-digit code sent to your phone.</Text>
+                <Text style={styles.label}>
+                    Please enter the 6-digit code sent to your {type === 'email' ? 'email' : 'phone'}.
+                </Text>
 
                 <View style={styles.inputRow}>
                     {otp.map((digit, index) => (
@@ -112,17 +133,40 @@ export default function VerifyOtpScreen() {
                             value={digit}
                             onChangeText={(value) => handleChange(value, index)}
                             onKeyPress={(e) => handleKeyPress(e, index)}
+                            editable={!loading}
                         />
                     ))}
                 </View>
 
-                <Text style={styles.notice}>A code has been sent to your phone</Text>
-                <Pressable style={styles.resendContainer} onPress={handleResend}>
-                    <Text style={styles.resendText}>Resend OTP</Text>
+                <Text style={styles.notice}>
+                    A 6-digit code has been sent to your {type === 'email' ? 'email address' : 'phone number'}
+                </Text>
+
+                <Pressable
+                    style={styles.resendContainer}
+                    onPress={handleResend}
+                    disabled={resendLoading}
+                >
+                    {resendLoading ? (
+                        <ActivityIndicator color="#4CAD73" size="small" />
+                    ) : (
+                        <Text style={styles.resendText}>Resend OTP</Text>
+                    )}
                 </Pressable>
 
-                <Pressable style={styles.confirmBtn} onPress={handleConfirm} disabled={loading || otpCode.length !== 6}>
-                    <Text style={styles.confirmText}>{loading ? 'Loading...' : 'Confirm'}</Text>
+                <Pressable
+                    style={[
+                        styles.confirmBtn,
+                        (loading || otp.join('').length !== 6) && styles.buttonDisabled
+                    ]}
+                    onPress={handleConfirm}
+                    disabled={loading || otp.join('').length !== 6}
+                >
+                    {loading ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                    ) : (
+                        <Text style={styles.confirmText}>Verify OTP</Text>
+                    )}
                 </Pressable>
             </View>
         </SafeAreaView>
@@ -133,15 +177,8 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: "#FFFFFF",
-        borderRadius: 40,
-        paddingStart :10
-    },
-    title: {
-        fontFamily: "Poppins",
-        fontSize: 24,
-        fontWeight: "500",
-        color: "#000",
-        marginBottom: 20,
+        paddingHorizontal: 20,
+        paddingTop: 20,
     },
     label: {
         fontFamily: "Poppins",
@@ -150,6 +187,7 @@ const styles = StyleSheet.create({
         width: "85%",
         textAlign: "center",
         marginBottom: 40,
+        lineHeight: 21,
     },
     inputRow: {
         alignItems: "center",
@@ -159,13 +197,13 @@ const styles = StyleSheet.create({
         marginBottom: 30,
     },
     inputBox: {
-        width: 50,
+        width: 45,
         height: 58,
         borderBottomWidth: 1,
         borderBottomColor: "#838383",
         textAlign: "center",
         fontSize: 22,
-        fontFamily: "Plus Jakarta Sans",
+        fontFamily: "Poppins",
         color: "#1B1B1B",
     },
     notice: {
@@ -177,19 +215,23 @@ const styles = StyleSheet.create({
     },
     resendContainer: {
         marginBottom: 50,
+        padding: 10,
     },
     resendText: {
         fontSize: 16,
         fontWeight: "500",
         fontFamily: "Poppins",
-        color: "#1B1B1B",
+        color: "#4CAD73",
     },
     confirmBtn: {
         backgroundColor: "#4CAD73",
         borderRadius: 12,
         width: "85%",
-        paddingVertical: 14,
+        paddingVertical: 16,
         alignItems: "center",
+    },
+    buttonDisabled: {
+        backgroundColor: "#AFAFAF",
     },
     confirmText: {
         color: "#FFF",

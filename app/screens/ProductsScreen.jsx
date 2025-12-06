@@ -64,7 +64,7 @@ const responsiveHeight = (percentage) => {
 
 export default function ProductsScreen() {
     const router = useRouter();
-    const {selectedCategory, searchQuery} = useLocalSearchParams();
+    const {selectedCategory, categoryName, searchQuery} = useLocalSearchParams();
     const [products, setProducts] = useState([]);
     const [categories, setCategories] = useState([]);
     const [filteredProducts, setFilteredProducts] = useState([]);
@@ -78,9 +78,46 @@ export default function ProductsScreen() {
     const [updatingItems, setUpdatingItems] = useState({});
     const [wishlistItems, setWishlistItems] = useState({});
     const [wishlistUpdating, setWishlistUpdating] = useState({});
+    const [userId, setUserId] = useState(null);
     const [orientation, setOrientation] = useState(
         screenWidth > screenHeight ? 'landscape' : 'portrait'
     );
+
+    // Parse the selected category from params
+    const parsedSelectedCategory = selectedCategory ?
+        (typeof selectedCategory === 'string' ? selectedCategory : selectedCategory?._id) :
+        null;
+
+    // Load user info on mount
+    useEffect(() => {
+        const loadUserData = async () => {
+            try {
+                const userData = await AsyncStorage.getItem('userData');
+                if (userData) {
+                    const user = JSON.parse(userData);
+                    const uid = user?._id || user?.id || user?.userId || null;
+                    setUserId(uid);
+                    return uid;
+                }
+            } catch (error) {
+                console.error('Error loading user data:', error);
+            }
+            return null;
+        };
+        loadUserData();
+
+        // Load login type
+        (async () => {
+            try {
+                const lt = await AsyncStorage.getItem('loginType');
+                if (lt) {
+                    setLoginType(lt);
+                }
+            } catch (error) {
+                console.log('Error loading login type:', error);
+            }
+        })();
+    }, []);
 
     // Handle orientation changes
     useEffect(() => {
@@ -96,7 +133,11 @@ export default function ProductsScreen() {
     useFocusEffect(
         useCallback(() => {
             loadCartItems();
-        }, [])
+            // Refresh wishlist status when screen comes into focus
+            if (userId && products.length > 0) {
+                initializeWishlistStatus(products);
+            }
+        }, [userId, products])
     );
 
     useEffect(() => {
@@ -106,9 +147,7 @@ export default function ProductsScreen() {
             try {
                 setLoading(true);
 
-                const categoryId = typeof selectedCategory === "string"
-                    ? selectedCategory
-                    : selectedCategory?._id || selectedCategory?.id || null;
+                const categoryId = parsedSelectedCategory;
 
                 const requests = [
                     getProducts({categoryId}),
@@ -149,13 +188,28 @@ export default function ProductsScreen() {
                     setFilteredProducts(items);
                     setCategories(categoriesList);
 
-                    if (categoriesList.length > 0) {
+                    // Set active category based on selectedCategory from params
+                    if (categoryId && categoriesList.length > 0) {
+                        // Try to find the category by ID
+                        const foundCategory = categoriesList.find(cat =>
+                            cat._id === categoryId || cat.id === categoryId
+                        );
+
+                        if (foundCategory) {
+                            setActiveCategory(foundCategory);
+                        } else if (categoriesList.length > 0) {
+                            // Fallback to first category if not found
+                            setActiveCategory(categoriesList[0]);
+                        }
+                    } else if (categoriesList.length > 0) {
                         setActiveCategory(categoriesList[0]);
                     }
 
-                    initializeWishlistStatus(items);
+                    // Initialize wishlist status
+                    await initializeWishlistStatus(items);
                 }
             } catch (e) {
+                console.error('Error loading products:', e);
                 if (mounted) {
                     setProducts([]);
                     setFilteredProducts([]);
@@ -173,80 +227,238 @@ export default function ProductsScreen() {
         return () => {
             mounted = false;
         };
-    }, [selectedCategory]);
+    }, [parsedSelectedCategory]);
 
     const initializeWishlistStatus = async (productsList) => {
         try {
-            const userData = await AsyncStorage.getItem('userData');
-            const user = userData ? JSON.parse(userData) : null;
-            const userId = user?._id || user?.id || user?.userId || null;
-
-            if (!userId) return;
+            if (!userId || !productsList || productsList.length === 0) {
+                // Initialize all products as not in wishlist
+                const defaultStatus = {};
+                productsList.forEach(product => {
+                    const productId = String(getProductId(product));
+                    if (productId && productId !== 'undefined') {
+                        defaultStatus[productId] = false;
+                    }
+                });
+                setWishlistItems(defaultStatus);
+                return;
+            }
 
             const wishlistStatus = {};
-            const productIds = productsList.map(product => String(getProductId(product))).filter(Boolean);
+            const batchSize = 5;
 
-            for (const productId of productIds) {
-                try {
-                    const res = await checkWishlist(userId, productId);
-                    const isInWishlist = Boolean(
-                        res?.liked ??
-                        res?.data?.liked ??
-                        res?.inWishlist ??
-                        res?.data?.inWishlist ??
-                        false
-                    );
-                    wishlistStatus[productId] = isInWishlist;
-                } catch (error) {
+            // First, initialize all as false
+            productsList.forEach(product => {
+                const productId = String(getProductId(product));
+                if (productId && productId !== 'undefined') {
                     wishlistStatus[productId] = false;
                 }
+            });
+
+            // Then check actual status in batches
+            for (let i = 0; i < productsList.length; i += batchSize) {
+                const batch = productsList.slice(i, i + batchSize);
+                const batchPromises = batch.map(async (product) => {
+                    const productId = getProductId(product);
+                    if (!productId || productId === 'undefined') return null;
+
+                    try {
+
+                        const res = await checkWishlist(userId, productId);
+                        // Check multiple possible response structures
+                        const liked = Boolean(res.data.isLiked ?? res?.data?.liked ?? res?.inWishlist ?? res?.data?.inWishlist);
+
+
+                        return { productId, isInWishlist: Boolean(liked) };
+                    } catch (error) {
+                        console.log(`Error checking wishlist for product ${productId}:`, error);
+                        return { productId, isInWishlist: false };
+                    }
+                });
+
+                const batchResults = await Promise.all(batchPromises);
+                batchResults.forEach(result => {
+                    if (result && result.productId) {
+                        wishlistStatus[result.productId] = result.isInWishlist;
+                    }
+                });
             }
 
             setWishlistItems(wishlistStatus);
         } catch (error) {
             console.log('Error initializing wishlist:', error);
+            // Initialize with all false if error occurs
+            const defaultStatus = {};
+            productsList.forEach(product => {
+                const productId = String(getProductId(product));
+                if (productId && productId !== 'undefined') {
+                    defaultStatus[productId] = false;
+                }
+            });
+            setWishlistItems(defaultStatus);
         }
     };
 
-    const toggleWishlistForProduct = async (productId) => {
-        try {
-            const userData = await AsyncStorage.getItem('userData');
-            const user = userData ? JSON.parse(userData) : null;
-            const userId = user?._id || user?.id || user?.userId || null;
+    const isInStock = (item, selectedVariant = null) => {
+        // Check variants first
+        const variants = Array.isArray(item?.variants) ? item.variants : [];
 
-            if (!userId) {
-                router.push('/screens/LoginScreen');
+        if (selectedVariant) {
+            // Check specific variant
+            return selectedVariant?.stock > 0 && selectedVariant?.status !== false;
+        } else if (variants.length > 0) {
+            // Check if any variant is in stock
+            return variants.some(variant => variant?.stock > 0 && variant?.status !== false);
+        } else {
+            // Check product stock directly
+            return item?.stock > 0 && item?.status !== false;
+        }
+    };
+
+
+    const toggleWishlistForProduct = async (product) => {
+        try {
+            const productId = String(product);
+            if (!productId || productId === 'undefined') {
+                console.error('Invalid product ID');
                 return;
             }
 
+            // Check if user is logged in
+            if (!userId) {
+                Alert.alert(
+                    'Login Required',
+                    'Please login to add items to your wishlist',
+                    [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                            text: 'Login',
+                            onPress: () => router.push('/screens/LoginScreen')
+                        }
+                    ]
+                );
+                return;
+            }
+
+            // Prevent multiple simultaneous toggles for same product
+            if (wishlistUpdating[productId]) {
+                console.log('Already updating wishlist for product:', productId);
+                return;
+            }
+
+            // Start updating
             setWishlistUpdating(prev => ({ ...prev, [productId]: true }));
-            const res = await toggleWishlist(userId, String(productId));
 
-            const newWishlistState = Boolean(
-                res?.liked ??
-                res?.data?.liked ??
-                res?.inWishlist ??
-                res?.data?.inWishlist ??
-                !wishlistItems[productId]
-            );
+            // Get current wishlist status
+            const currentStatus = wishlistItems[productId] || false;
 
+
+
+            // Perform optimistic update - immediately show the UI change
+            setWishlistItems(prev => ({
+                ...prev,
+                [productId]: !currentStatus
+            }));
+
+            // Call API
+            const response = await toggleWishlist(userId, productId);
+
+            // Determine the actual new state from API response
+            let newWishlistState = false;
+
+            if (response?.success === true) {
+                // If API returns success: true, check if it has a liked/inWishlist field
+                if (response.liked !== undefined) {
+                    newWishlistState = response.liked;
+                } else if (response.data?.liked !== undefined) {
+                    newWishlistState = response.data.liked;
+                } else if (response.inWishlist !== undefined) {
+                    newWishlistState = response.inWishlist;
+                } else if (response.data?.inWishlist !== undefined) {
+                    newWishlistState = response.data.inWishlist;
+                } else {
+                    // If only success: true is returned, assume toggle worked
+                    newWishlistState = !currentStatus;
+                }
+            } else if (response?.success === false) {
+                // If operation failed, revert to original state
+                newWishlistState = currentStatus;
+            } else if (response?.liked !== undefined) {
+                // Direct liked field without success wrapper
+                newWishlistState = response.liked;
+            } else if (response?.inWishlist !== undefined) {
+                // Direct inWishlist field
+                newWishlistState = response.inWishlist;
+            } else {
+                // Default to optimistic update
+                newWishlistState = !currentStatus;
+            }
+
+            // Ensure it's a boolean
+            newWishlistState = Boolean(newWishlistState);
+
+            console.log('Determined new wishlist state:', newWishlistState);
+
+            // Update with actual status from server
             setWishlistItems(prev => ({
                 ...prev,
                 [productId]: newWishlistState
             }));
-            //
-            // if (Platform.OS === 'android') {
-            //     ToastAndroid.show(
-            //         newWishlistState ? 'Added to wishlist' : 'Removed from wishlist',
-            //         ToastAndroid.SHORT
-            //     );
-            // }
+
+            // Show feedback
+            const message = newWishlistState ? 'Added to wishlist' : 'Removed from wishlist';
+
+            // Use appropriate notification method
+            if (Platform.OS === 'android') {
+                ToastAndroid.show(message, ToastAndroid.SHORT);
+            } else if (Platform.OS === 'ios') {
+                Alert.alert('Success', message, [{ text: 'OK' }]);
+            }
+
         } catch (error) {
-            Alert.alert('Error', 'Failed to update wishlist. Please try again.');
+            console.error('Error toggling wishlist:', error);
+
+            // Extract error message
+            let errorMessage = 'Failed to update wishlist. Please try again.';
+
+            if (error.response) {
+                // Server responded with error
+                const serverError = error.response.data;
+                errorMessage = serverError?.message ||
+                    serverError?.error ||
+                    `Server error: ${error.response.status}`;
+            } else if (error.request) {
+                // Request made but no response
+                errorMessage = 'No response from server. Please check your connection.';
+            }
+
+            // Revert optimistic update on error
+            setWishlistItems(prev => ({
+                ...prev,
+                [String(product)]: wishlistItems[String(product)] || false
+            }));
+
+            Alert.alert('Error', errorMessage);
         } finally {
+            const productId = String(product);
             setWishlistUpdating(prev => ({ ...prev, [productId]: false }));
         }
     };
+
+    const getAvailableStock = (item, selectedVariant = null) => {
+        if (selectedVariant) {
+            return selectedVariant?.stock || 0;
+        } else {
+            const variants = Array.isArray(item?.variants) ? item.variants : [];
+            if (variants.length > 0) {
+                // Return sum of all variant stocks
+                return variants.reduce((total, variant) => total + (variant?.stock || 0), 0);
+            } else {
+                return item?.stock || 0;
+            }
+        }
+    };
+
 
     useEffect(() => {
         let filtered = [...products];
@@ -301,19 +513,6 @@ export default function ProductsScreen() {
             setCartItems([]);
         }
     };
-
-    useEffect(() => {
-        (async () => {
-            try {
-                const lt = await AsyncStorage.getItem('loginType');
-                if (lt) {
-                    setLoginType(lt);
-                }
-            } catch (error) {
-                console.log('Error loading login type:', error);
-            }
-        })();
-    }, []);
 
     function handleProductClick(id) {
         router.replace({pathname: "/screens/ProductDetailScreen", params: {id: String(id)}});
@@ -375,21 +574,50 @@ export default function ProductsScreen() {
             const selectedVariantId = variant ? String(variant._id || variant.id) : selectedVariants[String(productId)];
             const defaultVariant = variants.find(v => (v?.stock ?? 1) > 0) || variants[0] || null;
             const effectiveVariantId = selectedVariantId || (defaultVariant ? String(defaultVariant?._id || defaultVariant?.id || defaultVariant?.variantId) : null);
+            const effectiveVariant = variant || (effectiveVariantId ? variants.find(v => String(v?._id || v?.id) === effectiveVariantId) : null);
+
+            // Check stock
+            const isOutOfStock = !isInStock(item, effectiveVariant);
+            if (isOutOfStock) {
+                Alert.alert('Out of Stock', 'This item is currently out of stock');
+                return;
+            }
+
+            // Check if already in cart
+            const existingCartItem = cartItems.find(cartItem =>
+                cartItem.productId === String(productId) &&
+                cartItem.variantId === (effectiveVariantId ? String(effectiveVariantId) : null)
+            );
+
+            const availableStock = getAvailableStock(item, effectiveVariant);
+            const currentQuantity = existingCartItem ? existingCartItem.quantity : 0;
+
+            if (currentQuantity >= availableStock) {
+                Alert.alert('Stock Limit', `You can only add ${availableStock} of this item to your cart`);
+                return;
+            }
 
             const payload = {
                 productId: String(productId),
-                quantity: 1,
+                quantity: existingCartItem ? existingCartItem.quantity + 1 : 1,
                 variantId: effectiveVariantId ? String(effectiveVariantId) : null,
             };
 
             const tempId = `${productId}_${effectiveVariantId || 'default'}`;
             setUpdatingItems(prev => ({ ...prev, [tempId]: true }));
 
-            await addCartItem(payload);
+            if (existingCartItem) {
+                await updateCartItem(existingCartItem._id || existingCartItem.id, payload.quantity);
+            } else {
+                await addCartItem(payload);
+            }
+
             await loadCartItems();
 
             if (Platform.OS === 'android') {
                 ToastAndroid.show('Added to cart', ToastAndroid.SHORT);
+            } else {
+                Alert.alert('Success', 'Added to cart');
             }
 
             if (variant) {
@@ -397,6 +625,7 @@ export default function ProductsScreen() {
                 setSelectedProductForVariant(null);
             }
         } catch (e) {
+            console.error('Add to cart error:', e);
             Alert.alert('Error', 'Failed to add item to cart');
         } finally {
             const productId = getProductId(item);
@@ -411,24 +640,53 @@ export default function ProductsScreen() {
 
     const handleUpdateQuantity = async (productId, variantId, newQuantity) => {
         try {
-            const itemId = getCartItemId(productId, variantId);
-
-            if (!itemId) {
-                Alert.alert('Error', 'Cart item not found');
+            // Find the product and variant
+            const product = products.find(p => getProductId(p) === productId);
+            if (!product) {
+                Alert.alert('Error', 'Product not found');
                 return;
             }
 
-            const tempId = `${productId}_${variantId || 'default'}`;
-            setUpdatingItems(prev => ({ ...prev, [tempId]: true }));
+            const variants = Array.isArray(product?.variants) ? product.variants : [];
+            const variant = variants.find(v => String(v?._id || v?.id) === String(variantId));
+            const availableStock = variant ? variant?.stock : product?.stock || 0;
 
-            if (newQuantity === 0) {
-                await removeCartItem(productId, variantId);
-            } else {
-                await updateCartItem(itemId, newQuantity);
+            // Validate stock availability
+            if (newQuantity > availableStock) {
+                Alert.alert('Stock Limit', `Only ${availableStock} items available in stock`);
+                return;
+            }
+
+            const itemId = getCartItemId(productId, variantId);
+
+            if (!itemId && newQuantity > 0) {
+                // Adding new item to cart
+                const payload = {
+                    productId: String(productId),
+                    quantity: newQuantity,
+                    variantId: variantId ? String(variantId) : null,
+                };
+
+                const tempId = `${productId}_${variantId || 'default'}`;
+                setUpdatingItems(prev => ({ ...prev, [tempId]: true }));
+
+                await addCartItem(payload);
+            } else if (itemId) {
+                // Updating existing item
+                const tempId = `${productId}_${variantId || 'default'}`;
+                setUpdatingItems(prev => ({ ...prev, [tempId]: true }));
+
+                if (newQuantity === 0) {
+                    await removeCartItem(productId, variantId);
+                } else {
+                    await updateCartItem(itemId, newQuantity);
+                }
             }
 
             await loadCartItems();
+
         } catch (error) {
+            console.error('Update quantity error:', error);
             Alert.alert('Error', 'Failed to update quantity');
         } finally {
             const tempId = `${productId}_${variantId || 'default'}`;
@@ -488,8 +746,12 @@ export default function ProductsScreen() {
             ? computeVariantPrice(selectedVariantObj, item).final
             : productPrice.final;
 
-        const isOutOfStock = selectedVariantObj ? (selectedVariantObj?.stock === 0) : (item?.stock === 0);
+        // Check stock status
+        const isOutOfStock = !isInStock(item, selectedVariantObj);
+        const availableStock = getAvailableStock(item, selectedVariantObj);
         const cartQuantity = getCartQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id);
+        const canAddMore = isOutOfStock ? false : (cartQuantity < availableStock);
+
         const hasMultipleVariants = variants.length > 1;
         const tempId = `${productId}_${selectedVariantObj?._id || selectedVariantObj?.id || 'default'}`;
         const isUpdating = updatingItems[tempId];
@@ -526,6 +788,7 @@ export default function ProductsScreen() {
                                     width: responsiveSize(32),
                                     height: responsiveSize(32),
                                     borderRadius: responsiveSize(16),
+                                    backgroundColor: isInWishlist ? '#FFF0F0' : '#FFFFFF',
                                 }
                             ]}
                             onPress={(e) => {
@@ -551,6 +814,7 @@ export default function ProductsScreen() {
                                         {
                                             width: responsiveSize(16),
                                             height: responsiveSize(16),
+                                            tintColor: isInWishlist ? "#FF6B6B" : "#666",
                                         }
                                     ]}
                                     resizeMode="contain"
@@ -586,6 +850,19 @@ export default function ProductsScreen() {
                                 {selectedVariantObj?.name || selectedVariantObj?.sku || 'Default'}
                             </Text>
                         )}
+
+                        {/* Stock Status Indicator */}
+                        <View style={styles.stockContainer}>
+                            {isOutOfStock ? (
+                                <Text style={styles.outOfStockText}>
+                                    Out of Stock
+                                </Text>
+                            ) : (
+                                <Text style={styles.inStockText}>
+                                    {availableStock > 10 ? 'In Stock' : `Only ${availableStock} left`}
+                                </Text>
+                            )}
+                        </View>
 
                         <View style={styles.priceRow}>
                             {showDiscount ? (
@@ -657,12 +934,12 @@ export default function ProductsScreen() {
                             <Pressable
                                 style={styles.quantityButton}
                                 onPress={() => handleUpdateQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id, cartQuantity + 1)}
-                                disabled={isOutOfStock || isUpdating}
+                                disabled={isOutOfStock || isUpdating || !canAddMore}
                             >
                                 <Text style={[
                                     styles.quantityPlus,
                                     { fontSize: responsiveSize(16) },
-                                    (isOutOfStock || isUpdating) && styles.disabledText
+                                    (isOutOfStock || isUpdating || !canAddMore) && styles.disabledText
                                 ]}>+</Text>
                             </Pressable>
                         </View>
@@ -686,7 +963,7 @@ export default function ProductsScreen() {
                                 { fontSize: responsiveSize(12) },
                                 (isOutOfStock || isUpdating) && styles.disabledText
                             ]}>
-                                {isUpdating ? '...' : (hasMultipleVariants ? 'Options' : 'ADD')}
+                                {isUpdating ? '...' : (hasMultipleVariants ? 'Options' : (isOutOfStock ? 'Out of Stock' : 'ADD'))}
                             </Text>
                         </Pressable>
                     )}
@@ -715,7 +992,9 @@ export default function ProductsScreen() {
     const renderVariantItem = ({item: variant}) => {
         const priceInfo = computeVariantPrice(variant, selectedProductForVariant);
         const isOutOfStock = variant?.stock === 0;
+        const availableStock = variant?.stock || 0;
         const cartQuantity = getCartQuantity(getProductId(selectedProductForVariant), variant._id || variant.id);
+        const canAddMore = isOutOfStock ? false : (cartQuantity < availableStock);
         const tempId = `${getProductId(selectedProductForVariant)}_${variant._id || variant.id}`;
         const isUpdating = updatingItems[tempId];
 
@@ -744,9 +1023,12 @@ export default function ProductsScreen() {
                     </Text>
                     <Text style={[
                         styles.variantStock,
-                        { fontSize: responsiveSize(12) }
+                        {
+                            fontSize: responsiveSize(12),
+                            color: isOutOfStock ? '#FF4444' : '#4CAD73'
+                        }
                     ]}>
-                        {isOutOfStock ? 'Out of Stock' : `Stock: ${variant?.stock ?? 'Available'}`}
+                        {isOutOfStock ? 'Out of Stock' : `Stock: ${availableStock}`}
                     </Text>
                 </View>
 
@@ -779,12 +1061,12 @@ export default function ProductsScreen() {
                         <Pressable
                             style={styles.variantQuantityButton}
                             onPress={() => handleUpdateQuantity(getProductId(selectedProductForVariant), variant._id || variant.id, cartQuantity + 1)}
-                            disabled={isOutOfStock || isUpdating}
+                            disabled={isOutOfStock || isUpdating || !canAddMore}
                         >
                             <Text style={[
                                 styles.variantQuantityText,
                                 { fontSize: responsiveSize(16) },
-                                (isOutOfStock || isUpdating) && styles.disabledText
+                                (isOutOfStock || isUpdating || !canAddMore) && styles.disabledText
                             ]}>+</Text>
                         </Pressable>
                     </View>
@@ -807,12 +1089,19 @@ export default function ProductsScreen() {
                             { fontSize: responsiveSize(12) },
                             (isOutOfStock || isUpdating) && styles.disabledText
                         ]}>
-                            {isUpdating ? '...' : 'ADD'}
+                            {isUpdating ? '...' : (isOutOfStock ? 'Out of Stock' : 'ADD')}
                         </Text>
                     </Pressable>
                 )}
             </View>
         );
+    };
+
+    // Get header title - use categoryName from params if available, otherwise use active category name
+    const getHeaderTitle = () => {
+        if (categoryName) return categoryName;
+        if (activeCategory) return activeCategory.name;
+        return 'All Categories';
     };
 
     return (
@@ -854,7 +1143,7 @@ export default function ProductsScreen() {
                     styles.headerTitle,
                     { fontSize: responsiveSize(isTablet ? 20 : 18) }
                 ]}>
-                    {activeCategory ? activeCategory.name : 'All Categories'}
+                    {getHeaderTitle()}
                 </Text>
 
                 <View style={styles.headerSpacer} />
@@ -937,7 +1226,7 @@ export default function ProductsScreen() {
                                     styles.loadingText,
                                     { fontSize: responsiveSize(14), marginTop: responsiveSize(20) }
                                 ]}>
-                                    Loading products…
+                                    Loading Products…
                                 </Text>
                             </View>
                         ) : filteredProducts.length === 0 ? (
@@ -1210,7 +1499,6 @@ const styles = StyleSheet.create({
         top: responsiveSize(8),
         right: responsiveSize(8),
         zIndex: 10,
-        backgroundColor: '#FFFFFF',
         justifyContent: 'center',
         alignItems: 'center',
         elevation: 3,
@@ -1220,7 +1508,7 @@ const styles = StyleSheet.create({
         shadowRadius: 3,
     },
     wishlistIcon: {
-        // Tint color handled by image source
+        // Tint color is now set dynamically in the component
     },
     image: {
         width: '100%',
@@ -1455,6 +1743,19 @@ const styles = StyleSheet.create({
     variantAddText: {
         color: '#FFFFFF',
         fontWeight: '600',
+        fontFamily: 'Poppins-SemiBold',
+    },
+    stockContainer: {
+        marginBottom: responsiveSize(4),
+    },
+    outOfStockText: {
+        color: '#FF4444',
+        fontSize: responsiveSize(10),
+        fontFamily: 'Poppins-SemiBold',
+    },
+    inStockText: {
+        color: '#4CAD73',
+        fontSize: responsiveSize(10),
         fontFamily: 'Poppins-SemiBold',
     },
 });

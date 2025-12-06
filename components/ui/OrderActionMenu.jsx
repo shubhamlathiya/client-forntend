@@ -66,14 +66,6 @@ export default function OrderActionMenu({
             });
         }
 
-        if (order?.status?.toLowerCase() === "shipped") {
-            list.push({
-                id: "track",
-                label: "Track Order",
-                color: "#4CAD73",
-            });
-        }
-
         return list;
     };
 

@@ -1,4 +1,5 @@
 import {Platform} from 'react-native';
+import {verifyResetOTP} from "../api/authApi";
 
 // Detect base URL based on platform/runtime
 const getBaseURL = () => {
@@ -12,7 +13,6 @@ const getBaseURL = () => {
         // return 'https://e-commerce-rho-nine-36.vercel.app';
         // return 'http://192.168.0.119:8000';
         return 'https://g2.brandinsa.com'
-
 
     }
     if (Platform.OS === 'ios') {
@@ -36,6 +36,7 @@ export const AUTH_ENDPOINTS = {
     register: '/api/auth/register',
     verifyEmail: '/api/auth/verify-email',
     resendVerification: '/api/auth/resend-verification',
+    verifyResetOTP : '/api/auth/verify-reset-otp',
     login: '/api/auth/login',
     forgotPassword: '/api/auth/forgot-password',
     resetPassword: '/api/auth/reset-password',

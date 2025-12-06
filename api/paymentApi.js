@@ -6,7 +6,7 @@ import apiClient from '../utils/apiClient';
 export const getPaymentMethods = async () => {
     try {
         const response = await apiClient.get('/api/payments/methods');
-        console.log(response.data)
+
         return response.data;
     } catch (error) {
         console.error('Get payment methods error:', error);

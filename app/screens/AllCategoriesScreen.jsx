@@ -237,7 +237,7 @@ export default function AllCategoriesScreen() {
                 <SafeAreaView style={styles.container}>
                     <View style={styles.loadingContainer}>
                         <ActivityIndicator size="large" color="#4CAD73" />
-                        <Text style={styles.loadingText}>Loading categories...</Text>
+                        <Text style={styles.loadingText}>Loading Categories...</Text>
                     </View>
                 </SafeAreaView>
             </View>

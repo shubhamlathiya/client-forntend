@@ -42,7 +42,6 @@ export default function AuthScreen() {
             });
         }
 
-        console.log("Notification permission granted");
     };
 
     function handleLogin() {

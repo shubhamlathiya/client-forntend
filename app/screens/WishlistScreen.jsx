@@ -168,16 +168,11 @@ export default function WishlistScreen() {
         }
     };
 
-    // Navigate to product detail
     const handleProductPress = (product) => {
-        router.push({
-            pathname: '/screens/ProductDetailScreen',
-            params: {
-                id: product._id || product.id,
-                product: JSON.stringify(product)
-            }
-        });
-    };
+        const productid = product._id || product.id;
+        router.push(`/screens/ProductDetailScreen?id=${productid}`);
+    }
+
 
     // Render wishlist item in grid view
     const renderGridItem = ({ item }) => {

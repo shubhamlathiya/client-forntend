@@ -39,7 +39,7 @@ export default function OrderConfirmationScreen() {
             const orderData = res?.data?.data || res?.data || res;
             setOrder(orderData);
         } catch (err) {
-            console.log("❌ Load Order Error:", err);
+            console.log("Load Order Error:", err);
             Alert.alert("Error", "Unable to load order");
         } finally {
             setLoading(false);
@@ -77,7 +77,7 @@ export default function OrderConfirmationScreen() {
             }
 
             if (!data.orderId || !data.keyId || !data.amount) {
-                console.error("❌ Payment information is incomplete:", data);
+                console.error("Payment information is incomplete:", data);
                 const errorMsg = data.message || "Payment information is incomplete from server";
                 throw new Error(errorMsg);
             }
@@ -85,7 +85,7 @@ export default function OrderConfirmationScreen() {
             // Verify amount is valid
             const amountNum = parseInt(data.amount);
             if (isNaN(amountNum) || amountNum <= 0) {
-                console.error("❌ Invalid payment amount:", data.amount);
+                console.error("Invalid payment amount:", data.amount);
                 throw new Error("Invalid payment amount received from server");
             }
 
@@ -108,7 +108,7 @@ export default function OrderConfirmationScreen() {
             setShowPaymentModal(true);
 
         } catch (error) {
-            console.error("❌ Payment Initialization Error:", error);
+            console.error("Payment Initialization Error:", error);
             const errorMsg = error.message || "Failed to initialize payment. Please try again.";
             Alert.alert("Payment Error", errorMsg);
             setLastError(errorMsg);
@@ -141,7 +141,7 @@ export default function OrderConfirmationScreen() {
             loadOrder();
             router.push("/Order")
         } catch (verificationError) {
-            console.error("❌ Payment verification failed:", verificationError);
+            console.error("Payment verification failed:", verificationError);
             const errorMsg = verificationError.response?.data?.message || "Payment verification failed";
             Alert.alert("Verification Failed", errorMsg);
             setPaymentData(null);
@@ -257,7 +257,7 @@ export default function OrderConfirmationScreen() {
                 {/* Error Display */}
                 {lastError && (
                     <View style={styles.errorCard}>
-                        <Text style={styles.errorTitle}>⚠️ Last Error</Text>
+                        <Text style={styles.errorTitle}>Last Error</Text>
                         <Text style={styles.errorText}>{lastError}</Text>
                     </View>
                 )}
@@ -297,7 +297,7 @@ export default function OrderConfirmationScreen() {
                         {paymentInitialized && !paymentCompleted && paymentData && (
                             <View style={styles.sessionInfo}>
                                 <Text style={styles.sessionText}>
-                                    💳 Payment session ready - ₹{formatDisplayAmount(paymentData.amount)}
+                                    Payment session ready - ₹{formatDisplayAmount(paymentData.amount)}
                                 </Text>
                                 <Text style={styles.sessionSubText}>
                                     Use test card: 4111 1111 1111 1111

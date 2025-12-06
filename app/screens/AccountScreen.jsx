@@ -52,17 +52,60 @@ export default function AccountScreen() {
     const [isPhoneEditable, setIsPhoneEditable] = useState(false);
     const [loadingProfile, setLoadingProfile] = useState(true);
 
+    // Helper function to format phone number with +91
+    const formatPhoneNumber = (phone) => {
+        if (!phone) return "";
+
+        // Remove any non-digit characters
+        const cleaned = phone.replace(/\D/g, '');
+
+        // If phone starts with 91 and has more than 10 digits, it might already include country code
+        if (cleaned.startsWith('91') && cleaned.length >= 12) {
+            return `+${cleaned}`;
+        }
+
+        if (cleaned.length === 10) {
+            return `+91 ${cleaned}`;
+        }
+
+        // Return as is for other cases
+        return phone;
+    };
+
+    // Helper function to extract just the 10-digit number for editing
+    const extractPhoneDigits = (phone) => {
+        if (!phone) return "";
+
+        // Remove all non-digit characters
+        const cleaned = phone.replace(/\D/g, '');
+
+        // If starts with 91 and has more digits, remove country code
+        if (cleaned.startsWith('91') && cleaned.length > 10) {
+            return cleaned.substring(2, 12); // Take next 10 digits
+        }
+
+        // If exactly 10 digits, return as is
+        if (cleaned.length === 10) {
+            return cleaned;
+        }
+
+        // For other cases, try to get last 10 digits
+        return cleaned.length >= 10 ? cleaned.substring(cleaned.length - 10) : cleaned;
+    };
+
     const loadUserData = async () => {
         try {
             setLoadingProfile(true);
             const stored = await AsyncStorage.getItem("userData");
-            console.log("Stored User →", stored);
 
             if (stored) {
                 const userData = JSON.parse(stored);
                 const userId = userData.id || userData._id;
                 setUser(userData);
-                setPhoneNumber(userData.phone || "");
+
+                // Extract just the digits for editing field
+                const phoneDigits = extractPhoneDigits(userData.phone || "");
+                setPhoneNumber(phoneDigits);
 
                 // Check if profile picture exists in local storage first
                 if (userData.profile?.picture) {
@@ -73,7 +116,6 @@ export default function AccountScreen() {
                 if (userId) {
                     try {
                         const profileData = await getUserProfile(userId);
-                        console.log("Profile Data Response:", profileData);
 
                         // Handle different response structures
                         let fetchedUser = null;
@@ -92,7 +134,6 @@ export default function AccountScreen() {
                             fetchedUser = profileData;
                         }
 
-                        console.log("Fetched User Data:", fetchedUser);
 
                         if (fetchedUser) {
                             // Update user state with fetched data
@@ -113,7 +154,7 @@ export default function AccountScreen() {
                             // Set profile image if available
                             if (fetchedUser.profile?.picture) {
                                 const imageUrl = `${API_BASE_URL}${fetchedUser.profile.picture}`;
-                                console.log("Setting profile image URL:", imageUrl);
+                                // console.log("Setting profile image URL:", imageUrl);
                                 setUserProfileImage(imageUrl);
                             } else if (fetchedUser.profileImageUrl) {
                                 setUserProfileImage(fetchedUser.profileImageUrl);
@@ -160,7 +201,7 @@ export default function AccountScreen() {
         if (sourceType === 'camera') {
             const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
             if (!permissionResult.granted) {
-                Alert.alert('Permission required', 'Camera permission is required to take photos');
+                Alert.alert('Permission Required', 'Camera Permission Is Required To Take Photos');
                 return;
             }
             result = await ImagePicker.launchCameraAsync({
@@ -172,7 +213,7 @@ export default function AccountScreen() {
         } else {
             const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
             if (!permissionResult.granted) {
-                Alert.alert('Permission required', 'Gallery permission is required to select photos');
+                Alert.alert('Permission Required', 'Gallery Permission Is Required To Select Photos');
                 return;
             }
             result = await ImagePicker.launchImageLibraryAsync({
@@ -190,7 +231,7 @@ export default function AccountScreen() {
 
     const uploadImage = async (imageUri) => {
         const stored = await AsyncStorage.getItem("userData");
-        console.log("Stored User →", stored);
+
 
         const userData = JSON.parse(stored);
         const userId = userData.id || userData._id;
@@ -217,7 +258,7 @@ export default function AccountScreen() {
 
             // Upload to server
             const response = await uploadProfileImage(userId, formData);
-            console.log("Upload response:", response);
+
 
             if (response.success) {
                 let profileImageUrl = response.data?.profileImageUrl || response.data?.picture;
@@ -242,7 +283,7 @@ export default function AccountScreen() {
                         await AsyncStorage.setItem("userData", JSON.stringify(userData));
                     }
 
-                    Alert.alert('Success', 'Profile picture updated successfully');
+                    Alert.alert('Success', 'Profile Picture Updated Successfully');
                     loadUserData();
                 } else {
                     Alert.alert('Error', 'Failed to get image URL from response');
@@ -259,51 +300,61 @@ export default function AccountScreen() {
     };
 
     const handleUpdatePhone = async () => {
-        if (!phoneNumber.trim()) {
-            Alert.alert('Error', 'Please enter a valid phone number');
+        // Extract just digits for validation
+        const phoneDigits = phoneNumber.replace(/\D/g, '');
+
+        if (!phoneDigits) {
+            Alert.alert('Error', 'Please Enter A Valid Phone Number');
             return;
         }
 
-        // Basic phone validation (10 digits)
-        const phoneRegex = /^[0-9]{10}$/;
-        if (!phoneRegex.test(phoneNumber)) {
-            Alert.alert('Error', 'Please enter a valid 10-digit phone number');
+        // Validate 10 digits
+        if (phoneDigits.length === 10) {
+
+            // Format phone number with +91
+            const formattedPhone = `+91 ${phoneDigits}`;
+
+            setUpdatingPhone(true);
+
+            try {
+                const stored = await AsyncStorage.getItem("userData");
+                if (!stored) {
+                    Alert.alert('Error', 'User not found');
+                    return;
+                }
+
+                const userData = JSON.parse(stored);
+                const userId = userData.id || userData._id;
+
+                // Send the formatted phone number to API
+                const response = await updateUserPhone(userId, formattedPhone);
+
+                if (response.success) {
+                    // Update local storage with formatted number
+                    userData.phone = formattedPhone;
+                    await AsyncStorage.setItem("userData", JSON.stringify(userData));
+
+                    // Update state
+                    setUser(prev => ({...prev, phone: formattedPhone}));
+
+                    Alert.alert('Success', 'Phone Number Updated Successfully');
+                    setIsPhoneEditable(false);
+                    setShowPhoneModal(false);
+                } else {
+                    Alert.alert('Error', response.message || 'Failed to update phone number');
+                }
+            } catch (error) {
+                console.error('Update phone error:', error);
+                Alert.alert('Error', 'Failed to update phone number');
+            } finally {
+                setUpdatingPhone(false);
+            }
+
+        } else {
+            Alert.alert('Error', 'Please Enter a Valid 10-digit Phone Number');
             return;
         }
 
-        setUpdatingPhone(true);
-
-        try {
-            const stored = await AsyncStorage.getItem("userData");
-            if (!stored) {
-                Alert.alert('Error', 'User not found');
-                return;
-            }
-
-            const userData = JSON.parse(stored);
-            const userId = userData.id || userData._id;
-
-            const response = await updateUserPhone(userId, phoneNumber);
-
-            if (response.success) {
-                // Update local storage
-                userData.phone = phoneNumber;
-                await AsyncStorage.setItem("userData", JSON.stringify(userData));
-
-                // Update state
-                setUser(prev => ({...prev, phone: phoneNumber}));
-
-                Alert.alert('Success', 'Phone number updated successfully');
-                setIsPhoneEditable(false);
-            } else {
-                Alert.alert('Error', response.message || 'Failed to update phone number');
-            }
-        } catch (error) {
-            console.error('Update phone error:', error);
-            Alert.alert('Error', 'Failed to update phone number');
-        } finally {
-            setUpdatingPhone(false);
-        }
     };
 
     const handleLogout = async () => {
@@ -333,8 +384,8 @@ export default function AccountScreen() {
     if (loadingProfile) {
         return (
             <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#4CAD73" />
-                <Text style={styles.loadingText}>Loading profile...</Text>
+                <ActivityIndicator size="large" color="#4CAD73"/>
+                <Text style={styles.loadingText}>Loading Profile...</Text>
             </View>
         );
     }
@@ -381,9 +432,18 @@ export default function AccountScreen() {
             visible={showPhoneModal}
             transparent={true}
             animationType="fade"
-            onRequestClose={() => setShowPhoneModal(false)}
+            onRequestClose={() => {
+                setShowPhoneModal(false);
+                setIsPhoneEditable(false);
+                // Reset phone number to current user phone when modal closes
+                setPhoneNumber(extractPhoneDigits(user?.phone || ""));
+            }}
         >
-            <TouchableWithoutFeedback onPress={() => setShowPhoneModal(false)}>
+            <TouchableWithoutFeedback onPress={() => {
+                setShowPhoneModal(false);
+                setIsPhoneEditable(false);
+                setPhoneNumber(extractPhoneDigits(user?.phone || ""));
+            }}>
                 <View style={styles.phoneModalOverlay}>
                     <TouchableWithoutFeedback>
                         <KeyboardAvoidingView
@@ -392,20 +452,39 @@ export default function AccountScreen() {
                         >
                             <Text style={styles.phoneModalTitle}>Update Phone Number</Text>
 
-                            <TextInput
-                                style={styles.phoneInput}
-                                value={phoneNumber}
-                                onChangeText={setPhoneNumber}
-                                placeholder="Enter 10-digit phone number"
-                                keyboardType="phone-pad"
-                                maxLength={10}
-                                autoFocus
-                            />
+                            <View style={styles.phoneInputContainer}>
+                                <View style={styles.countryCodeContainer}>
+                                    <Text style={styles.countryCodeText}>+91</Text>
+                                </View>
+                                <TextInput
+                                    style={styles.phoneInput}
+                                    value={phoneNumber}
+                                    onChangeText={(text) => {
+                                        // Only allow digits
+                                        const digits = text.replace(/\D/g, '');
+                                        // Limit to 10 digits
+                                        const limitedDigits = digits.substring(0, 10);
+                                        setPhoneNumber(limitedDigits);
+                                    }}
+                                    placeholder="Enter 10-digit number"
+                                    keyboardType="phone-pad"
+                                    maxLength={10}
+                                    autoFocus
+                                />
+                            </View>
+
+                            <Text style={styles.phoneFormatHint}>
+                                Format: +91 XXXXXXXXXX
+                            </Text>
 
                             <View style={styles.phoneModalButtons}>
                                 <Pressable
                                     style={[styles.phoneModalButton, styles.cancelPhoneButton]}
-                                    onPress={() => setShowPhoneModal(false)}
+                                    onPress={() => {
+                                        setShowPhoneModal(false);
+                                        setIsPhoneEditable(false);
+                                        setPhoneNumber(extractPhoneDigits(user?.phone || ""));
+                                    }}
                                 >
                                     <Text style={styles.cancelPhoneText}>Cancel</Text>
                                 </Pressable>
@@ -476,47 +555,24 @@ export default function AccountScreen() {
 
             {/* Phone Number Row with Edit Button */}
             <View style={styles.phoneRow}>
-                {isPhoneEditable ? (<View style={styles.editablePhoneContainer}>
-                    <TextInput
-                        style={styles.phoneInputInline}
-                        value={phoneNumber}
-                        onChangeText={setPhoneNumber}
-                        placeholder="Enter phone number"
-                        keyboardType="phone-pad"
-                        maxLength={10}
-                        autoFocus
-                    />
-                    <Pressable
-                        style={styles.savePhoneButton}
-                        onPress={handleUpdatePhone}
-                        disabled={updatingPhone}
-                    >
-                        {updatingPhone ? (<ActivityIndicator size="small" color="#fff"/>) : (
-                            <Text style={styles.savePhoneText}>Save</Text>)}
-                    </Pressable>
-                    <Pressable
-                        style={styles.cancelEditButton}
-                        onPress={() => {
-                            setIsPhoneEditable(false);
-                            setPhoneNumber(user?.phone || "");
-                        }}
-                    >
-                        <Text style={styles.cancelEditText}>Cancel</Text>
-                    </Pressable>
-                </View>) : (<>
+                <View style={styles.phoneDisplayContainer}>
                     <Text style={styles.phoneText} numberOfLines={1}>
-                        {user?.phone || "Phone not set"}
+                        {user?.phone ? formatPhoneNumber(user.phone) : "Phone not set"}
                     </Text>
                     <Pressable
                         style={styles.editPhoneButton}
-                        onPress={() => setIsPhoneEditable(true)}
+                        onPress={() => {
+                            setShowPhoneModal(true);
+                            // Set current phone digits for editing
+                            setPhoneNumber(extractPhoneDigits(user?.phone || ""));
+                        }}
                     >
                         <Image
                             source={require("../../assets/icons/edit.png")}
                             style={styles.editIcon}
                         />
                     </Pressable>
-                </>)}
+                </View>
             </View>
         </LinearGradient>
 
@@ -699,21 +755,25 @@ const styles = StyleSheet.create({
     },
     topHeaderRow: {
         flexDirection: "row",
-        justifyContent: "space-between",
         alignItems: "center",
-        height: RH(40),
-        marginBottom: RH(10),
+        justifyContent: "space-between",
+        paddingHorizontal: RF(16),
+        paddingVertical: RF(12),
     },
     backIcon: {
-        width: RF(22),
-        height: RF(22),
+        padding: RF(4),
+        width: RF(24),
+        height: RF(24),
         tintColor: "#000"
     },
     profileText: {
         fontSize: RF(18),
-        fontWeight: "700",
-        color: "#000",
-        fontFamily: "Poppins-Bold",
+        fontWeight: "600",
+        color: "#1B1B1B",
+        fontFamily: "Poppins-SemiBold",
+        textAlign: "center",
+        flex: 1,
+        marginHorizontal: RF(8),
     },
     placeholder: {
         width: RF(22),
@@ -771,63 +831,27 @@ const styles = StyleSheet.create({
         marginTop: RH(8),
         alignItems: "center",
     },
+    phoneDisplayContainer: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: 'rgba(255, 255, 255, 0.7)',
+        borderRadius: RF(20),
+        paddingHorizontal: RF(12),
+        paddingVertical: RH(6),
+    },
     phoneText: {
-        fontSize: RF(16),
-        color: "#555",
-        fontFamily: "Poppins-Regular",
+        fontSize: RF(15),
+        color: "#333",
+        fontFamily: "Poppins-Medium",
         marginRight: RF(8),
     },
     editPhoneButton: {
-        padding: RF(5),
+        padding: RF(4),
     },
     editIcon: {
-        width: RF(16),
-        height: RF(16),
+        width: RF(14),
+        height: RF(14),
         tintColor: "#555",
-    },
-    editablePhoneContainer: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        width: '100%',
-        marginTop: RH(4),
-    },
-    phoneInputInline: {
-        backgroundColor: '#fff',
-        paddingHorizontal: RF(12),
-        paddingVertical: RH(6),
-        borderRadius: RF(8),
-        fontSize: RF(16),
-        fontFamily: "Poppins-Regular",
-        color: "#333",
-        borderWidth: 1,
-        borderColor: '#FFD56C',
-        width: RF(120),
-        marginRight: RF(8),
-        textAlign: 'center',
-    },
-    savePhoneButton: {
-        backgroundColor: '#4CAF50',
-        paddingHorizontal: RF(12),
-        paddingVertical: RH(6),
-        borderRadius: RF(8),
-        marginRight: RF(8),
-    },
-    savePhoneText: {
-        color: '#fff',
-        fontSize: RF(12),
-        fontFamily: "Poppins-Medium",
-    },
-    cancelEditButton: {
-        backgroundColor: '#f0f0f0',
-        paddingHorizontal: RF(12),
-        paddingVertical: RH(6),
-        borderRadius: RF(8),
-    },
-    cancelEditText: {
-        color: '#666',
-        fontSize: RF(12),
-        fontFamily: "Poppins-Medium",
     },
     phoneModalOverlay: {
         flex: 1,
@@ -841,7 +865,7 @@ const styles = StyleSheet.create({
         borderRadius: RF(16),
         padding: RF(20),
         width: '100%',
-        maxWidth: RF(300),
+        maxWidth: RF(320),
     },
     phoneModalTitle: {
         fontSize: RF(18),
@@ -851,16 +875,44 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         color: '#333',
     },
-    phoneInput: {
-        backgroundColor: '#f8f8f8',
-        paddingHorizontal: RF(16),
+    phoneInputContainer: {
+        flexDirection: "row",
+        alignItems: "center",
+        marginBottom: RH(8),
+    },
+    countryCodeContainer: {
+        backgroundColor: '#f0f0f0',
+        paddingHorizontal: RF(12),
         paddingVertical: RH(12),
-        borderRadius: RF(8),
+        borderTopLeftRadius: RF(8),
+        borderBottomLeftRadius: RF(8),
+        borderWidth: 1,
+        borderColor: '#ddd',
+        borderRightWidth: 0,
+    },
+    countryCodeText: {
+        fontSize: RF(16),
+        fontFamily: "Poppins-Medium",
+        color: "#333",
+    },
+    phoneInput: {
+        flex: 1,
+        backgroundColor: '#f8f8f8',
+        paddingHorizontal: RF(12),
+        paddingVertical: RH(12),
+        borderTopRightRadius: RF(8),
+        borderBottomRightRadius: RF(8),
         fontSize: RF(16),
         fontFamily: "Poppins-Regular",
         color: "#333",
         borderWidth: 1,
         borderColor: '#ddd',
+        borderLeftWidth: 0,
+    },
+    phoneFormatHint: {
+        fontSize: RF(12),
+        color: '#666',
+        fontFamily: "Poppins-Regular",
         marginBottom: RH(20),
         textAlign: 'center',
     },
@@ -891,37 +943,6 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: RF(14),
         fontFamily: "Poppins-Medium",
-    },
-    topButtonRow: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        marginTop: RH(20),
-        gap: RF(10),
-    },
-    topButton: {
-        flex: 1,
-        backgroundColor: "#FFFFFF",
-        paddingVertical: RH(12),
-        borderRadius: RF(12),
-        alignItems: "center",
-        elevation: 2,
-        shadowColor: "#000",
-        shadowOffset: {width: 0, height: RF(2)},
-        shadowOpacity: 0.1,
-        shadowRadius: RF(4),
-        minHeight: RH(80),
-    },
-    topButtonIcon: {
-        width: RF(30),
-        height: RF(30),
-        marginBottom: RH(6),
-    },
-    topButtonLabel: {
-        fontSize: RF(12),
-        fontWeight: "600",
-        fontFamily: "Poppins-SemiBold",
-        textAlign: 'center',
-        paddingHorizontal: RF(4),
     },
     scrollView: {
         flex: 1,

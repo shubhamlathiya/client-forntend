@@ -1,11 +1,11 @@
-import { useRouter } from "expo-router";
-import React, { useEffect, useState, useCallback } from "react";
+import {useRouter} from "expo-router";
+import React, {useEffect, useState, useCallback, useRef, memo} from "react";
 import {
     Alert, Image, ScrollView, StyleSheet, Text, TextInput, Pressable, View, Dimensions,
     FlatList, Modal, KeyboardAvoidingView, TouchableWithoutFeedback, Platform, Keyboard, SafeAreaView, StatusBar,
     RefreshControl, ActivityIndicator
 } from "react-native";
-import { useFocusEffect } from '@react-navigation/native';
+import {useFocusEffect} from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
     applyCoupon as applyCouponApi,
@@ -17,10 +17,9 @@ import {
     getTierPricing,
     applyTierPricing,
 } from '../../api/cartApi';
-import { API_BASE_URL } from '../../config/apiConfig';
-import { getWishlist, removeFromWishlist } from '../../api/catalogApi';
+import {API_BASE_URL} from '../../config/apiConfig';
+import {getWishlist, removeFromWishlist} from '../../api/catalogApi';
 import {getOrCreateSessionId, getUserType} from "../../api/sessionManager";
-
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 
@@ -78,6 +77,147 @@ const responsiveHeight = (percentage) => {
     return Math.round((availableHeight * percentage) / 100);
 };
 
+// Memoized Cart Item Component for better performance
+const CartItem = memo(({
+                           item,
+                           isBusinessUser,
+                           tierPricing,
+                           updatingItems,
+                           stockValidation,
+                           onUpdateQuantity,
+                           onRemoveItem,
+                           onOpenNegotiation
+                       }) => {
+    const itemValidation = stockValidation[item.id] || {};
+    const canIncrease = itemValidation.canIncrease !== false;
+    const canDecrease = itemValidation.canDecrease !== false;
+    const isOutOfStock = !item.isAvailable;
+    const maxReached = item.quantity >= Math.min(item.currentStock, item.maxOrderQty);
+
+    return (
+        <View style={[styles.cartItem, isOutOfStock && styles.outOfStockItem]}>
+            {isOutOfStock && (
+                <View style={styles.outOfStockOverlay}>
+                    <Text style={styles.outOfStockText}>Out of Stock</Text>
+                </View>
+            )}
+
+            <View style={styles.itemLeft}>
+                <View style={styles.productImage}>
+                    <Image
+                        source={item.imageUrl ? {uri: `${API_BASE_URL}${item.imageUrl}`} : require("../../assets/sample-product.png")}
+                        style={styles.image}
+                        resizeMode="cover"
+                    />
+                </View>
+                <View style={styles.productInfo}>
+                    <Text style={[styles.productName, isOutOfStock && styles.disabledText]}
+                          numberOfLines={2}>{item.name}</Text>
+                    <Text style={[styles.productDescription, isOutOfStock && styles.disabledText]}
+                          numberOfLines={1}>{item.description}</Text>
+
+                    {/* Stock Info */}
+                    <Text style={[
+                        styles.stockText,
+                        isOutOfStock ? styles.outOfStockLabel : styles.inStockLabel
+                    ]}>
+                        {isOutOfStock ? 'Out of Stock' : `${item.currentStock} available`}
+                    </Text>
+
+                    {isBusinessUser && item.minQty && item.minQty > 1 && (
+                        <Text style={styles.minQtyText}>Min. Qty: {item.minQty}</Text>
+                    )}
+
+                    {item.shippingCharge > 0 && (
+                        <Text style={styles.shippingText}>Shipping: ₹{item.shippingCharge.toFixed(2)}</Text>
+                    )}
+
+                    <View style={styles.priceContainer}>
+                        {item.hasDiscount ? (<>
+                            <Text
+                                style={[styles.finalPrice, isOutOfStock && styles.disabledText]}>₹{item.finalPrice.toFixed(2)}</Text>
+                            <Text
+                                style={[styles.originalPrice, isOutOfStock && styles.disabledText]}>₹{item.basePrice.toFixed(2)}</Text>
+                            <View style={styles.discountBadge}>
+                                <Text style={styles.discountText}>
+                                    {Math.round(((item.basePrice - item.finalPrice) / item.basePrice) * 100)}% OFF
+                                </Text>
+                            </View>
+                        </>) : (<Text style={[styles.finalPrice, isOutOfStock && styles.disabledText]}></Text>)}
+                    </View>
+
+                    {isBusinessUser && tierPricing[item.variantId ? `${item.productId}_${item.variantId}` : item.productId] && (
+                        <Text style={styles.tierPricingText}>
+                            Tier pricing applied
+                        </Text>
+                    )}
+
+                    {isBusinessUser && !isOutOfStock && (
+                        <Pressable
+                            style={styles.negotiateButton}
+                            onPress={() => onOpenNegotiation(item)}
+                        >
+                            <Text style={styles.negotiateButtonText}>Request Better Price</Text>
+                        </Pressable>
+                    )}
+                </View>
+            </View>
+
+            <View style={styles.itemRight}>
+                <Pressable
+                    style={[styles.deleteButton, isOutOfStock && styles.disabledButton]}
+                    onPress={() => onRemoveItem(item.productId, item.variantId, item.id)}
+                    disabled={updatingItems[item.id] || isOutOfStock}
+                >
+                    <Image
+                        source={require("../../assets/icons/deleteIcon.png")}
+                        style={[styles.deleteIcon, (updatingItems[item.id] || isOutOfStock) && styles.disabledIcon]}
+                    />
+                </Pressable>
+
+                <View style={[styles.quantityControl, isOutOfStock && styles.disabledControl]}>
+                    <Pressable
+                        style={styles.quantityButton}
+                        onPress={() => onUpdateQuantity(item.id, item.quantity - 1, item.productId, item.variantId)}
+                    >
+                        <View
+                            style={[
+                                styles.minusButton,
+                            ]}>
+                            <Text style={[
+                                styles.minusText,
+                            ]}>-</Text>
+                        </View>
+                    </Pressable>
+
+                    <Text style={[styles.quantityText, isOutOfStock && styles.disabledText]}>
+                        {updatingItems[item.id] ? '...' : item.quantity}
+                        {maxReached && !updatingItems[item.id] && (
+                            <Text style={styles.maxIndicator}> (Max)</Text>
+                        )}
+                    </Text>
+
+                    <Pressable
+                        style={styles.quantityButton}
+                        onPress={() => onUpdateQuantity(item.id, item.quantity + 1, item.productId, item.variantId)}
+                        disabled={!canIncrease || updatingItems[item.id] || isOutOfStock}
+                    >
+                        <View style={[
+                            styles.plusButton,
+                            (!canIncrease || updatingItems[item.id] || isOutOfStock) && styles.disabledButton
+                        ]}>
+                            <Text style={[
+                                styles.plusText,
+                                (!canIncrease || updatingItems[item.id] || isOutOfStock) && styles.disabledText
+                            ]}>+</Text>
+                        </View>
+                    </Pressable>
+                </View>
+            </View>
+        </View>
+    );
+});
+
 export default function CartScreen() {
     const router = useRouter();
     const [cartItems, setCartItems] = useState([]);
@@ -96,7 +236,6 @@ export default function CartScreen() {
     const [removingCoupon, setRemovingCoupon] = useState(false);
     const [updatingItems, setUpdatingItems] = useState({});
     const [selectedAddress, setSelectedAddress] = useState(null);
-    const [selectedInstructions, setSelectedInstructions] = useState([]);
 
     // Business user states
     const [isBusinessUser, setIsBusinessUser] = useState(false);
@@ -107,28 +246,17 @@ export default function CartScreen() {
     const [tierPricing, setTierPricing] = useState({});
     const [sessionId, setSessionId] = useState(null);
 
-    // const deliveryInstructions = [
-    //     {
-    //         id: '1',
-    //         title: 'Avoid Calling',
-    //         description: 'Please avoid calling, use message instead',
-    //         icon: '📱'
-    //     },
-    //     {
-    //         id: '2',
-    //         title: "Don't Ring Bell",
-    //         description: 'Please do not ring the door bell',
-    //         icon: '🔕'
-    //     },
-    //     {
-    //         id: '3',
-    //         title: 'Leave at Door',
-    //         description: 'Leave the order at the door',
-    //         icon: '🚪'
-    //     }
-    // ];
-
     const [wishlistItems, setWishlistItems] = useState([]);
+
+    // Stock validation states
+    const [stockValidation, setStockValidation] = useState({});
+
+    // Refs for optimization
+    const cartItemsRef = useRef(cartItems);
+    cartItemsRef.current = cartItems;
+
+    // State to track if we should show full loading or just update specific parts
+    const [updatingCartData, setUpdatingCartData] = useState(false);
 
     // Initialize session and user type
     const initializeSession = async () => {
@@ -166,18 +294,6 @@ export default function CartScreen() {
         }
     };
 
-    // Apply tier pricing to cart for business users
-    const applyTierPricingToCart = async () => {
-        if (!isBusinessUser) return;
-
-        try {
-            await applyTierPricing();
-            await loadCartData(false);
-        } catch (error) {
-            console.error('Error applying tier pricing:', error);
-        }
-    };
-
     // Load selected address from AsyncStorage
     const loadSelectedAddress = async () => {
         try {
@@ -204,7 +320,10 @@ export default function CartScreen() {
             const raw = await AsyncStorage.getItem('userData');
             const user = raw ? JSON.parse(raw) : null;
             const uid = parseUserId(user);
-            if (!uid) { setWishlistItems([]); return; }
+            if (!uid) {
+                setWishlistItems([]);
+                return;
+            }
             const res = await getWishlist(uid);
             const payload = res?.data ?? res;
             const items = Array.isArray(payload) ? payload : (payload?.items || []);
@@ -213,9 +332,9 @@ export default function CartScreen() {
                 const name = p?.title || p?.name || 'Product';
                 const price = Number(p?.finalPrice ?? p?.price ?? 0);
                 const thumb = p?.thumbnail || (Array.isArray(p?.images) ? (p.images[0]?.url || p.images[0]) : null);
-                const image = thumb ? { uri: `${API_BASE_URL}${thumb}` } : require('../../assets/sample-product.png');
+                const image = thumb ? {uri: `${API_BASE_URL}${thumb}`} : require('../../assets/sample-product.png');
                 const unit = p?.unit || '';
-                return { id, name, price, image, unit, productId: p?._id || p?.id };
+                return {id, name, price, image, unit, productId: p?._id || p?.id};
             });
             setWishlistItems(mapped);
         } catch (e) {
@@ -223,7 +342,7 @@ export default function CartScreen() {
         }
     };
 
-    // Load cart data with proper error handling
+    // Load cart data - initial load only
     const loadCartData = useCallback(async (isRefresh = false) => {
         try {
             if (isRefresh) {
@@ -241,6 +360,10 @@ export default function CartScreen() {
                 const finalPrice = Number(ci?.finalPrice ?? ci?.price ?? 0);
                 const hasDiscount = basePrice > finalPrice;
 
+                const currentStock = ci?.stockInfo?.currentStock || 0;
+                const isAvailable = ci?.stockInfo?.available || false;
+                const stockMessage = ci?.stockInfo?.message || '';
+
                 return {
                     id: ci?._id || ci?.id,
                     productId: ci?.productId?._id || ci?.productId,
@@ -253,14 +376,31 @@ export default function CartScreen() {
                     imageUrl: ci?.product?.thumbnail || ci?.product?.images?.[0] || ci?.variant?.images?.[0] || null,
                     variantId: ci?.variantId || null,
                     subtotal: Number(ci?.subtotal ?? 0),
-                    minQty: ci?.minQty || 1, // For business users
-                    shippingCharge: ci?.shippingCharge || 0
+                    minQty: ci?.minQty || 1,
+                    shippingCharge: ci?.shippingCharge || 0,
+                    currentStock: currentStock,
+                    isAvailable: isAvailable,
+                    stockMessage: stockMessage,
+                    maxOrderQty: ci?.product?.maxOrderQty || 9999,
+                    status: ci?.product?.status || 'active'
                 };
             });
 
             setCartItems(mapped);
 
-            // Extract all totals from API correctly
+            // Update stock validation state
+            const stockValidationMap = {};
+            mapped.forEach(item => {
+                stockValidationMap[item.id] = {
+                    currentStock: item.currentStock,
+                    isAvailable: item.isAvailable,
+                    canIncrease: item.quantity < Math.min(item.currentStock, item.maxOrderQty),
+                    canDecrease: item.quantity > item.minQty
+                };
+            });
+            setStockValidation(stockValidationMap);
+
+            // Update cart totals
             setCartInfo({
                 subtotal: Number(data?.totals?.subtotal ?? 0),
                 discount: Number(data?.totals?.discount ?? 0),
@@ -279,14 +419,49 @@ export default function CartScreen() {
         }
     }, []);
 
-    // Optimized quantity update with immediate UI feedback
+    // Optimized: Update cart totals only without reloading everything
+    const updateCartTotalsOnly = useCallback(async () => {
+        try {
+            setUpdatingCartData(true);
+            const res = await getCart();
+            const data = res?.data ?? res;
+
+            // Only update cart totals, not items
+            setCartInfo({
+                subtotal: Number(data?.totals?.subtotal ?? 0),
+                discount: Number(data?.totals?.discount ?? 0),
+                shipping: Number(data?.totals?.shipping ?? 0),
+                marketplaceFees: Number(data?.totals?.marketplaceFees ?? 0),
+                tax: Number(data?.totals?.tax ?? 0),
+                total: Number(data?.totals?.totalPayable ?? 0),
+            });
+        } catch (error) {
+            console.error('Update totals error:', error);
+        } finally {
+            setUpdatingCartData(false);
+        }
+    }, []);
+
+    // Optimized quantity update - updates only the specific item
     const updateQuantity = useCallback(async (itemId, newQuantity, productId, variantId = null) => {
         if (newQuantity < 0) return;
 
         try {
-            const item = cartItems.find(i => i.id === itemId);
+            const item = cartItemsRef.current.find(i => i.id === itemId);
             if (!item) {
                 Alert.alert('Error', 'Cart item not found');
+                return;
+            }
+
+            // Validate against max order quantity
+            if (newQuantity > item.maxOrderQty) {
+                Alert.alert('Maximum Quantity', `Maximum order quantity for this product is ${item.maxOrderQty}`);
+                return;
+            }
+
+            // Validate against current stock
+            if (newQuantity > item.currentStock) {
+                Alert.alert('Out of Stock', `Only ${item.currentStock} units available`);
                 return;
             }
 
@@ -295,52 +470,92 @@ export default function CartScreen() {
                 return;
             }
 
-            setUpdatingItems(prev => ({ ...prev, [itemId]: true }));
+            setUpdatingItems(prev => ({...prev, [itemId]: true}));
 
             if (newQuantity === 0) {
+                // Remove item
                 await removeCartItem(productId, variantId);
+
+                // Update local state immediately - remove the item
+                setCartItems(prevItems => prevItems.filter(i => i.id !== itemId));
+                setStockValidation(prev => {
+                    const newState = {...prev};
+                    delete newState[itemId];
+                    return newState;
+                });
+
+                // Update totals only
+                await updateCartTotalsOnly();
             } else {
+                // Update item quantity via API
+                await updateCartItemApi(itemId, newQuantity);
+
+                // Update local state immediately for the specific item only
                 setCartItems(prevItems =>
                     prevItems.map(i =>
-                        i.id === itemId ? { ...i, quantity: newQuantity } : i
+                        i.id === itemId ? {...i, quantity: newQuantity} : i
                     )
                 );
-                await updateCartItemApi(itemId, newQuantity);
+
+                // Update stock validation for this item only
+                setStockValidation(prev => ({
+                    ...prev,
+                    [itemId]: {
+                        ...prev[itemId],
+                        canIncrease: newQuantity < Math.min(item.currentStock, item.maxOrderQty),
+                        canDecrease: newQuantity > item.minQty
+                    }
+                }));
+
+                // Update totals only
+                await updateCartTotalsOnly();
             }
 
-            await loadCartData(false);
         } catch (error) {
             console.error('Update quantity error:', error);
             Alert.alert('Error', 'Failed to update quantity');
-            await loadCartData(false);
+            // Fallback: reload cart data if update fails
+            loadCartData(false);
         } finally {
-            setUpdatingItems(prev => ({ ...prev, [itemId]: false }));
+            setUpdatingItems(prev => ({...prev, [itemId]: false}));
         }
-    }, [cartItems, loadCartData, isBusinessUser]);
+    }, [isBusinessUser, updateCartTotalsOnly, loadCartData]);
 
-    // Optimized item removal
+    // Optimized item removal - updates only what's needed
     const removeItem = useCallback(async (productId, variantId = null, itemId) => {
         try {
-            setUpdatingItems(prev => ({ ...prev, [itemId]: true }));
-            const updatedItems = cartItems.filter(item => item.id !== itemId);
-            setCartItems(updatedItems);
+            setUpdatingItems(prev => ({...prev, [itemId]: true}));
+
+            // Remove from API
             await removeCartItem(productId, variantId);
-            await loadCartData(false);
+
+            // Update local state immediately - remove only this item
+            setCartItems(prevItems => prevItems.filter(item => item.id !== itemId));
+            setStockValidation(prev => {
+                const newState = {...prev};
+                delete newState[itemId];
+                return newState;
+            });
+
+            // Update totals only
+            await updateCartTotalsOnly();
+
         } catch (error) {
             console.error('Remove item error:', error);
             Alert.alert('Error', 'Failed to remove item');
-            await loadCartData(false);
+            // Fallback: reload cart data if remove fails
+            loadCartData(false);
         } finally {
-            setUpdatingItems(prev => ({ ...prev, [itemId]: false }));
+            setUpdatingItems(prev => ({...prev, [itemId]: false}));
         }
-    }, [cartItems, loadCartData]);
+    }, [updateCartTotalsOnly, loadCartData]);
 
     // Open negotiation modal
-    const openNegotiationModal = (product) => {
+    const openNegotiationModal = useCallback((product) => {
         setSelectedProductForNegotiation(product);
         setProposedPrice(product.finalPrice.toString());
         setNegotiationModalVisible(true);
-    };
+    }, []);
 
     // Submit negotiation request
     const submitNegotiation = async () => {
@@ -393,7 +608,7 @@ export default function CartScreen() {
         }
     };
 
-    // Coupon application with immediate feedback
+    // Coupon application with optimized updates
     const applyCoupon = useCallback(async () => {
         if (!couponCode.trim()) return;
 
@@ -402,7 +617,8 @@ export default function CartScreen() {
             const result = await applyCouponApi(couponCode);
 
             if (result.success) {
-                await loadCartData(false);
+                // Only update totals, not the entire cart
+                await updateCartTotalsOnly();
                 setCouponCode('');
                 Alert.alert('Success', result.data.message || 'Coupon applied successfully!');
             } else {
@@ -414,14 +630,15 @@ export default function CartScreen() {
         } finally {
             setApplyingCoupon(false);
         }
-    }, [couponCode, loadCartData]);
+    }, [couponCode, updateCartTotalsOnly]);
 
-    // Coupon removal
+    // Coupon removal with optimized updates
     const removeCoupon = useCallback(async () => {
         try {
             setRemovingCoupon(true);
             await removeCouponApi();
-            await loadCartData(false);
+            // Only update totals
+            await updateCartTotalsOnly();
             Alert.alert('Success', 'Coupon removed successfully!');
         } catch (error) {
             console.error('Remove coupon error:', error);
@@ -429,11 +646,21 @@ export default function CartScreen() {
         } finally {
             setRemovingCoupon(false);
         }
-    }, [loadCartData]);
+    }, [updateCartTotalsOnly]);
 
     const handleCheckOut = () => {
         if (cartItems.length === 0) {
             Alert.alert('Empty Cart', 'Please add items to your cart before checkout');
+            return;
+        }
+
+        // Check if all items are available
+        const unavailableItems = cartItems.filter(item => !item.isAvailable);
+        if (unavailableItems.length > 0) {
+            Alert.alert(
+                'Stock Issue',
+                'Some items in your cart are out of stock. Please remove them or update quantities before checkout.'
+            );
             return;
         }
 
@@ -448,139 +675,78 @@ export default function CartScreen() {
         router.push("/screens/AddressListScreen");
     };
 
-    const toggleInstruction = (instructionId) => {
-        setSelectedInstructions(prev =>
-            prev.includes(instructionId)
-                ? prev.filter(id => id !== instructionId)
-                : [...prev, instructionId]
-        );
-    };
-
-    const renderWishlistItem = ({ item }) => (
-        <View style={styles.wishlistCard}>
-            <Image source={item.image} style={styles.wishlistImage} />
-            <Pressable style={styles.wishlistRemove} onPress={async () => {
-                try {
-                    const raw = await AsyncStorage.getItem('userData');
-                    const user = raw ? JSON.parse(raw) : null;
-                    const uid = parseUserId(user);
-                    if (!uid) return;
-                    await removeFromWishlist(uid, item.productId);
-                    setWishlistItems(prev => prev.filter(w => String(w.id) !== String(item.id)));
-                } catch (_) {}
-            }}>
-                <Image source={require('../../assets/icons/deleteIcon.png')} style={styles.wishlistRemoveIcon} />
-            </Pressable>
-            <View style={styles.wishlistContent}>
-                <Text style={styles.wishlistName} numberOfLines={2}>{item.name}</Text>
-            </View>
-        </View>
-    );
-
-    const renderCartItem = useCallback((item) => (
-        <View key={item.id} style={styles.cartItem}>
-            <View style={styles.itemLeft}>
-                <View style={styles.productImage}>
-                    <Image
-                        source={item.imageUrl ? { uri: `${API_BASE_URL}${item.imageUrl}` } : require("../../assets/sample-product.png")}
-                        style={styles.image}
-                        resizeMode="cover"
-                    />
-                </View>
-                <View style={styles.productInfo}>
-                    <Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
-                    <Text style={styles.productDescription} numberOfLines={1}>{item.description}</Text>
-
-                    {isBusinessUser && item.minQty && item.minQty > 1 && (
-                        <Text style={styles.minQtyText}>Min. Qty: {item.minQty}</Text>
-                    )}
-
-                    {item.shippingCharge > 0 && (
-                        <Text style={styles.shippingText}>Shipping: ₹{item.shippingCharge.toFixed(2)}</Text>
-                    )}
-
-                    <View style={styles.priceContainer}>
-                        {item.hasDiscount ? (<>
-                            <Text style={styles.finalPrice}>₹{item.finalPrice.toFixed(2)}</Text>
-                            <Text style={styles.originalPrice}>₹{item.basePrice.toFixed(2)}</Text>
-                            <View style={styles.discountBadge}>
-                                <Text style={styles.discountText}>
-                                    {Math.round(((item.basePrice - item.finalPrice) / item.basePrice) * 100)}% OFF
-                                </Text>
-                            </View>
-                        </>) : (<Text style={styles.finalPrice}>₹{item.finalPrice.toFixed(2)}</Text>)}
-                    </View>
-
-                    {isBusinessUser && tierPricing[item.variantId ? `${item.productId}_${item.variantId}` : item.productId] && (
-                        <Text style={styles.tierPricingText}>
-                            Tier pricing applied
-                        </Text>
-                    )}
-
-                    {isBusinessUser && (
-                        <Pressable
-                            style={styles.negotiateButton}
-                            onPress={() => openNegotiationModal(item)}
-                        >
-                            <Text style={styles.negotiateButtonText}>Request Better Price</Text>
-                        </Pressable>
-                    )}
-                </View>
-            </View>
-
-            <View style={styles.itemRight}>
-                <Pressable
-                    style={styles.deleteButton}
-                    onPress={() => removeItem(item.productId, item.variantId, item.id)}
-                    disabled={updatingItems[item.id]}
-                >
-                    <Image
-                        source={require("../../assets/icons/deleteIcon.png")}
-                        style={[styles.deleteIcon, updatingItems[item.id] && styles.disabledIcon]}
-                    />
-                </Pressable>
-
-                <View style={styles.quantityControl}>
-                    <Pressable
-                        style={styles.quantityButton}
-                        onPress={() => updateQuantity(item.id, item.quantity - 1, item.productId, item.variantId)}
-                    >
-                        <View
-                            style={[styles.minusButton, (updatingItems[item.id] || item.quantity <= (item.minQty || 1)) && styles.disabledButton]}>
-                            <Text style={styles.minusText}>-</Text>
-                        </View>
-                    </Pressable>
-
-                    <Text style={styles.quantityText}>
-                        {updatingItems[item.id] ? '...' : item.quantity}
-                    </Text>
-
-                    <Pressable
-                        style={styles.quantityButton}
-                        onPress={() => updateQuantity(item.id, item.quantity + 1, item.productId, item.variantId)}
-                        disabled={updatingItems[item.id]}
-                    >
-                        <View style={[styles.plusButton, updatingItems[item.id] && styles.disabledButton]}>
-                            <Text style={styles.plusText}>+</Text>
-                        </View>
-                    </Pressable>
-                </View>
-            </View>
-        </View>
-    ), [updateQuantity, removeItem, updatingItems, isBusinessUser, openNegotiationModal, tierPricing]);
-
     const handleBack = () => {
         if (router.canGoBack()) {
-            router.back();
+            router.replace('/Home');
         } else {
             router.replace('/Home');
         }
     };
 
+    const handleProductPress = (product) => {
+        const productid = product._id || product.id;
+        router.push(`/screens/ProductDetailScreen?id=${productid}`);
+    }
+    // Memoized render functions
+    const renderCartItem = useCallback((item) => (
+        <CartItem
+            key={item.id}
+            item={item}
+            isBusinessUser={isBusinessUser}
+            tierPricing={tierPricing}
+            updatingItems={updatingItems}
+            stockValidation={stockValidation}
+            onUpdateQuantity={updateQuantity}
+            onRemoveItem={removeItem}
+            onOpenNegotiation={openNegotiationModal}
+        />
+    ), [isBusinessUser, tierPricing, updatingItems, stockValidation, updateQuantity, removeItem, openNegotiationModal]);
+
+    const renderWishlistItem = useCallback(({ item }) => (
+        <Pressable onPress={() => handleProductPress(item)}>
+            <View style={styles.wishlistCard}>
+
+                <Image source={item.image} style={styles.wishlistImage} />
+
+                {/* Delete Button */}
+                <Pressable
+                    style={styles.wishlistRemove}
+                    onPress={async () => {
+                        try {
+                            const raw = await AsyncStorage.getItem('userData');
+                            const user = raw ? JSON.parse(raw) : null;
+                            const uid = parseUserId(user);
+                            if (!uid) return;
+
+                            await removeFromWishlist(uid, item.productId);
+
+                            setWishlistItems(prev =>
+                                prev.filter(w => String(w.id) !== String(item.id))
+                            );
+                        } catch (_) {}
+                    }}
+                >
+                    <Image
+                        source={require('../../assets/icons/deleteIcon.png')}
+                        style={styles.wishlistRemoveIcon}
+                    />
+                </Pressable>
+
+                {/* Text */}
+                <View style={styles.wishlistContent}>
+                    <Text style={styles.wishlistName} numberOfLines={2}>
+                        {item.name}
+                    </Text>
+                </View>
+
+            </View>
+        </Pressable>
+    ), [handleProductPress]);
+
     if (loading) {
         return (
-            <SafeAreaView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
-                <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
+            <SafeAreaView style={{flex: 1, backgroundColor: "#FFFFFF"}}>
+                <View style={[styles.header, {paddingTop: safeAreaInsets.top}]}>
                     <Pressable
                         onPress={handleBack}
                         style={styles.backButton}
@@ -593,11 +759,11 @@ export default function CartScreen() {
                         />
                     </Pressable>
                     <Text style={styles.headerTitle}>Cart</Text>
-                    <View style={styles.headerPlaceholder} />
+                    <View style={styles.headerPlaceholder}/>
                 </View>
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size={isTablet ? "large" : "large"} color="#4CAD73"/>
-                    <Text style={styles.loadingText}>Loading your cart...</Text>
+                    <Text style={styles.loadingText}>Loading Your Cart...</Text>
                 </View>
             </SafeAreaView>
         );
@@ -611,9 +777,9 @@ export default function CartScreen() {
                 translucent={false}
             />
 
-            {/* Header */}
+            {/* Header - Always static */}
             <SafeAreaView style={styles.safeAreaTop} edges={['top']}>
-                <View style={[styles.header, { paddingTop: safeAreaInsets.top }]}>
+                <View style={[styles.header, {paddingTop: safeAreaInsets.top}]}>
                     <Pressable
                         onPress={handleBack}
                         style={styles.backButton}
@@ -626,12 +792,7 @@ export default function CartScreen() {
                         />
                     </Pressable>
                     <Text style={styles.headerTitle}>Cart</Text>
-                    <View style={styles.headerPlaceholder} />
-                    {isBusinessUser && (
-                        <View style={styles.businessBadge}>
-                            <Text style={styles.businessBadgeText}>Business</Text>
-                        </View>
-                    )}
+                    <View style={styles.headerPlaceholder}/>
                 </View>
             </SafeAreaView>
 
@@ -650,11 +811,11 @@ export default function CartScreen() {
                 }
                 contentContainerStyle={styles.scrollContent}
             >
-                {/* Business User Notice */}
+                {/* Business User Notice - Static unless user type changes */}
                 {isBusinessUser && (
                     <View style={styles.businessNotice}>
                         <Text style={styles.businessNoticeText}>
-                            🏢 Business Account - Tier pricing applied. Minimum quantities may apply.
+                            Business Account - Tier pricing applied. Minimum quantities may apply.
                         </Text>
                     </View>
                 )}
@@ -685,12 +846,12 @@ export default function CartScreen() {
                     )}
                 </View>
 
-                {/* Your Wishlist Section */}
+                {/* Your Wishlist Section - Static unless wishlist changes */}
                 {wishlistItems.length > 0 && (
                     <View style={styles.section}>
                         <View style={styles.sectionHeader}>
                             <Text style={styles.sectionTitle}>⭐ Your Wishlist</Text>
-                            <Pressable onPress={()=> router.push("/screens/WishlistScreen")}>
+                            <Pressable onPress={() => router.push("/screens/WishlistScreen")}>
                                 <Text style={styles.seeAllText}>See all</Text>
                             </Pressable>
                         </View>
@@ -705,7 +866,7 @@ export default function CartScreen() {
                     </View>
                 )}
 
-                {/* Shipping Address Section */}
+                {/* Shipping Address Section - Static unless address changes */}
                 {cartItems.length > 0 && (
                     <View style={styles.section}>
                         <View style={styles.sectionHeader}>
@@ -749,45 +910,57 @@ export default function CartScreen() {
                     </View>
                 )}
 
-                {/* Bill Details Section */}
+                {/* Bill Details Section - Only totals update */}
                 {cartItems.length > 0 && (
                     <View style={styles.section}>
                         <View style={styles.billCard}>
                             <Text style={styles.sectionTitle}>Bill Details</Text>
                             <View style={styles.billRow}>
                                 <Text style={styles.billLabel}>Item Total</Text>
-                                <Text style={styles.billValue}>₹{cartInfo.subtotal.toFixed(2)}</Text>
+                                <Text style={styles.billValue}>
+                                    {updatingCartData ? '...' : `₹${cartInfo.subtotal.toFixed(2)}`}
+                                </Text>
                             </View>
 
                             <View style={styles.billRow}>
                                 <Text style={styles.billLabel}>Delivery Fee</Text>
-                                <Text style={styles.billValue}>₹{cartInfo.shipping.toFixed(2)}</Text>
+                                <Text style={styles.billValue}>
+                                    {updatingCartData ? '...' : `₹${cartInfo.shipping.toFixed(2)}`}
+                                </Text>
                             </View>
 
                             {cartInfo.tax > 0 && (
                                 <View style={styles.billRow}>
                                     <Text style={styles.billLabel}>Tax</Text>
-                                    <Text style={styles.billValue}>₹{cartInfo.tax.toFixed(2)}</Text>
+                                    <Text style={styles.billValue}>
+                                        {updatingCartData ? '...' : `₹${cartInfo.tax.toFixed(2)}`}
+                                    </Text>
                                 </View>
                             )}
 
                             {cartInfo.discount > 0 && (
                                 <View style={styles.billRow}>
                                     <Text style={styles.billLabel}>Discount</Text>
-                                    <Text style={[styles.billValue, styles.discountText]}>-₹{cartInfo.discount.toFixed(2)}</Text>
+                                    <Text style={[styles.billValue, styles.discountText]}>
+                                        {updatingCartData ? '...' : `-₹${cartInfo.discount.toFixed(2)}`}
+                                    </Text>
                                 </View>
                             )}
 
                             <View style={styles.billRow}>
                                 <Text style={styles.billLabel}>Platform Fee</Text>
-                                <Text style={styles.billValue}>₹{cartInfo.marketplaceFees.toFixed(2)}</Text>
+                                <Text style={styles.billValue}>
+                                    {updatingCartData ? '...' : `₹${cartInfo.marketplaceFees.toFixed(2)}`}
+                                </Text>
                             </View>
 
-                            <View style={styles.divider} />
+                            <View style={styles.divider}/>
 
                             <View style={styles.billRow}>
                                 <Text style={styles.totalLabel}>Total Amount</Text>
-                                <Text style={styles.totalValue}>₹{cartInfo.total.toFixed(2)}</Text>
+                                <Text style={styles.totalValue}>
+                                    {updatingCartData ? '...' : `₹${cartInfo.total.toFixed(2)}`}
+                                </Text>
                             </View>
 
                             {/* Coupon Section */}
@@ -800,64 +973,48 @@ export default function CartScreen() {
                                     placeholderTextColor="#999"
                                 />
                                 <Pressable
-                                    style={[styles.applyButton, (!couponCode.trim() || applyingCoupon) && styles.applyButtonDisabled]}
+                                    style={[styles.applyButton, (!couponCode.trim() || applyingCoupon || updatingCartData) && styles.applyButtonDisabled]}
                                     onPress={applyCoupon}
-                                    disabled={!couponCode.trim() || applyingCoupon}
+                                    disabled={!couponCode.trim() || applyingCoupon || updatingCartData}
                                 >
                                     <Text style={styles.applyButtonText}>
-                                        {applyingCoupon ? '...' : 'Apply'}
+                                        {applyingCoupon || updatingCartData ? '...' : 'Apply'}
                                     </Text>
                                 </Pressable>
                             </View>
                         </View>
 
-                        {/* Delivery Instructions Section */}
-                        {/*<View style={styles.instructionsSection}>*/}
-                        {/*    <Text style={styles.instructionsTitle}>Delivery instructions</Text>*/}
-                        {/*    <View style={styles.instructionsGrid}>*/}
-                        {/*        {deliveryInstructions.map((instruction) => (*/}
-                        {/*            <Pressable*/}
-                        {/*                key={instruction.id}*/}
-                        {/*                style={[*/}
-                        {/*                    styles.instructionCard,*/}
-                        {/*                    selectedInstructions.includes(instruction.id) && styles.instructionCardSelected*/}
-                        {/*                ]}*/}
-                        {/*                onPress={() => toggleInstruction(instruction.id)}*/}
-                        {/*            >*/}
-                        {/*                <Text style={styles.instructionIcon}>{instruction.icon}</Text>*/}
-                        {/*                <Text style={styles.instructionTitle}>{instruction.title}</Text>*/}
-                        {/*                <Text style={styles.instructionDescription}>{instruction.description}</Text>*/}
-                        {/*            </Pressable>*/}
-                        {/*        ))}*/}
-                        {/*    </View>*/}
-                        {/*</View>*/}
-
-                        {/* Cancellation Policy Section */}
+                        {/* Cancellation Policy Section - Static */}
                         <View style={styles.cancellationSection}>
                             <Text style={styles.cancellationTitle}>Cancellation Policy</Text>
                             <Text style={styles.cancellationText}>
-                                Once order placed, any cancellation may result in a fee. In case of unexpected delays leading to order cancellation, a complete refund will be provided.
+                                Once order placed, any cancellation may result in a fee. In case of unexpected delays
+                                leading to order cancellation, a complete refund will be provided.
                             </Text>
                         </View>
 
-                        {/* Checkout Button */}
+                        {/* Checkout Button - Updates only based on state */}
                         <Pressable
-                            style={[styles.checkoutButton, !selectedAddress && styles.checkoutButtonDisabled]}
+                            style={[styles.checkoutButton, (!selectedAddress || cartItems.some(item => !item.isAvailable) || updatingCartData) && styles.checkoutButtonDisabled]}
                             onPress={handleCheckOut}
-                            disabled={!selectedAddress}
+                            disabled={!selectedAddress || cartItems.some(item => !item.isAvailable) || updatingCartData}
                         >
                             <View style={styles.checkoutLeft}>
                                 <Text style={styles.checkoutText}>
-                                    {selectedAddress ? 'Proceed to Checkout' : 'Select Address First'}
+                                    {!selectedAddress ? 'Select Address First' :
+                                        cartItems.some(item => !item.isAvailable) ? 'Resolve Stock Issues' :
+                                            updatingCartData ? 'Updating...' : 'Proceed to Checkout'}
                                 </Text>
                             </View>
-                            <Text style={styles.checkoutPrice}>₹ {cartInfo.total.toFixed(2)}</Text>
+                            <Text style={styles.checkoutPrice}>
+                                {updatingCartData ? '...' : `₹ ${cartInfo.total.toFixed(2)}`}
+                            </Text>
                         </Pressable>
                     </View>
                 )}
             </ScrollView>
 
-            {/* Negotiation Modal */}
+            {/* Negotiation Modal - Independent component */}
             <Modal
                 visible={negotiationModalVisible}
                 animationType="slide"
@@ -865,7 +1022,7 @@ export default function CartScreen() {
                 onRequestClose={() => setNegotiationModalVisible(false)}
             >
                 <KeyboardAvoidingView
-                    style={{ flex: 1 }}
+                    style={{flex: 1}}
                     behavior={Platform.OS === "ios" ? "padding" : "height"}
                     keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
                 >
@@ -879,7 +1036,7 @@ export default function CartScreen() {
                                         <Image
                                             source={
                                                 selectedProductForNegotiation.imageUrl
-                                                    ? { uri: `${API_BASE_URL}${selectedProductForNegotiation.imageUrl}` }
+                                                    ? {uri: `${API_BASE_URL}${selectedProductForNegotiation.imageUrl}`}
                                                     : require("../../assets/sample-product.png")
                                             }
                                             style={styles.negotiationImage}
@@ -896,6 +1053,9 @@ export default function CartScreen() {
                                             </Text>
                                             <Text style={styles.currentQuantity}>
                                                 Quantity: {selectedProductForNegotiation.quantity}
+                                            </Text>
+                                            <Text style={styles.stockInfo}>
+                                                Stock: {selectedProductForNegotiation.currentStock} available
                                             </Text>
                                         </View>
                                     </View>
@@ -1109,14 +1269,49 @@ const styles = StyleSheet.create({
         borderRadius: RF(12),
         padding: RF(16),
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: RF(2) },
+        shadowOffset: {width: 0, height: RF(2)},
         shadowOpacity: 0.1,
         shadowRadius: RF(4),
         elevation: 3,
+        position: 'relative',
+    },
+    outOfStockItem: {
+        opacity: 0.7,
+    },
+    outOfStockOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+        borderRadius: RF(12),
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 1,
+    },
+    outOfStockText: {
+        color: '#FF3B30',
+        fontSize: RF(14),
+        fontFamily: 'Poppins-SemiBold',
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        paddingHorizontal: RF(12),
+        paddingVertical: RF(6),
+        borderRadius: RF(20),
+    },
+    disabledText: {
+        color: '#999',
+    },
+    disabledButton: {
+        opacity: 0.5,
+    },
+    disabledControl: {
+        opacity: 0.5,
     },
     itemLeft: {
         flexDirection: "row",
         flex: 1,
+        zIndex: 0,
     },
     productImage: {
         width: RF(80),
@@ -1146,6 +1341,17 @@ const styles = StyleSheet.create({
         fontFamily: "Poppins-Regular",
         color: "#666",
         marginBottom: RF(4),
+    },
+    stockText: {
+        fontSize: RF(12),
+        fontFamily: 'Poppins-Medium',
+        marginBottom: RF(2),
+    },
+    inStockLabel: {
+        color: '#4CAD73',
+    },
+    outOfStockLabel: {
+        color: '#FF3B30',
     },
     minQtyText: {
         fontSize: RF(12),
@@ -1211,6 +1417,7 @@ const styles = StyleSheet.create({
     itemRight: {
         alignItems: "flex-end",
         justifyContent: 'space-between',
+        zIndex: 0,
     },
     deleteButton: {
         padding: RF(4),
@@ -1251,9 +1458,6 @@ const styles = StyleSheet.create({
         justifyContent: "center",
         alignItems: "center",
     },
-    disabledButton: {
-        opacity: 0.5,
-    },
     minusText: {
         color: "#4CAD73",
         fontSize: RF(16),
@@ -1272,6 +1476,11 @@ const styles = StyleSheet.create({
         minWidth: RF(24),
         textAlign: 'center',
     },
+    maxIndicator: {
+        fontSize: RF(10),
+        color: '#FF6B35',
+        fontFamily: 'Poppins-Regular',
+    },
 
     // Wishlist Styles
     wishlistContainer: {
@@ -1284,7 +1493,7 @@ const styles = StyleSheet.create({
         borderRadius: RF(12),
         padding: RF(12),
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: RF(2) },
+        shadowOffset: {width: 0, height: RF(2)},
         shadowOpacity: 0.1,
         shadowRadius: RF(4),
         elevation: 2,
@@ -1303,7 +1512,7 @@ const styles = StyleSheet.create({
         padding: RF(4),
         borderRadius: RF(12),
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: RF(1) },
+        shadowOffset: {width: 0, height: RF(1)},
         shadowOpacity: 0.2,
         shadowRadius: RF(2),
         elevation: 2,
@@ -1329,7 +1538,7 @@ const styles = StyleSheet.create({
         padding: RF(16),
         marginHorizontal: RF(16),
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: RF(2) },
+        shadowOffset: {width: 0, height: RF(2)},
         shadowOpacity: 0.08,
         shadowRadius: RF(8),
         elevation: 3,
@@ -1400,7 +1609,7 @@ const styles = StyleSheet.create({
         borderRadius: RF(12),
         padding: RF(16),
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: RF(2) },
+        shadowOffset: {width: 0, height: RF(2)},
         shadowOpacity: 0.1,
         shadowRadius: RF(4),
         elevation: 3,
@@ -1471,69 +1680,16 @@ const styles = StyleSheet.create({
         fontFamily: 'Poppins-SemiBold',
     },
 
-    // Delivery Instructions Styles
-    instructionsSection: {
-        marginHorizontal: RF(16),
-        marginBottom: RF(20),
-    },
-    instructionsTitle: {
-        fontSize: RF(16),
-        fontFamily: 'Poppins-SemiBold',
-        color: '#1B1B1B',
-        marginBottom: RF(12),
-    },
-    instructionsGrid: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        gap: RF(8),
-    },
-    instructionCard: {
-        flex: 1,
-        backgroundColor: '#FFFFFF',
-        borderRadius: RF(12),
-        padding: RF(12),
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#E0E0E0',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: RF(1) },
-        shadowOpacity: 0.1,
-        shadowRadius: RF(2),
-        elevation: 1,
-    },
-    instructionCardSelected: {
-        borderColor: '#4CAD73',
-        backgroundColor: '#F0F9F0',
-    },
-    instructionIcon: {
-        fontSize: RF(24),
-        marginBottom: RF(8),
-    },
-    instructionTitle: {
-        fontSize: RF(12),
-        fontFamily: 'Poppins-SemiBold',
-        color: '#1B1B1B',
-        textAlign: 'center',
-        marginBottom: RF(4),
-    },
-    instructionDescription: {
-        fontSize: RF(10),
-        color: '#666',
-        fontFamily: 'Poppins-Regular',
-        textAlign: 'center',
-        lineHeight: RF(12),
-    },
-
     // Cancellation Policy Styles
     cancellationSection: {
         backgroundColor: '#FFFFFF',
         marginHorizontal: RF(16),
-        marginTop:RF(20),
+        marginTop: RF(20),
         borderRadius: RF(12),
         padding: RF(16),
         marginBottom: RF(16),
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: RF(2) },
+        shadowOffset: {width: 0, height: RF(2)},
         shadowOpacity: 0.1,
         shadowRadius: RF(4),
         elevation: 3,
@@ -1561,7 +1717,7 @@ const styles = StyleSheet.create({
         borderRadius: RF(12),
         marginHorizontal: RF(16),
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: RF(4) },
+        shadowOffset: {width: 0, height: RF(4)},
         shadowOpacity: 0.2,
         shadowRadius: RF(8),
         elevation: 4,
@@ -1577,12 +1733,6 @@ const styles = StyleSheet.create({
         fontSize: RF(16),
         fontFamily: 'Poppins-SemiBold',
         marginBottom: RF(4),
-    },
-    deliveryText: {
-        color: '#FFFFFF',
-        fontSize: RF(13),
-        fontFamily: 'Poppins-Regular',
-        opacity: 0.9,
     },
     checkoutPrice: {
         backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1649,6 +1799,12 @@ const styles = StyleSheet.create({
         marginTop: RF(4),
     },
     currentQuantity: {
+        fontSize: RF(12),
+        fontFamily: 'Poppins-Regular',
+        color: '#666',
+        marginTop: RF(2),
+    },
+    stockInfo: {
         fontSize: RF(12),
         fontFamily: 'Poppins-Regular',
         color: '#666',

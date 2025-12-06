@@ -64,7 +64,7 @@ export default function AddAddressScreen() {
         if (currentLocation) {
             try {
                 const currentLocationData = JSON.parse(currentLocation);
-                console.log('Current location data received:', currentLocationData);
+
 
                 // Pre-fill the form with current location data
                 const updatedForm = {
@@ -254,7 +254,6 @@ export default function AddAddressScreen() {
                 ...(form.longitude && { longitude: form.longitude })
             };
 
-            console.log('Submitting address data:', addressData);
 
             let result;
             let isUpdate = false;
@@ -264,12 +263,10 @@ export default function AddAddressScreen() {
                 // Update existing address
                 result = await updateAddress(addressId, addressData);
                 isUpdate = true;
-                console.log('Update result:', result);
             } else {
                 // Add new address
                 result = await addAddress(addressData);
                 isUpdate = false;
-                console.log('Add result:', result);
 
                 // Get the new address ID from response
                 const savedAddress = result?.data || result;
@@ -285,7 +282,6 @@ export default function AddAddressScreen() {
             if (form.isDefault && finalAddressId) {
                 try {
                     await setDefaultAddress(finalAddressId);
-                    console.log('Address set as default successfully');
                 } catch (error) {
                     console.warn('Failed to set default address:', error);
                     // Don't throw error here, as the address was already saved

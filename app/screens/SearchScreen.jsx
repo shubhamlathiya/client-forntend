@@ -244,7 +244,7 @@ export default function SearchScreen() {
                 {loading ? (
                     <View style={styles.loadingContainer}>
                         <ActivityIndicator size="large" color="#EC0505" />
-                        <Text style={styles.loadingText}>Loading products...</Text>
+                        <Text style={styles.loadingText}>Loading Products...</Text>
                     </View>
                 ) : (
                     <FlatList

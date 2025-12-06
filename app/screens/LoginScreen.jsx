@@ -29,7 +29,7 @@ export default function LoginScreen() {
 
     const handleBack = () => {
         if (router.canGoBack()) {
-            router.back();
+            router.replace('/screens/AuthScreen');
         } else {
             router.replace('/screens/AuthScreen');
         }
@@ -44,30 +44,35 @@ export default function LoginScreen() {
         setLoading(true);
         try {
             const data = await loginUser({email, password});
-            // Persist tokens if provided
-            const accessToken = data?.accessToken || data?.token || data?.tokens?.accessToken;
-            const refreshToken = data?.refreshToken || data?.tokens?.refreshToken;
-            const user = data?.user || data?.data?.user || null;
-            if (accessToken) {
-                await SecureStore.setItemAsync('accessToken', String(accessToken));
+            if(data.success){
+                // Persist tokens if provided
+                const accessToken = data?.accessToken || data?.token || data?.tokens?.accessToken;
+                const refreshToken = data?.refreshToken || data?.tokens?.refreshToken;
+                const user = data?.user || data?.data?.user || null;
+                if (accessToken) {
+                    await SecureStore.setItemAsync('accessToken', String(accessToken));
+                }
+                if (refreshToken) {
+                    await SecureStore.setItemAsync('refreshToken', String(refreshToken));
+                }
+                // Also persist session in AsyncStorage for AccountScreen
+                if (user) {
+                    await AsyncStorage.setItem('userData', JSON.stringify(user));
+                }
+                if (accessToken) {
+                    await AsyncStorage.setItem('token', String(accessToken));
+                }
+                // Merge guest cart into user account after successful login
+                try {
+                    await mergeGuestCart();
+                } catch (_) {
+                }
+                // After login, go to login type selection
+                router.replace("/screens/LoginTypeSelectionScreen");
+            }else{
+                Alert.alert('Error', data.message);
             }
-            if (refreshToken) {
-                await SecureStore.setItemAsync('refreshToken', String(refreshToken));
-            }
-            // Also persist session in AsyncStorage for AccountScreen
-            if (user) {
-                await AsyncStorage.setItem('userData', JSON.stringify(user));
-            }
-            if (accessToken) {
-                await AsyncStorage.setItem('token', String(accessToken));
-            }
-            // Merge guest cart into user account after successful login
-            try {
-                await mergeGuestCart();
-            } catch (_) {
-            }
-            // After login, go to login type selection
-            router.replace("/screens/LoginTypeSelectionScreen");
+
         } catch (error) {
             const message = error?.response?.data?.message || 'Login failed. Please check your credentials.';
             Alert.alert('Error', message);

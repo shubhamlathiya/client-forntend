@@ -20,7 +20,7 @@ export const clearMemoryTokens = () => {
 // Global logout (safe)
 // ---------------------------
 export const clearAuthAndLogout = async () => {
-    console.log("🔴 Logging out…");
+    console.log("Logging out…");
 
     accessTokenInMemory = null;
 
@@ -63,7 +63,7 @@ apiClient.interceptors.request.use(
             config.headers.Authorization = `Bearer ${accessTokenInMemory}`;
         }
 
-        console.log("🔵 Request:", config.method?.toUpperCase(), config.url);
+        console.log("Request:", config.method?.toUpperCase(), config.url);
         return config;
     },
     (err) => Promise.reject(err)
@@ -74,7 +74,7 @@ apiClient.interceptors.request.use(
 // ---------------------------
 apiClient.interceptors.response.use(
     (response) => {
-        console.log("✅ Response:", response.status, response.config.url);
+        console.log("Response:", response.status, response.config.url);
         return response;
     },
     async (error) => {
@@ -87,17 +87,16 @@ apiClient.interceptors.response.use(
             status === 401 ||
             msg.toLowerCase().includes("expired") ||
             msg.toLowerCase().includes("invalid token") ||
-            JSON.stringify(data).toLowerCase().includes("expired") ||
-            JSON.stringify(data).toLowerCase().includes("invalid");
+            JSON.stringify(data).toLowerCase().includes("expired");
 
         if (tokenExpired) {
-            console.log("🔴 Token expired or invalid");
+            console.log("Token expired or invalid");
             await clearAuthAndLogout();
         }
 
         // Silent handling for "Cart not found"
         if (status === 404 && msg === "Cart not found") {
-            console.log("⚠️ Cart not found, returning empty cart silently");
+            console.log("Cart not found, returning empty cart silently");
             return Promise.resolve({ data: { items: [] } }); // simulate empty cart response
         }
 

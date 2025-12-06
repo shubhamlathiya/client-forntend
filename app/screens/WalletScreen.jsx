@@ -95,7 +95,7 @@ const WalletScreen = () => {
             <SafeAreaView style={styles.container}>
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color="#10B981"/>
-                    <Text style={styles.loadingText}>Loading wallet...</Text>
+                    <Text style={styles.loadingText}>Loading Wallet...</Text>
                 </View>
             </SafeAreaView>
         );

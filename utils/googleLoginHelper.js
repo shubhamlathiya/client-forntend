@@ -21,7 +21,6 @@ export async function googleLogin(router, setGoogleLoading) {
 
         const authUrl = `${API_BASE_URL}/api/auth/social/google?redirect_uri=${encodeURIComponent(APP_REDIRECT)}&source=mobile-app`;
 
-        console.log("AUTH URL →", authUrl);
 
         const result = await WebBrowser.openAuthSessionAsync(authUrl, APP_REDIRECT);
 

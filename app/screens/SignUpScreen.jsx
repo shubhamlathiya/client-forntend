@@ -71,12 +71,20 @@ export default function SignUpScreen() {
             Alert.alert('Success', data?.message || 'User registered successfully.');
 
             router.push({
-                pathname: '/screens/VerifyOtpScreen',
-                params: { email }
+                pathname: '/screens/demo/authOtp',
+                params: {
+                    email: email,
+                    mode: 'signup'
+                }
             });
 
+            // router.push({
+            //     pathname: '/screens/demo/authOtp',
+            //     params: { email }
+            // });
+
         } catch (error) {
-            console.log("❌ Registration error:", error.message);
+            console.log("Registration error:", error.message);
             Alert.alert('Error', error.message || 'Registration failed');
         } finally {
             setLoading(false);
@@ -87,7 +95,7 @@ export default function SignUpScreen() {
 
     const handleBack = () => {
         if (router.canGoBack()) {
-            router.back();
+            router.replace('/screens/AuthScreen');
         } else {
             router.replace('/screens/AuthScreen');
         }

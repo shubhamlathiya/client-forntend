@@ -800,7 +800,7 @@ const styles = StyleSheet.create({
     cameraIconContainer: {
         position: 'absolute',
         bottom: 0,
-        right: RF(10),
+        left: RF(200),
         backgroundColor: '#fff',
         borderRadius: RF(15),
         padding: RF(6),
@@ -813,7 +813,6 @@ const styles = StyleSheet.create({
     cameraIcon: {
         width: RF(18),
         height: RF(18),
-        tintColor: '#FFD56C',
     },
     userName: {
         textAlign: "center",

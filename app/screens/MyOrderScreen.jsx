@@ -593,7 +593,6 @@ export default function MyOrderScreen() {
 
                 }
             ];
-
             return timeline;
         };
 
@@ -646,25 +645,30 @@ export default function MyOrderScreen() {
             return (
                 <View style={styles.timelineItem}>
                     <View style={styles.timelineLeft}>
+                        {/* Timeline dot */}
+                        <View style={[
+                            styles.timelineDot,
+                            item.completed ? styles.timelineDotCompleted : styles.timelineDotIncomplete
+                        ]}>
+                            {item.completed && (
+                                <Text style={styles.timelineIcon}>●</Text>
+                            )}
+                        </View>
+
+                        {/* Vertical line - only show if not last item */}
                         {!isLast && (
                             <View style={[
                                 styles.timelineLine,
                                 item.completed ? styles.timelineLineCompleted : styles.timelineLineIncomplete
                             ]}/>
                         )}
-                        <View style={[
-                            styles.timelineDot,
-                            item.completed ? styles.timelineDotCompleted : styles.timelineDotIncomplete
-                        ]}>
-                            <Text style={styles.timelineIcon}>{item.icon}</Text>
-                        </View>
                     </View>
 
                     <View style={styles.timelineContent}>
                         <Text style={[
                             styles.timelineEvent,
                             item.completed ? styles.timelineEventCompleted : styles.timelineEventIncomplete
-                        ]} numberOfLines={1}>
+                        ]}>
                             {item.event}
                         </Text>
                     </View>
@@ -1509,67 +1513,6 @@ const styles = StyleSheet.create({
         lineHeight: RF(20),
     },
 
-    // Timeline Styles
-    timelineContainer: {
-        marginLeft: RF(8),
-    },
-    timelineItem: {
-        flexDirection: "row",
-        alignItems: "flex-start",
-        marginBottom: RF(20),
-    },
-    timelineLeft: {
-        width: RF(24),
-        alignItems: "center",
-        marginRight: RF(12),
-    },
-    timelineLine: {
-        width: RF(2),
-        flex: 1,
-        marginTop: RF(4),
-        marginBottom: RF(4),
-    },
-    timelineLineCompleted: {
-        backgroundColor: "#4CAD73",
-    },
-    timelineLineIncomplete: {
-        backgroundColor: "#E5E5E5",
-    },
-    timelineDot: {
-        width: RF(12),
-        height: RF(12),
-        borderRadius: RF(6),
-        borderWidth: RF(2),
-    },
-    timelineDotCompleted: {
-        backgroundColor: "#4CAD73",
-        borderColor: "#4CAD73",
-    },
-    timelineDotIncomplete: {
-        backgroundColor: "#FFFFFF",
-        borderColor: "#E5E5E5",
-    },
-    timelineContent: {
-        flex: 1,
-        paddingTop: 0,
-    },
-    timelineEvent: {
-        fontSize: RF(14),
-        fontFamily: "Poppins-Medium",
-        marginBottom: RF(2),
-    },
-    timelineEventCompleted: {
-        color: "#1B1B1B",
-    },
-    timelineEventIncomplete: {
-        color: "#868889",
-    },
-    timelineDate: {
-        fontSize: RF(12),
-        fontFamily: "Poppins-Regular",
-        color: "#868889",
-    },
-
     // Return Action Button
     returnActionButton: {
         backgroundColor: "#FF6B6B",
@@ -1717,12 +1660,6 @@ const styles = StyleSheet.create({
         color: "#FFFFFF",
     },
 
-    // Timeline Icon in Dot
-    timelineIcon: {
-        fontSize: RF(8),
-        textAlign: 'center',
-        color: '#FFFFFF',
-    },
 
     // Return Item Row
     returnItemRow: {
@@ -1741,5 +1678,81 @@ const styles = StyleSheet.create({
     refundAmountText: {
         color: "#4CAD73",
         fontFamily: "Poppins-SemiBold",
+    },
+    timelineContainer: {
+        marginLeft: RF(4),
+        paddingLeft: RF(4),
+    },
+    timelineItem: {
+        flexDirection: "row",
+        minHeight: RF(40), // Minimum height for each item
+    },
+    timelineLeft: {
+        width: RF(40),
+        alignItems: "center",
+        position: "relative",
+    },
+    timelineDot: {
+        width: RF(16),
+        height: RF(16),
+        borderRadius: RF(8),
+        borderWidth: RF(2),
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 2,
+        position: "absolute",
+        top: 0,
+        left: RF(12),
+    },
+    timelineDotCompleted: {
+        backgroundColor: "#4CAD73",
+        borderColor: "#4CAD73",
+    },
+    timelineDotIncomplete: {
+        backgroundColor: "#FFFFFF",
+        borderColor: "#E5E5E5",
+    },
+    timelineLine: {
+        width: RF(2),
+        position: "absolute",
+        top: RF(16), // Start below the dot
+        bottom: 0,
+        left: RF(19), // Center aligned with dot (12 + 16/2)
+        zIndex: 1,
+    },
+    timelineLineCompleted: {
+        backgroundColor: "#4CAD73",
+    },
+    timelineLineIncomplete: {
+        backgroundColor: "#E5E5E5",
+    },
+    timelineContent: {
+        flex: 1,
+        paddingLeft: RF(12),
+        paddingTop: RF(-2), // Adjust to align with dot
+        paddingBottom: RF(24), // Space between items
+    },
+    timelineEvent: {
+        fontSize: RF(14),
+        fontFamily: "Poppins-Medium",
+        marginBottom: RF(4),
+        lineHeight: RF(18),
+    },
+    timelineEventCompleted: {
+        color: "#1B1B1B",
+    },
+    timelineEventIncomplete: {
+        color: "#868889",
+    },
+    timelineDate: {
+        fontSize: RF(12),
+        fontFamily: "Poppins-Regular",
+        color: "#868889",
+    },
+    timelineIcon: {
+        fontSize: RF(8),
+        color: '#FFFFFF',
+        textAlign: 'center',
+        lineHeight: RF(12),
     },
 });

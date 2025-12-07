@@ -133,17 +133,42 @@ const CartItem = memo(({
                     )}
 
                     <View style={styles.priceContainer}>
-                        {item.hasDiscount ? (<>
-                            <Text
-                                style={[styles.finalPrice, isOutOfStock && styles.disabledText]}>₹{item.finalPrice.toFixed(2)}</Text>
-                            <Text
-                                style={[styles.originalPrice, isOutOfStock && styles.disabledText]}>₹{item.basePrice.toFixed(2)}</Text>
-                            <View style={styles.discountBadge}>
-                                <Text style={styles.discountText}>
-                                    {Math.round(((item.basePrice - item.finalPrice) / item.basePrice) * 100)}% OFF
+                        {item.hasDiscount ? (
+                            <>
+                                <View style={styles.priceRow}>
+                                    <Text style={[styles.finalPrice, isOutOfStock && styles.disabledText]}>
+                                        ₹{item.finalPrice.toFixed(2)}
+                                    </Text>
+                                    <Text style={[styles.originalPrice, isOutOfStock && styles.disabledText]}>
+                                        ₹{item.basePrice.toFixed(2)}
+                                    </Text>
+                                    <View style={styles.discountBadge}>
+                                        <Text style={styles.discountText}>
+                                            {Math.round(((item.basePrice - item.finalPrice) / item.basePrice) * 100)}%
+                                            OFF
+                                        </Text>
+                                    </View>
+                                </View>
+                                {item.quantity > 1 && (
+                                    <Text style={styles.itemSubtotal}>
+                                        {item.quantity} × ₹{item.finalPrice.toFixed(2)} =
+                                        ₹{(item.finalPrice * item.quantity).toFixed(2)}
+                                    </Text>
+                                )}
+                            </>
+                        ) : (
+                            <>
+                                <Text style={[styles.finalPrice, isOutOfStock && styles.disabledText]}>
+                                    ₹{item.finalPrice.toFixed(2)}
                                 </Text>
-                            </View>
-                        </>) : (<Text style={[styles.finalPrice, isOutOfStock && styles.disabledText]}></Text>)}
+                                {item.quantity > 1 && (
+                                    <Text style={styles.itemSubtotal}>
+                                        {item.quantity} × ₹{item.finalPrice.toFixed(2)} =
+                                        ₹{(item.finalPrice * item.quantity).toFixed(2)}
+                                    </Text>
+                                )}
+                            </>
+                        )}
                     </View>
 
                     {isBusinessUser && tierPricing[item.variantId ? `${item.productId}_${item.variantId}` : item.productId] && (
@@ -356,8 +381,9 @@ export default function CartScreen() {
             const items = Array.isArray(data?.items) ? data.items : [];
 
             const mapped = items.map((ci) => {
-                const basePrice = Number(ci?.price ?? ci?.basePrice ?? 0);
-                const finalPrice = Number(ci?.finalPrice ?? ci?.price ?? 0);
+                // Extract prices correctly from your data structure
+                const basePrice = Number(ci?.variant?.price ?? ci?.unitPrice ?? 0);
+                const finalPrice = Number(ci?.finalPrice ?? ci?.unitPrice ?? 0);
                 const hasDiscount = basePrice > finalPrice;
 
                 const currentStock = ci?.stockInfo?.currentStock || 0;
@@ -366,16 +392,16 @@ export default function CartScreen() {
 
                 return {
                     id: ci?._id || ci?.id,
-                    productId: ci?.productId?._id || ci?.productId,
-                    name: ci?.product?.title || ci?.product?.name || 'Product',
-                    description: ci?.variant?.name || ci?.description || '',
+                    productId: ci?.productId?._id || ci?.productId || ci?.product?._id,
+                    name: ci?.product?.title || ci?.product?.name || ci?.name || 'Product',
+                    description: ci?.variant?.name || ci?.variantAttributes || ci?.description || '',
                     basePrice: basePrice,
                     finalPrice: finalPrice,
                     hasDiscount: hasDiscount,
                     quantity: Number(ci?.quantity || 1),
-                    imageUrl: ci?.product?.thumbnail || ci?.product?.images?.[0] || ci?.variant?.images?.[0] || null,
+                    imageUrl: ci?.image || ci?.product?.thumbnail || ci?.product?.images?.[0] || ci?.variant?.images?.[0] || null,
                     variantId: ci?.variantId || null,
-                    subtotal: Number(ci?.subtotal ?? 0),
+                    subtotal: Number(ci?.subtotal ?? (finalPrice * (ci?.quantity || 1))),
                     minQty: ci?.minQty || 1,
                     shippingCharge: ci?.shippingCharge || 0,
                     currentStock: currentStock,
@@ -702,11 +728,11 @@ export default function CartScreen() {
         />
     ), [isBusinessUser, tierPricing, updatingItems, stockValidation, updateQuantity, removeItem, openNegotiationModal]);
 
-    const renderWishlistItem = useCallback(({ item }) => (
+    const renderWishlistItem = useCallback(({item}) => (
         <Pressable onPress={() => handleProductPress(item)}>
             <View style={styles.wishlistCard}>
 
-                <Image source={item.image} style={styles.wishlistImage} />
+                <Image source={item.image} style={styles.wishlistImage}/>
 
                 {/* Delete Button */}
                 <Pressable
@@ -723,7 +749,8 @@ export default function CartScreen() {
                             setWishlistItems(prev =>
                                 prev.filter(w => String(w.id) !== String(item.id))
                             );
-                        } catch (_) {}
+                        } catch (_) {
+                        }
                     }}
                 >
                     <Image
@@ -1864,5 +1891,18 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: RF(14),
         fontFamily: 'Poppins-SemiBold',
+    },
+    priceRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: RF(6),
+        marginBottom: RF(2),
+    },
+    itemSubtotal: {
+        fontSize: RF(12),
+        fontFamily: 'Poppins-Regular',
+        color: '#666',
+        marginTop: RF(2),
     },
 });

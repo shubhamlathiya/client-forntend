@@ -405,15 +405,6 @@ export default function ProductsScreen() {
                 [productId]: newWishlistState
             }));
 
-            // Show feedback
-            const message = newWishlistState ? 'Added to wishlist' : 'Removed from wishlist';
-
-            // Use appropriate notification method
-            if (Platform.OS === 'android') {
-                ToastAndroid.show(message, ToastAndroid.SHORT);
-            } else if (Platform.OS === 'ios') {
-                Alert.alert('Success', message, [{ text: 'OK' }]);
-            }
 
         } catch (error) {
             console.error('Error toggling wishlist:', error);
@@ -613,12 +604,6 @@ export default function ProductsScreen() {
             }
 
             await loadCartItems();
-
-            if (Platform.OS === 'android') {
-                ToastAndroid.show('Added to cart', ToastAndroid.SHORT);
-            } else {
-                Alert.alert('Success', 'Added to cart');
-            }
 
             if (variant) {
                 setShowVariantModal(false);

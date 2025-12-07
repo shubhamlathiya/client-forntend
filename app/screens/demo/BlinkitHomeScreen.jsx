@@ -15,6 +15,7 @@ import {
     Modal,
     Animated,
     Platform, Linking,
+    ActivityIndicator
 } from 'react-native';
 import {useFocusEffect, useRouter} from "expo-router";
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -86,7 +87,6 @@ export default function BlinkitHomeScreen() {
     const [salesCategories, setSalesCategories] = useState([]);
     const [featuredProducts, setFeaturedProducts] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [selectedVariants, setSelectedVariants] = useState({});
     const [addingToCart, setAddingToCart] = useState({});
     const [groceryCategories, setGroceryCategories] = useState([]);
     const [showCategoryFragment, setShowCategoryFragment] = useState(false);
@@ -98,7 +98,6 @@ export default function BlinkitHomeScreen() {
     const [cartItems, setCartItems] = useState([]);
     const [showCartPopup, setShowCartPopup] = useState(true);
     const [cartPopupTimeout, setCartPopupTimeout] = useState(null);
-    const [productStocks, setProductStocks] = useState({});
 
     const slideAnim = useRef(new Animated.Value(-300)).current;
 
@@ -116,6 +115,273 @@ export default function BlinkitHomeScreen() {
     const [searchFocused, setSearchFocused] = useState(false);
     const searchAnim = useState(new Animated.Value(0))[0];
     const placeholderAnim = useState(new Animated.Value(1))[0];
+
+    // New state for variant management
+    const [selectedVariants, setSelectedVariants] = useState({});
+    const [selectedAttributes, setSelectedAttributes] = useState({});
+    const [groupedVariants, setGroupedVariants] = useState({});
+
+    // Group variants by attributes for a product
+    const groupVariantsByAttributes = useCallback((variantList) => {
+        const groups = {};
+
+        variantList.forEach(variant => {
+            const attributes = variant.attributes || [];
+            attributes.forEach(attr => {
+                const type = attr?.type || attr?.name || 'attribute';
+                const value = attr?.value || attr?.valueName || attr?.name || '';
+
+                if (!groups[type]) {
+                    groups[type] = {
+                        name: type.charAt(0).toUpperCase() + type.slice(1),
+                        values: []
+                    };
+                }
+
+                // Add value if not already in list
+                if (!groups[type].values.includes(value)) {
+                    groups[type].values.push(value);
+                }
+            });
+        });
+
+        // Sort values for better display
+        Object.keys(groups).forEach(type => {
+            groups[type].values.sort();
+        });
+
+        return groups;
+    }, []);
+
+    // Find variant based on selected attributes
+    const findVariantByAttributes = useCallback((variants, selectedAttrs) => {
+        return variants.find(variant => {
+            const variantAttrs = variant.attributes || [];
+
+            // Check if all selected attributes match the variant
+            return Object.keys(selectedAttrs).every(attrType => {
+                const selectedValue = selectedAttrs[attrType];
+                const variantAttr = variantAttrs.find(attr =>
+                    (attr?.type || attr?.name) === attrType
+                );
+                return variantAttr && (variantAttr.value || variantAttr.name) === selectedValue;
+            });
+        });
+    }, []);
+
+    // Get available values for an attribute type based on current selections
+    const getAvailableValues = useCallback((variants, attributeType, currentAttributes) => {
+        const filteredVariants = variants.filter(variant => {
+            // Check if variant matches all currently selected attributes except the one being evaluated
+            return Object.keys(currentAttributes).every(type => {
+                if (type === attributeType) return true; // Skip the attribute we're checking
+
+                const selectedValue = currentAttributes[type];
+                const variantAttr = (variant.attributes || []).find(attr =>
+                    (attr?.type || attr?.name) === type
+                );
+                return variantAttr && (variantAttr.value || variantAttr.name) === selectedValue;
+            });
+        });
+
+        const availableValues = new Set();
+        filteredVariants.forEach(variant => {
+            const variantAttr = (variant.attributes || []).find(attr =>
+                (attr?.type || attr?.name) === attributeType
+            );
+            if (variantAttr && (variant.stock || variant.quantity || 0) > 0) {
+                availableValues.add(variantAttr.value || variantAttr.name);
+            }
+        });
+
+        return Array.from(availableValues);
+    }, []);
+
+    // Check if an attribute value is available (has stock)
+    const isAttributeAvailable = useCallback((variants, attributeType, value, currentAttributes) => {
+        return variants.some(variant => {
+            const variantAttrs = variant.attributes || [];
+            const hasAttribute = variantAttrs.some(attr =>
+                (attr?.type || attr?.name) === attributeType &&
+                (attr?.value || attr?.name) === value
+            );
+            const hasStock = (variant.stock || variant.quantity || 0) > 0;
+
+            // Also check if variant matches other selected attributes
+            const matchesOtherAttributes = Object.keys(currentAttributes).every(type => {
+                if (type === attributeType) return true;
+                const selectedValue = currentAttributes[type];
+                const variantAttr = variantAttrs.find(attr =>
+                    (attr?.type || attr?.name) === type
+                );
+                return variantAttr && (variantAttr.value || variantAttr.name) === selectedValue;
+            });
+
+            return hasAttribute && hasStock && matchesOtherAttributes;
+        });
+    }, []);
+
+    // Get stock for a specific variant
+    const getVariantStock = useCallback((product, variantId) => {
+        if (!product?.variants) return product?.stock || 0;
+
+        if (variantId) {
+            const variant = product.variants.find(v => v._id === variantId);
+            return variant?.stock || variant?.quantity || 0;
+        }
+
+        // If no variant selected but product has variants, find first available
+        if (product.variants.length > 0) {
+            const availableVariant = product.variants.find(v => (v.stock || v.quantity || 0) > 0);
+            return availableVariant?.stock || availableVariant?.quantity || 0;
+        }
+
+        return product.stock || 0;
+    }, []);
+
+    // Get available variants (in-stock)
+    const getAvailableVariants = useCallback((product) => {
+        if (!product?.variants || product.variants.length === 0) {
+            return [];
+        }
+
+        return product.variants.filter(variant => (variant.stock || variant.quantity || 0) > 0);
+    }, []);
+
+    // Check if product has any in-stock variant
+    const hasAvailableVariant = useCallback((product) => {
+        if (!product?.variants || product.variants.length === 0) {
+            return (product.stock || 0) > 0;
+        }
+
+        return product.variants.some(variant => (variant.stock || variant.quantity || 0) > 0);
+    }, []);
+
+    // Get first available variant ID
+    const getFirstAvailableVariantId = useCallback((product) => {
+        if (!product?.variants || product.variants.length === 0) {
+            return null;
+        }
+
+        const availableVariant = product.variants.find(v => (v.stock || v.quantity || 0) > 0);
+        return availableVariant?._id || null;
+    }, []);
+
+    // Get current selected variant ID with fallback
+    const getSelectedVariantId = useCallback((productId, product) => {
+        const selectedVariant = selectedVariants[productId];
+
+        if (!product) return null;
+
+        // If selected variant exists and is in stock, return it
+        if (selectedVariant) {
+            const stock = getVariantStock(product, selectedVariant);
+            if (stock > 0) {
+                return selectedVariant;
+            }
+        }
+
+        // Otherwise get first available variant
+        return getFirstAvailableVariantId(product);
+    }, [selectedVariants, getVariantStock, getFirstAvailableVariantId]);
+
+    // Initialize attributes and variant selection for a product
+    const initializeProductVariantSelection = useCallback((product) => {
+        const productId = product.id;
+
+        if (product?.variants && product.variants.length > 0) {
+            // Group variants by attributes
+            const grouped = groupVariantsByAttributes(product.variants);
+            setGroupedVariants(prev => ({
+                ...prev,
+                [productId]: grouped
+            }));
+
+            // Set initial attributes from first available variant
+            const firstAvailable = product.variants.find(v => (v.stock || v.quantity || 0) > 0) || product.variants[0];
+            if (firstAvailable) {
+                const initialAttrs = {};
+                const firstAttrs = firstAvailable.attributes || [];
+                firstAttrs.forEach(attr => {
+                    const type = attr?.type || attr?.name;
+                    const value = attr?.value || attr?.name;
+                    if (type && value) {
+                        initialAttrs[type] = value;
+                    }
+                });
+
+                setSelectedAttributes(prev => ({
+                    ...prev,
+                    [productId]: initialAttrs
+                }));
+
+                setSelectedVariants(prev => ({
+                    ...prev,
+                    [productId]: firstAvailable._id
+                }));
+            }
+        }
+    }, [groupVariantsByAttributes]);
+
+    // Handle attribute selection for a product
+    const handleAttributeSelect = useCallback((productId, attributeType, value) => {
+        const product = [...featuredProducts, ...Object.values(tabProducts).flat(), ...categoryProducts]
+            .find(p => p.id === productId);
+
+        if (!product) return;
+
+        const currentAttrs = selectedAttributes[productId] || {};
+        const updatedAttrs = { ...currentAttrs, [attributeType]: value };
+
+        // Update attributes
+        setSelectedAttributes(prev => ({
+            ...prev,
+            [productId]: updatedAttrs
+        }));
+
+        // Find and set the corresponding variant
+        if (product.variants) {
+            const foundVariant = findVariantByAttributes(product.variants, updatedAttrs);
+            if (foundVariant) {
+                setSelectedVariants(prev => ({
+                    ...prev,
+                    [productId]: foundVariant._id
+                }));
+            } else {
+                // If no variant matches, clear the variant selection
+                setSelectedVariants(prev => ({
+                    ...prev,
+                    [productId]: null
+                }));
+            }
+        }
+    }, [featuredProducts, tabProducts, categoryProducts, selectedAttributes, findVariantByAttributes]);
+
+    // Initialize variant selection when products load
+    useEffect(() => {
+        // Initialize variant selection for featured products
+        featuredProducts.forEach(product => {
+            if (product.variants && product.variants.length > 0 && !groupedVariants[product.id]) {
+                initializeProductVariantSelection(product);
+            }
+        });
+
+        // Initialize variant selection for tab products
+        Object.keys(tabProducts).forEach(tabId => {
+            tabProducts[tabId]?.forEach(product => {
+                if (product.variants && product.variants.length > 0 && !groupedVariants[product.id]) {
+                    initializeProductVariantSelection(product);
+                }
+            });
+        });
+
+        // Initialize variant selection for category products
+        categoryProducts.forEach(product => {
+            if (product.variants && product.variants.length > 0 && !groupedVariants[product.id]) {
+                initializeProductVariantSelection(product);
+            }
+        });
+    }, [featuredProducts, tabProducts, categoryProducts, initializeProductVariantSelection]);
 
     const requestNotificationPermission = async () => {
         const {status: existingStatus} = await Notifications.getPermissionsAsync();
@@ -156,7 +422,6 @@ export default function BlinkitHomeScreen() {
                 name: "Default", importance: Notifications.AndroidImportance.MAX,
             });
         }
-
     };
 
     useEffect(() => {
@@ -266,7 +531,6 @@ export default function BlinkitHomeScreen() {
             setLoadingTabs(false);
         }
     };
-
 
     // Updated loadTabProducts function to handle dynamic tabs
     const loadTabProducts = async (tabId) => {
@@ -606,37 +870,83 @@ export default function BlinkitHomeScreen() {
     const handleAddToCart = async (product, isFragment = false) => {
         try {
             const productId = product.id || product._id;
-            const variantId = product.variantId || (product.variants?.[0]?._id) || null;
 
-            // Check stock availability
-            const stock = getProductStock(productId, variantId);
-            if (stock <= 0) {
-                Alert.alert('Out of Stock', 'This product is currently out of stock.');
-                return;
+            // Check if product has variants
+            if (product.variants && product.variants.length > 0) {
+                // Check if all required attributes are selected
+                const grouped = groupedVariants[productId];
+                const currentAttributes = selectedAttributes[productId] || {};
+
+                if (grouped) {
+                    const missingAttributes = Object.keys(grouped).filter(type => !currentAttributes[type]);
+
+                    if (missingAttributes.length > 0) {
+                        Alert.alert(
+                            'Selection Required',
+                            `Please select ${missingAttributes.map(a => a.toLowerCase()).join(' and ')}`
+                        );
+                        return;
+                    }
+                }
+
+                // Get selected variant
+                const selectedVariantId = selectedVariants[productId];
+
+                if (!selectedVariantId) {
+                    Alert.alert('Invalid Selection', 'Please select a valid variant');
+                    return;
+                }
+
+                // Check stock for selected variant
+                const stock = getVariantStock(product, selectedVariantId);
+                if (stock <= 0) {
+                    Alert.alert('Out of Stock', 'This variant is currently out of stock');
+                    return;
+                }
+
+                // Check cart quantity
+                const cartQuantity = getCartQuantity(productId, selectedVariantId);
+                if (cartQuantity >= stock) {
+                    Alert.alert('Stock Limit', `Only ${stock} items available in stock`);
+                    return;
+                }
+
+                // Add to cart with variant
+                setAddingToCart(prev => ({...prev, [productId]: true}));
+
+                const cartItem = {
+                    productId: productId,
+                    quantity: 1,
+                    variantId: selectedVariantId
+                };
+
+                await addCartItem(cartItem);
+                await loadCartItems();
+
+            } else {
+                // Handle simple product without variants
+                const stock = product.stock || 0;
+                if (stock <= 0) {
+                    Alert.alert('Out of Stock', 'This product is currently out of stock');
+                    return;
+                }
+
+                const cartQuantity = getCartQuantity(productId);
+                if (cartQuantity >= stock) {
+                    Alert.alert('Stock Limit', `Only ${stock} items available in stock`);
+                    return;
+                }
+
+                setAddingToCart(prev => ({...prev, [productId]: true}));
+
+                const cartItem = {
+                    productId: productId,
+                    quantity: 1
+                };
+
+                await addCartItem(cartItem);
+                await loadCartItems();
             }
-
-            // Check if trying to add more than available stock
-            const cartQuantity = getCartQuantity(productId, variantId);
-            if (cartQuantity >= stock) {
-                Alert.alert('Stock Limit', `Only ${stock} items available in stock.`);
-                return;
-            }
-
-            if (isBusinessUser && product.minQty && product.minQty > 1) {
-                Alert.alert('Minimum Quantity Required', `Minimum order quantity for this product is ${product.minQty} units for business customers.`, [{text: 'OK'}]);
-                return;
-            }
-
-            setAddingToCart(prev => ({...prev, [productId]: true}));
-
-            const cartItem = {
-                productId: productId,
-                quantity: product.minQty || 1,
-                variantId: variantId
-            };
-
-            await addCartItem(cartItem);
-            await loadCartItems();
 
         } catch (error) {
             console.error('Add to cart error:', error);
@@ -644,7 +954,7 @@ export default function BlinkitHomeScreen() {
             if (error.response?.data?.message?.includes('Minimum quantity')) {
                 Alert.alert('Minimum Quantity', error.response.data.message);
             } else if (error.response?.data?.message?.includes('out of stock') || error.response?.data?.message?.includes('insufficient stock')) {
-                Alert.alert('Out of Stock', 'This product is currently out of stock.');
+                Alert.alert('Out of Stock', 'This product variant is currently out of stock.');
             } else {
                 Alert.alert('Error', 'Failed to add product to cart. Please try again.');
             }
@@ -654,32 +964,22 @@ export default function BlinkitHomeScreen() {
         }
     };
 
-    const getProductStock = (productId, variantId = null) => {
-        // First check in current tab products
-        const allProducts = [...featuredProducts, ...Object.values(tabProducts).flat()];
-        const product = allProducts.find(p => p.id === productId);
-
-        if (product) {
-            if (variantId) {
-                const variant = product.variants?.find(v => v._id === variantId);
-                return variant?.stock || 0;
-            }
-            return product.stock || 0;
-        }
-
-        return 0; // Default to 0 if product not found
-    };
-
     const handleUpdateQuantity = async (productId, variantId, newQuantity) => {
         try {
+            // Get product to check stock
+            const allProducts = [...featuredProducts, ...Object.values(tabProducts).flat(), ...categoryProducts];
+            const product = allProducts.find(p => p.id === productId);
+
+            if (!product) return;
+
             // Check stock before increasing quantity
             if (newQuantity > 0) {
-                const stock = getProductStock(productId, variantId);
+                const stock = getVariantStock(product, variantId);
                 const cartQuantity = getCartQuantity(productId, variantId);
 
                 // If increasing quantity, check stock
                 if (newQuantity > cartQuantity && newQuantity > stock) {
-                    Alert.alert('Stock Limit', `Only ${stock} items available in stock.`);
+                    Alert.alert('Stock Limit', `Only ${stock} items available in stock for this variant.`);
                     return;
                 }
             }
@@ -701,7 +1001,7 @@ export default function BlinkitHomeScreen() {
         } catch (error) {
             console.error('Error updating quantity:', error);
             if (error.response?.data?.message?.includes('out of stock') || error.response?.data?.message?.includes('insufficient stock')) {
-                Alert.alert('Out of Stock', 'Cannot add more items. Product is out of stock.');
+                Alert.alert('Out of Stock', 'Cannot add more items. This variant is out of stock.');
                 await loadCartItems(); // Refresh cart to show correct quantities
             } else {
                 Alert.alert('Error', 'Failed to update quantity');
@@ -728,7 +1028,7 @@ export default function BlinkitHomeScreen() {
         });
     };
 
-    const calculateProductPrice = (product, quantity = 1) => {
+    const calculateProductPrice = (product, variantId = null, quantity = 1) => {
         const normalize = (val) => val !== undefined && val !== null ? Number(val) : null;
 
         const buildResponse = (base, final, discount, discountPercentOverride, minQty = 1) => {
@@ -759,8 +1059,8 @@ export default function BlinkitHomeScreen() {
 
         if (isBusinessUser) {
             const productId = product._id || product.id;
-            const variantId = product.variantId || (product.variants?.[0]?._id) || null;
-            const productTiers = getProductTierPricing(productId, variantId);
+            const variantKey = variantId || (product.variants?.[0]?._id) || 'default';
+            const productTiers = getProductTierPricing(productId, variantKey);
 
             if (productTiers.length > 0) {
                 const applicableTier = productTiers.find(tier => quantity >= tier.minQty && quantity <= tier.maxQty);
@@ -776,37 +1076,63 @@ export default function BlinkitHomeScreen() {
             }
         }
 
-        if (Array.isArray(product?.variants) && product.variants.length > 0) {
-            const v = product.variants[0];
-            return buildResponse(v.basePrice ?? product.basePrice, v.finalPrice ?? product.finalPrice ?? product.price, v.discount ?? product.discount, v.discountPercent ?? product.discountPercent);
+        // If variantId is provided, use that variant's pricing
+        if (variantId && product.variants) {
+            const variant = product.variants.find(v => v._id === variantId);
+            if (variant) {
+                return buildResponse(variant.basePrice ?? product.basePrice,
+                    variant.finalPrice ?? product.finalPrice ?? product.price,
+                    variant.discount ?? product.discount,
+                    variant.discountPercent ?? product.discountPercent);
+            }
         }
 
-        return buildResponse(product.basePrice ?? product.price, product.finalPrice ?? product.price, product.discount, product.discountPercent);
+        // Use first variant if available
+        if (Array.isArray(product?.variants) && product.variants.length > 0) {
+            const v = product.variants[0];
+            return buildResponse(v.basePrice ?? product.basePrice,
+                v.finalPrice ?? product.finalPrice ?? product.price,
+                v.discount ?? product.discount,
+                v.discountPercent ?? product.discountPercent);
+        }
+
+        return buildResponse(product.basePrice ?? product.price,
+            product.finalPrice ?? product.price,
+            product.discount,
+            product.discountPercent);
     };
 
     const renderFragmentProduct = ({item, index}) => {
-        const priceInfo = calculateProductPrice(item);
-        const productId = item._id || item.id;
-        const variantId = item.variantId;
-        const cartQuantity = getCartQuantity(productId, variantId);
-        const stock = getProductStock(productId, variantId);
+        const productId = item.id || item._id;
+        const selectedVariantId = selectedVariants[productId];
+        const priceInfo = calculateProductPrice(item, selectedVariantId);
+        const cartQuantity = getCartQuantity(productId, selectedVariantId);
+        const stock = getVariantStock(item, selectedVariantId);
         const imageSource = item.image?.uri ? {uri: item.image.uri} : require("../../../assets/Rectangle 24904.png");
-        const isOutOfStock = stock <= 0;
+        const hasAvailable = hasAvailableVariant(item);
+        const grouped = groupedVariants[productId];
+        const currentAttributes = selectedAttributes[productId] || {};
 
         return (
             <Pressable
-                style={[styles.fragmentProductCard, index % 2 === 0 ? styles.fragmentLeftCard : styles.fragmentRightCard, isOutOfStock && styles.outOfStockCard]}
+                style={[styles.fragmentProductCard, index % 2 === 0 ? styles.fragmentLeftCard : styles.fragmentRightCard, !hasAvailable && styles.outOfStockCard]}
                 onPress={() => handleFragmentProductPress(item)}
             >
-                {!isOutOfStock && stock <= 10 && (
-                    <View style={styles.lowStockBadge}>
-                        <Text style={styles.lowStockText}>Only {stock} left</Text>
+                {!hasAvailable && (
+                    <View style={styles.outOfStockOverlay}>
+                        <Text style={styles.outOfStockText}>Out of Stock</Text>
                     </View>
                 )}
 
+                {/*{hasAvailable && stock <= 10 && (*/}
+                {/*    <View style={styles.lowStockBadge}>*/}
+                {/*        <Text style={styles.lowStockText}>Only {stock} left</Text>*/}
+                {/*    </View>*/}
+                {/*)}*/}
+
                 <Image
                     source={imageSource}
-                    style={[styles.fragmentProductImage]}
+                    style={[styles.fragmentProductImage, !hasAvailable && styles.outOfStockImage]}
                     resizeMode="cover"
                 />
 
@@ -815,13 +1141,55 @@ export default function BlinkitHomeScreen() {
                         {item.title || item.name}
                     </Text>
 
+                    {/* Variant selection with attributes */}
+                    {grouped && Object.keys(grouped).length > 0 && hasAvailable && (
+                        <View style={styles.variantsContainer}>
+                            {Object.keys(grouped).map((attributeType) => (
+                                <View key={attributeType} style={styles.variantAttributeSection}>
+                                    <Text style={styles.variantLabel}>{grouped[attributeType].name}:</Text>
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.variantScroll}>
+                                        {grouped[attributeType].values.map((value) => {
+                                            const isSelected = currentAttributes[attributeType] === value;
+                                            const isAvailable = isAttributeAvailable(item.variants, attributeType, value, currentAttributes);
+                                            const isActive = getAvailableValues(item.variants, attributeType, currentAttributes).includes(value);
+
+                                            return (
+                                                <Pressable
+                                                    key={`${attributeType}-${value}`}
+                                                    style={[
+                                                        styles.variantOption,
+                                                        isSelected && styles.selectedVariantOption,
+                                                        !isActive && styles.disabledVariantOption,
+                                                        !isAvailable && styles.outOfStockVariantOption
+                                                    ]}
+                                                    onPress={() => isActive && handleAttributeSelect(productId, attributeType, value)}
+                                                    disabled={!isActive}
+                                                >
+                                                    <Text style={[
+                                                        styles.variantText,
+                                                        isSelected && styles.selectedVariantText,
+                                                        !isActive && styles.disabledVariantText,
+                                                        !isAvailable && styles.outOfStockVariantText
+                                                    ]}>
+                                                        {value}
+                                                        {!isAvailable && ' (Out)'}
+                                                    </Text>
+                                                </Pressable>
+                                            );
+                                        })}
+                                    </ScrollView>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+
                     <View style={styles.rowBetween}>
                         <View style={styles.leftPriceBox}>
                             <Text style={[styles.fragmentProductPrice]}>
                                 ₹{priceInfo.finalPrice}
                             </Text>
 
-                            {priceInfo.hasDiscount && !isOutOfStock && (
+                            {priceInfo.hasDiscount && hasAvailable && (
                                 <View style={styles.discountBox}>
                                     <Text style={styles.fragmentProductOriginalPrice}>
                                         ₹{priceInfo.basePrice}
@@ -832,7 +1200,7 @@ export default function BlinkitHomeScreen() {
                                 </View>
                             )}
 
-                            {!isOutOfStock && (
+                            {hasAvailable && (
                                 <Text style={styles.stockInfo}>
                                     {stock > 10 ? 'In Stock' : `Only ${stock} left`}
                                 </Text>
@@ -840,7 +1208,7 @@ export default function BlinkitHomeScreen() {
                         </View>
                     </View>
                     <View style={styles.rowBetween}>
-                        {isOutOfStock ? (
+                        {!hasAvailable ? (
                             <View style={styles.outOfStockButton}>
                                 <Text style={styles.outOfStockButtonText}>Out of Stock</Text>
                             </View>
@@ -848,27 +1216,25 @@ export default function BlinkitHomeScreen() {
                             <View style={styles.quantityControl}>
                                 <Pressable
                                     style={[styles.quantityButton]}
-                                    onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity - 1)}
+                                    onPress={() => handleUpdateQuantity(productId, selectedVariantId, cartQuantity - 1)}
                                 >
-                                    <Text
-                                        style={[styles.quantityMinus]}>-</Text>
+                                    <Text style={[styles.quantityMinus]}>-</Text>
                                 </Pressable>
 
                                 <Text style={styles.quantityText}>{cartQuantity}</Text>
 
                                 <Pressable
                                     style={[styles.quantityButton, cartQuantity >= stock && styles.quantityButtonDisabled]}
-                                    onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity + 1)}
+                                    onPress={() => handleUpdateQuantity(productId, selectedVariantId, cartQuantity + 1)}
                                     disabled={cartQuantity >= stock}
                                 >
-                                    <Text
-                                        style={[styles.quantityPlus, cartQuantity >= stock && styles.quantityButtonDisabledText]}>+</Text>
+                                    <Text style={[styles.quantityPlus, cartQuantity >= stock && styles.quantityButtonDisabledText]}>+</Text>
                                 </Pressable>
                             </View>
                         ) : (
                             <Pressable
-                                style={[styles.fragmentAddButton, (addingToCart[productId] || isOutOfStock) && styles.fragmentAddButtonDisabled]}
-                                disabled={addingToCart[productId] || isOutOfStock}
+                                style={[styles.fragmentAddButton, (addingToCart[productId] || !hasAvailable) && styles.fragmentAddButtonDisabled]}
+                                disabled={addingToCart[productId] || !hasAvailable}
                                 onPress={() => handleAddToCart(item, true)}
                             >
                                 <Text style={styles.fragmentAddButtonText}>
@@ -888,35 +1254,43 @@ export default function BlinkitHomeScreen() {
     };
 
     const renderTabProduct = ({item}) => {
-        const priceInfo = calculateProductPrice(item);
-        const productId = item.id;
-        const variantId = item.variantId;
-        const cartQuantity = getCartQuantity(productId, variantId);
-        const stock = getProductStock(productId, variantId);
+        const productId = item.id || item._id;
+        const selectedVariantId = selectedVariants[productId];
+        const priceInfo = calculateProductPrice(item, selectedVariantId);
+        const cartQuantity = getCartQuantity(productId, selectedVariantId);
+        const stock = getVariantStock(item, selectedVariantId);
         const imageSource = item.image?.uri ? {uri: item.image.uri} : require("../../../assets/Rectangle 24904.png");
-        const productTiers = getProductTierPricing(productId, variantId);
-        const isOutOfStock = stock <= 0;
+        const productTiers = getProductTierPricing(productId, selectedVariantId);
+        const hasAvailable = hasAvailableVariant(item);
+        const grouped = groupedVariants[productId];
+        const currentAttributes = selectedAttributes[productId] || {};
 
         return (
             <Pressable
-                style={[styles.tabProductCard,isOutOfStock && styles.outOfStockCard]}
+                style={[styles.tabProductCard, !hasAvailable && styles.outOfStockCard]}
                 onPress={() => router.push(`/screens/ProductDetailScreen?id=${item.id}`)}
             >
+                {!hasAvailable && (
+                    <View style={styles.outOfStockOverlay}>
+                        <Text style={styles.outOfStockText}>Out of Stock</Text>
+                    </View>
+                )}
+
                 {isBusinessUser && priceInfo.minQty > 1 && (
                     <View style={styles.minQtyBadge}>
                         <Text style={styles.minQtyText}>Min: {priceInfo.minQty}</Text>
                     </View>
                 )}
 
-                {!isOutOfStock && stock < 10 && (
-                    <View style={styles.lowStockBadge}>
-                        <Text style={styles.lowStockText}>Only {stock} left</Text>
-                    </View>
-                )}
+                {/*{hasAvailable && stock < 10 && (*/}
+                {/*    <View style={styles.lowStockBadge}>*/}
+                {/*        <Text style={styles.lowStockText}>Only {stock} left</Text>*/}
+                {/*    </View>*/}
+                {/*)}*/}
 
                 <Image
                     source={imageSource}
-                    style={[styles.tabProductImage]}
+                    style={[styles.tabProductImage, !hasAvailable && styles.outOfStockImage]}
                     resizeMode="cover"
                 />
 
@@ -925,13 +1299,55 @@ export default function BlinkitHomeScreen() {
                         {item.name}
                     </Text>
 
+                    {/* Variant selection with attributes */}
+                    {grouped && Object.keys(grouped).length > 0 && hasAvailable && (
+                        <View style={styles.variantsContainer}>
+                            {Object.keys(grouped).map((attributeType) => (
+                                <View key={attributeType} style={styles.variantAttributeSection}>
+                                    <Text style={styles.variantLabel}>{grouped[attributeType].name}:</Text>
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.variantScroll}>
+                                        {grouped[attributeType].values.map((value) => {
+                                            const isSelected = currentAttributes[attributeType] === value;
+                                            const isAvailable = isAttributeAvailable(item.variants, attributeType, value, currentAttributes);
+                                            const isActive = getAvailableValues(item.variants, attributeType, currentAttributes).includes(value);
+
+                                            return (
+                                                <Pressable
+                                                    key={`${attributeType}-${value}`}
+                                                    style={[
+                                                        styles.variantOption,
+                                                        isSelected && styles.selectedVariantOption,
+                                                        !isActive && styles.disabledVariantOption,
+                                                        !isAvailable && styles.outOfStockVariantOption
+                                                    ]}
+                                                    onPress={() => isActive && handleAttributeSelect(productId, attributeType, value)}
+                                                    disabled={!isActive}
+                                                >
+                                                    <Text style={[
+                                                        styles.variantText,
+                                                        isSelected && styles.selectedVariantText,
+                                                        !isActive && styles.disabledVariantText,
+                                                        !isAvailable && styles.outOfStockVariantText
+                                                    ]}>
+                                                        {value}
+                                                        {!isAvailable && ' (Out)'}
+                                                    </Text>
+                                                </Pressable>
+                                            );
+                                        })}
+                                    </ScrollView>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+
                     <View style={styles.rowBetween}>
                         <View style={styles.leftPriceBox}>
                             <Text style={[styles.tabProductPrice]}>
                                 ₹{priceInfo.finalPrice}
                             </Text>
 
-                            {priceInfo.hasDiscount && !isOutOfStock && (
+                            {priceInfo.hasDiscount && hasAvailable && (
                                 <View style={styles.discountBox}>
                                     <Text style={styles.tabProductOriginalPrice}>
                                         ₹{priceInfo.basePrice}
@@ -942,19 +1358,19 @@ export default function BlinkitHomeScreen() {
                                 </View>
                             )}
 
-                            {isBusinessUser && priceInfo.minQty > 1 && !isOutOfStock && (
+                            {isBusinessUser && priceInfo.minQty > 1 && hasAvailable && (
                                 <Text style={styles.businessMinQty}>
                                     Min. {priceInfo.minQty} units
                                 </Text>
                             )}
 
-                            {!isOutOfStock && isBusinessUser && productTiers.length > 0 && (
+                            {hasAvailable && isBusinessUser && productTiers.length > 0 && (
                                 <Text style={styles.tierPricingInfo}>
                                     {productTiers.length} tier{productTiers.length > 1 ? 's' : ''} available
                                 </Text>
                             )}
 
-                            {!isOutOfStock && (
+                            {hasAvailable && (
                                 <Text style={styles.stockInfo}>
                                     {stock > 10 ? 'In Stock' : `Only ${stock} left`}
                                 </Text>
@@ -963,7 +1379,7 @@ export default function BlinkitHomeScreen() {
                     </View>
 
                     <View style={styles.rowBetween}>
-                        {isOutOfStock ? (
+                        {!hasAvailable ? (
                             <View style={styles.outOfStockButton}>
                                 <Text style={styles.outOfStockButtonText}>Out of Stock</Text>
                             </View>
@@ -971,27 +1387,25 @@ export default function BlinkitHomeScreen() {
                             <View style={styles.quantityControl}>
                                 <Pressable
                                     style={[styles.quantityButton]}
-                                    onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity - 1)}
+                                    onPress={() => handleUpdateQuantity(productId, selectedVariantId, cartQuantity - 1)}
                                 >
-                                    <Text
-                                        style={[styles.quantityMinus]}>-</Text>
+                                    <Text style={[styles.quantityMinus]}>-</Text>
                                 </Pressable>
 
                                 <Text style={styles.quantityText}>{cartQuantity}</Text>
 
                                 <Pressable
                                     style={[styles.quantityButton, cartQuantity >= stock && styles.quantityButtonDisabled]}
-                                    onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity + 1)}
+                                    onPress={() => handleUpdateQuantity(productId, selectedVariantId, cartQuantity + 1)}
                                     disabled={cartQuantity >= stock}
                                 >
-                                    <Text
-                                        style={[styles.quantityPlus, cartQuantity >= stock && styles.quantityButtonDisabledText]}>+</Text>
+                                    <Text style={[styles.quantityPlus, cartQuantity >= stock && styles.quantityButtonDisabledText]}>+</Text>
                                 </Pressable>
                             </View>
                         ) : (
                             <Pressable
-                                style={[styles.tabAddButton, addingToCart[productId] && styles.tabAddButtonDisabled]}
-                                disabled={addingToCart[productId] || isOutOfStock}
+                                style={[styles.tabAddButton, (addingToCart[productId] || !hasAvailable) && styles.tabAddButtonDisabled]}
+                                disabled={addingToCart[productId] || !hasAvailable}
                                 onPress={() => handleAddToCart(item)}
                             >
                                 <Text style={styles.tabAddButtonText}>
@@ -1004,7 +1418,6 @@ export default function BlinkitHomeScreen() {
             </Pressable>
         );
     };
-
 
     const fetchCategories = async () => {
         const capitalizeWords = (text) => {
@@ -1060,7 +1473,6 @@ export default function BlinkitHomeScreen() {
             setLoading(false);
         }
     };
-
 
     const loadUserData = async () => {
         try {
@@ -1178,28 +1590,24 @@ export default function BlinkitHomeScreen() {
 
     const processProductData = (product, tabId = 'all') => {
         const id = product?._id || product?.id || `fallback-${Math.random()}`;
-        const priceInfo = calculateProductPrice(product);
-
-        // Extract stock information
-        let stock = 0;
-        if (product?.variants && Array.isArray(product.variants) && product.variants.length > 0) {
-            stock = product.variants[0]?.stock || 0;
-        }
+        const priceInfo = calculateProductPrice(product, null);
 
         return {
             id,
+            _id: id,
             name: product?.title || product?.name || `${tabId} Product ${Math.floor(Math.random() * 100)}`,
+            title: product?.title || product?.name,
             price: priceInfo.finalPrice,
             basePrice: priceInfo.basePrice,
             hasDiscount: priceInfo.hasDiscount,
             discountPercent: priceInfo.discountPercent,
             deliveryTime: "16 MINS",
             image: product?.thumbnail ? {uri: `${API_BASE_URL}${product.thumbnail}`} : require("../../../assets/Rectangle 24904.png"),
-            variantId: product.variants?.[0]?._id || null,
             minQty: priceInfo.minQty || 1,
-            tierPricing: isBusinessUser ? getProductTierPricing(id, product.variants?.[0]?._id) : [],
-            stock: stock, // Add stock information
-            variants: product.variants || [] // Keep variants for stock management
+            tierPricing: isBusinessUser ? getProductTierPricing(id, null) : [],
+            stock: product?.stock || 0,
+            variants: product.variants || [],
+            originalProduct: product
         };
     };
 
@@ -1246,29 +1654,37 @@ export default function BlinkitHomeScreen() {
     }
 
     const renderFeaturedProduct = (product) => {
-        const priceInfo = calculateProductPrice(product);
-        const productId = product._id || product.id;
-        const variantId = product.variantId;
-        const cartQuantity = getCartQuantity(productId, variantId);
-        const stock = getProductStock(productId, variantId);
+        const productId = product.id || product._id;
+        const selectedVariantId = selectedVariants[productId];
+        const priceInfo = calculateProductPrice(product, selectedVariantId);
+        const cartQuantity = getCartQuantity(productId, selectedVariantId);
+        const stock = getVariantStock(product, selectedVariantId);
         const imageSource = product.image?.uri ? {uri: product.image.uri} : require("../../../assets/Rectangle 24904.png");
-        const isOutOfStock = stock <= 0;
+        const hasAvailable = hasAvailableVariant(product);
+        const grouped = groupedVariants[productId];
+        const currentAttributes = selectedAttributes[productId] || {};
 
         return (
             <Pressable
                 key={productId}
-                style={[styles.productCard, isOutOfStock && styles.outOfStockCard]}
+                style={[styles.productCard, !hasAvailable && styles.outOfStockCard]}
                 onPress={() => handleProductPress(product)}
             >
-                {!isOutOfStock && stock <= 10 && (
-                    <View style={styles.lowStockBadge}>
-                        <Text style={styles.lowStockText}>Only {stock} left</Text>
+                {!hasAvailable && (
+                    <View style={styles.outOfStockOverlay}>
+                        <Text style={styles.outOfStockText}>Out of Stock</Text>
                     </View>
                 )}
 
+                {/*{hasAvailable && stock <= 10 && (*/}
+                {/*    <View style={styles.lowStockBadge}>*/}
+                {/*        <Text style={styles.lowStockText}>Only {stock} left</Text>*/}
+                {/*    </View>*/}
+                {/*)}*/}
+
                 <Image
                     source={imageSource}
-                    style={[styles.productImage]}
+                    style={[styles.productImage, !hasAvailable && styles.outOfStockImage]}
                     resizeMode="cover"
                 />
 
@@ -1277,12 +1693,54 @@ export default function BlinkitHomeScreen() {
                         {product.name}
                     </Text>
 
+                    {/* Variant selection with attributes */}
+                    {grouped && Object.keys(grouped).length > 0 && hasAvailable && (
+                        <View style={styles.variantsContainer}>
+                            {Object.keys(grouped).map((attributeType) => (
+                                <View key={attributeType} style={styles.variantAttributeSection}>
+                                    <Text style={styles.variantLabel}>{grouped[attributeType].name}:</Text>
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.variantScroll}>
+                                        {grouped[attributeType].values.map((value) => {
+                                            const isSelected = currentAttributes[attributeType] === value;
+                                            const isAvailable = isAttributeAvailable(product.variants, attributeType, value, currentAttributes);
+                                            const isActive = getAvailableValues(product.variants, attributeType, currentAttributes).includes(value);
+
+                                            return (
+                                                <Pressable
+                                                    key={`${attributeType}-${value}`}
+                                                    style={[
+                                                        styles.variantOption,
+                                                        isSelected && styles.selectedVariantOption,
+                                                        !isActive && styles.disabledVariantOption,
+                                                        !isAvailable && styles.outOfStockVariantOption
+                                                    ]}
+                                                    onPress={() => isActive && handleAttributeSelect(productId, attributeType, value)}
+                                                    disabled={!isActive}
+                                                >
+                                                    <Text style={[
+                                                        styles.variantText,
+                                                        isSelected && styles.selectedVariantText,
+                                                        !isActive && styles.disabledVariantText,
+                                                        !isAvailable && styles.outOfStockVariantText
+                                                    ]}>
+                                                        {value}
+                                                        {!isAvailable && ' (Out)'}
+                                                    </Text>
+                                                </Pressable>
+                                            );
+                                        })}
+                                    </ScrollView>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+
                     <View style={styles.leftPriceBox}>
                         <Text style={[styles.fragmentProductPrice]}>
                             ₹{priceInfo.finalPrice}
                         </Text>
 
-                        {priceInfo.hasDiscount && !isOutOfStock && (
+                        {priceInfo.hasDiscount && hasAvailable && (
                             <View style={styles.discountBox}>
                                 <Text style={styles.fragmentProductOriginalPrice}>
                                     ₹{priceInfo.basePrice}
@@ -1293,7 +1751,7 @@ export default function BlinkitHomeScreen() {
                             </View>
                         )}
 
-                        {!isOutOfStock && (
+                        {hasAvailable && (
                             <Text style={styles.stockInfo}>
                                 {stock > 10 ? 'In Stock' : `Only ${stock} left`}
                             </Text>
@@ -1301,7 +1759,7 @@ export default function BlinkitHomeScreen() {
                     </View>
 
                     <View style={styles.bottomQuantityContainer}>
-                        {isOutOfStock ? (
+                        {!hasAvailable ? (
                             <View style={styles.outOfStockButton}>
                                 <Text style={styles.outOfStockButtonText}>Out of Stock</Text>
                             </View>
@@ -1309,27 +1767,25 @@ export default function BlinkitHomeScreen() {
                             <View style={styles.quantityControl}>
                                 <Pressable
                                     style={[styles.quantityButton]}
-                                    onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity - 1)}
+                                    onPress={() => handleUpdateQuantity(productId, selectedVariantId, cartQuantity - 1)}
                                 >
-                                    <Text
-                                        style={[styles.quantityMinus]}>-</Text>
+                                    <Text style={[styles.quantityMinus]}>-</Text>
                                 </Pressable>
 
                                 <Text style={styles.quantityText}>{cartQuantity}</Text>
 
                                 <Pressable
                                     style={[styles.quantityButton, cartQuantity >= stock && styles.quantityButtonDisabled]}
-                                    onPress={() => handleUpdateQuantity(productId, variantId, cartQuantity + 1)}
+                                    onPress={() => handleUpdateQuantity(productId, selectedVariantId, cartQuantity + 1)}
                                     disabled={cartQuantity >= stock}
                                 >
-                                    <Text
-                                        style={[styles.quantityPlus, cartQuantity >= stock && styles.quantityButtonDisabledText]}>+</Text>
+                                    <Text style={[styles.quantityPlus, cartQuantity >= stock && styles.quantityButtonDisabledText]}>+</Text>
                                 </Pressable>
                             </View>
                         ) : (
                             <Pressable
-                                style={[styles.fragmentAddButton, (addingToCart[productId] || isOutOfStock) && styles.fragmentAddButtonDisabled]}
-                                disabled={addingToCart[productId] || isOutOfStock}
+                                style={[styles.fragmentAddButton, (addingToCart[productId] || !hasAvailable) && styles.fragmentAddButtonDisabled]}
+                                disabled={addingToCart[productId] || !hasAvailable}
                                 onPress={() => handleAddToCart(product)}
                             >
                                 <Text style={styles.fragmentAddButtonText}>
@@ -1343,7 +1799,6 @@ export default function BlinkitHomeScreen() {
         );
     };
 
-
     const handleCartPopupClick = () => {
         router.push('/screens/CartScreen');
     };
@@ -1351,6 +1806,15 @@ export default function BlinkitHomeScreen() {
     // Get active tab name for display
     const activeTabName = tabCategories.find(tab => tab.id === activeTab)?.name || 'Products';
 
+    const navigateToAllProducts = () => {
+        router.push({
+            pathname: '/screens/AllProductsScreen',
+            params: {
+                fromTab: activeTab,
+                tabName: tabCategories.find(tab => tab.id === activeTab)?.name || 'All'
+            }
+        });
+    };
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar backgroundColor={headerColor} barStyle="light-content"/>
@@ -1508,13 +1972,13 @@ export default function BlinkitHomeScreen() {
                 <View style={styles.tabProductsSection}>
                     <View style={styles.sectionHeaderWithButton}>
                         <Text style={styles.sectionTitle}>
-                            {activeTabName} Products
+                            {tabCategories.find(tab => tab.id === activeTab)?.name || 'All'} Products
                         </Text>
                         <Pressable
                             style={styles.seeAllButton}
-                            onPress={() => router.push('/screens/AllProductsScreen')}
+                            onPress={navigateToAllProducts}
                         >
-                            <Text style={styles.seeAllButtonText}>See All Products</Text>
+                            <Text style={styles.seeAllButtonText}>See {tabCategories.find(tab => tab.id === activeTab)?.name || 'All'} Products</Text>
                             <Image
                                 source={require('../../../assets/icons/right-arrow.png')}
                                 style={styles.seeAllArrow}
@@ -1610,7 +2074,7 @@ export default function BlinkitHomeScreen() {
                 <View style={styles.bottomSpacer}/>
             </ScrollView>
 
-            {/* Category Fragment Modal - Keep as is */}
+            {/* Category Fragment Modal */}
             <Modal
                 visible={showCategoryFragment}
                 animationType="slide"
@@ -1765,31 +2229,44 @@ const styles = StyleSheet.create({
 
     quantityText: {
         fontSize: 12, fontWeight: '600', color: '#1B1B1B', marginHorizontal: 12, minWidth: 20, textAlign: 'center',
-    }, tabContent: {
+    },
+    tabContent: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    }, container: {
+    },
+    container: {
         flex: 1, backgroundColor: '#FFFFFF',
-    }, tabContainer: {
+    },
+    tabContainer: {
         paddingHorizontal: 16, paddingTop: 6,
-    }, tabScrollContent: {
+    },
+    tabScrollContent: {
         paddingRight: 16,
-    }, tabItem: {
+    },
+    tabItem: {
         alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, marginRight: 8,
-    }, activeTabItem: {
+    },
+    activeTabItem: {
         shadowColor: '#000',
-    }, tabIconContainer: {
+    },
+    tabIconContainer: {
         marginBottom: 4,
-    }, tabText: {
+    },
+    tabText: {
         fontSize: 13, fontFamily: 'Poppins-SemiBold', color: '#000', textAlign: 'center',
-    }, activeTabText: {
+    },
+    activeTabText: {
         fontSize: 13, fontWeight: 'bold', color: '#FFFFFF', fontFamily: 'Poppins-Bold',
-    }, activeTabIndicator: {
+    },
+    activeTabIndicator: {
         position: 'absolute', bottom: -8, left: '50%', marginLeft: -15, width: 30, height: 3, borderRadius: 2,
-    }, tabProductsSection: {
+    },
+    tabProductsSection: {
         paddingHorizontal: 16, marginTop: 20, marginBottom: 10,
-    }, tabProductsGrid: {
+    },
+    tabProductsGrid: {
         paddingBottom: 10,
-    }, tabProductCard: {
+    },
+    tabProductCard: {
         flex: 1,
         backgroundColor: '#FFFFFF',
         borderRadius: 12,
@@ -1800,35 +2277,50 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 3,
-    }, tabProductImage: {
+    },
+    tabProductImage: {
         width: '100%', height: 100, borderRadius: 8, marginBottom: 8, backgroundColor: '#F8F9FA',
-    }, tabProductInfo: {
+    },
+    tabProductInfo: {
         flex: 1,
-    }, tabProductName: {
+    },
+    tabProductName: {
         fontSize: 12, fontFamily: 'Poppins-Medium', color: '#1B1B1B', marginBottom: 6, lineHeight: 16, minHeight: 32,
-    }, tabProductPrice: {
+    },
+    tabProductPrice: {
         fontSize: 14, fontFamily: 'Poppins-Bold', color: '#1B1B1B',
-    }, tabProductOriginalPrice: {
+    },
+    tabProductOriginalPrice: {
         fontSize: 11, fontFamily: 'Poppins-Regular', color: '#999', textDecorationLine: 'line-through', marginLeft: 4,
-    }, tabAddButton: {
+    },
+    tabAddButton: {
         borderWidth: 1, borderColor: '#27AF34', borderRadius: 6, paddingVertical: 4, paddingHorizontal: 12,
-    }, tabAddButtonText: {
+    },
+    tabAddButtonText: {
         fontSize: 10, fontFamily: 'Poppins-SemiBold', color: '#27AF34',
-    }, tabAddButtonDisabled: {
+    },
+    tabAddButtonDisabled: {
         opacity: 0.6,
-    }, sectionHeaderWithButton: {
+    },
+    sectionHeaderWithButton: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16,
-    }, seeAllButton: {
+    },
+    seeAllButton: {
         flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
-    }, seeAllButtonText: {
+    },
+    seeAllButtonText: {
         fontSize: 12, fontFamily: 'Poppins-SemiBold', color: '#000000', marginRight: 4,
-    }, seeAllArrow: {
+    },
+    seeAllArrow: {
         width: 12, height: 12, tintColor: '#000000',
-    }, loadingContainer: {
+    },
+    loadingContainer: {
         alignItems: 'center', justifyContent: 'center', padding: 40,
-    }, loadingText: {
+    },
+    loadingText: {
         fontSize: 16, fontFamily: 'Poppins-Medium', color: '#666',
-    }, discountBadge: {
+    },
+    discountBadge: {
         backgroundColor: '#FFE8E8',
         paddingHorizontal: 6,
         paddingVertical: 2,
@@ -1836,11 +2328,14 @@ const styles = StyleSheet.create({
         fontSize: 10,
         fontFamily: "Poppins-SemiBold",
         color: "#EC0505",
-    }, header: {
+    },
+    header: {
         paddingTop: 20, paddingBottom: 0,
-    }, topRow: {
+    },
+    topRow: {
         flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 16,
-    }, blinkitText: {
+    },
+    blinkitText: {
         fontFamily: 'Poppins',
         fontSize: 13,
         fontWeight: '700',
@@ -1848,17 +2343,23 @@ const styles = StyleSheet.create({
         letterSpacing: -0.3,
         color: '#FFFFFF',
         marginTop: 12
-    }, deliveryTimeBig: {
+    },
+    deliveryTimeBig: {
         fontFamily: 'Poppins', fontSize: 24, fontWeight: '700', lineHeight: 30, letterSpacing: -0.3, color: '#FFFFFF',
-    }, profileButton: {
+    },
+    profileButton: {
         padding: 4,
-    }, profileCircle: {
+    },
+    profileCircle: {
         width: 40, height: 40, borderRadius: 16, justifyContent: 'center', alignItems: 'center',
-    }, userIcon: {
+    },
+    userIcon: {
         marginTop: 12, width: 15, height: 15, tintColor: '#FFFFFF',
-    }, addressRow: {
+    },
+    addressRow: {
         flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 16,
-    }, homeText: {
+    },
+    homeText: {
         fontFamily: 'Poppins',
         fontSize: 13,
         fontWeight: '700',
@@ -1866,7 +2367,8 @@ const styles = StyleSheet.create({
         letterSpacing: 1,
         color: '#FFFFFF',
         marginRight: 4,
-    }, dash: {
+    },
+    dash: {
         fontFamily: 'Poppins',
         fontSize: 12,
         fontWeight: '700',
@@ -1874,7 +2376,8 @@ const styles = StyleSheet.create({
         letterSpacing: -0.3,
         color: '#FFFFFF',
         marginHorizontal: 4,
-    }, userAddress: {
+    },
+    userAddress: {
         fontFamily: 'Poppins',
         fontSize: 12,
         fontWeight: '400',
@@ -1883,13 +2386,17 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         flex: 1,
         marginRight: 8,
-    }, downArrow: {
+    },
+    downArrow: {
         width: 10, height: 10, tintColor: '#FFFFFF',
-    }, searchContainer: {
+    },
+    searchContainer: {
         paddingHorizontal: 16, marginTop: 10,
-    }, searchBarTouchable: {
+    },
+    searchBarTouchable: {
         width: '100%',
-    }, searchBar: {
+    },
+    searchBar: {
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: '#FFFFFF',
@@ -1898,9 +2405,11 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#C5C5C5',
         paddingHorizontal: 12,
-    }, searchIcon: {
+    },
+    searchIcon: {
         width: 14, height: 14, marginRight: 8,
-    }, searchPlaceholder: {
+    },
+    searchPlaceholder: {
         fontFamily: 'Poppins',
         fontSize: 12,
         fontWeight: '400',
@@ -1908,22 +2417,28 @@ const styles = StyleSheet.create({
         letterSpacing: -0.3,
         color: '#9C9C9C',
         flex: 1,
-    }, separator: {
+    },
+    separator: {
         width: 20,
         height: 0,
         borderWidth: 1,
         borderColor: '#C5C5C5',
         transform: [{rotate: '90deg'}],
         marginHorizontal: 8,
-    }, micIcon: {
+    },
+    micIcon: {
         width: 14, height: 14,
-    }, scrollView: {
+    },
+    scrollView: {
         flex: 1,
-    }, saleBanner: {
+    },
+    saleBanner: {
         height: 220, position: 'relative', overflow: 'hidden',
-    }, saleContent: {
+    },
+    saleContent: {
         flex: 1, justifyContent: 'flex-start', alignItems: 'center', paddingTop: 20,
-    }, saleTitle: {
+    },
+    saleTitle: {
         fontFamily: 'PT Serif',
         fontSize: 22,
         fontWeight: '700',
@@ -1932,15 +2447,20 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         textAlign: 'center',
         marginBottom: 20,
-    }, saleImageRight: {
+    },
+    saleImageRight: {
         position: 'absolute', right: 16, top: 20, width: 50, height: 47,
-    }, saleImageLeft: {
+    },
+    saleImageLeft: {
         position: 'absolute', left: 16, top: 20, width: 50, height: 47, transform: [{scaleX: -1}],
-    }, categoriesSection: {
+    },
+    categoriesSection: {
         width: '100%',
-    }, categoriesScroll: {
+    },
+    categoriesScroll: {
         paddingHorizontal: 15, paddingVertical: 10,
-    }, categoryCard: {
+    },
+    categoryCard: {
         width: 90,
         height: 110,
         borderRadius: 12,
@@ -1953,9 +2473,11 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 3,
-    }, categoryImage: {
+    },
+    categoryImage: {
         width: 70, height: 70, marginBottom: 6,
-    }, categoryName: {
+    },
+    categoryName: {
         fontFamily: 'Poppins',
         fontSize: 10,
         fontWeight: '600',
@@ -1964,13 +2486,17 @@ const styles = StyleSheet.create({
         color: '#000000',
         textAlign: 'center',
         paddingHorizontal: 4,
-    }, productsSection: {
+    },
+    productsSection: {
         paddingHorizontal: 15, marginTop: 20, marginBottom: 10,
-    }, sectionTitle: {
+    },
+    sectionTitle: {
         fontFamily: 'Poppins', fontSize: 15, fontWeight: '700', lineHeight: 24, letterSpacing: -0.3, color: '#000000',
-    }, productsScroll: {
+    },
+    productsScroll: {
         paddingRight: 15,
-    }, productCard: {
+    },
+    productCard: {
         width: 130,
         marginRight: 15,
         backgroundColor: '#FFFFFF',
@@ -1980,19 +2506,26 @@ const styles = StyleSheet.create({
         shadowOffset: {width: 0, height: 2},
         shadowOpacity: 0.1,
         shadowRadius: 4,
-    }, productImage: {
+    },
+    productImage: {
         width: '100%', height: 90, marginBottom: 10, borderRadius: 8,
-    }, grocerySection: {
+    },
+    grocerySection: {
         paddingHorizontal: 15, marginTop: 20, marginBottom: 20,
-    }, groceryScroll: {
+    },
+    groceryScroll: {
         paddingRight: 15,
-    }, groceryCard: {
+    },
+    groceryCard: {
         alignItems: 'center', marginRight: 20, width: 80,
-    }, groceryImageContainer: {
+    },
+    groceryImageContainer: {
         width: 80, height: 85, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 10,
-    }, groceryImage: {
+    },
+    groceryImage: {
         width: 70, height: 70,
-    }, groceryName: {
+    },
+    groceryName: {
         fontFamily: 'Poppins',
         fontSize: 11,
         fontWeight: '500',
@@ -2000,9 +2533,11 @@ const styles = StyleSheet.create({
         letterSpacing: -0.3,
         color: '#000000',
         textAlign: 'center',
-    }, bottomSpacer: {
+    },
+    bottomSpacer: {
         height: 100,
-    }, bottomNav: {
+    },
+    bottomNav: {
         position: 'absolute',
         bottom: 0,
         left: 0,
@@ -2020,27 +2555,36 @@ const styles = StyleSheet.create({
         elevation: 5,
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
-    }, navLine: {
+    },
+    navLine: {
         position: 'absolute', top: 0, left: 0, right: 0, height: 1, backgroundColor: '#9C9C9C',
-    }, navItem: {
+    },
+    navItem: {
         alignItems: 'center', padding: 8,
-    }, navIcon: {
+    },
+    navIcon: {
         width: 26, height: 26, tintColor: '#9C9C9C', marginBottom: 6,
-    }, activeNavIcon: {
+    },
+    activeNavIcon: {
         tintColor: '#000000',
-    }, activeIndicator: {
+    },
+    activeIndicator: {
         width: 42, height: 3, borderRadius: 2, position: 'absolute', bottom: -8,
-    }, modalOverlay: {
+    },
+    modalOverlay: {
         flex: 1, justifyContent: 'flex-end',
-    }, halfScreenModal: {
+    },
+    halfScreenModal: {
         height: height * 0.75,
         backgroundColor: '#FFFFFF',
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         overflow: 'hidden',
-    }, fragmentContainer: {
+    },
+    fragmentContainer: {
         flex: 1, backgroundColor: '#FFFFFF',
-    }, fragmentHeader: {
+    },
+    fragmentHeader: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -2048,49 +2592,71 @@ const styles = StyleSheet.create({
         paddingVertical: 16,
         borderBottomWidth: 1,
         borderBottomColor: '#F0F0F0',
-    }, fragmentCloseButton: {
+    },
+    fragmentCloseButton: {
         padding: 8,
-    }, fragmentCloseIcon: {
+    },
+    fragmentCloseIcon: {
         width: 20, height: 20, tintColor: '#000000',
-    }, fragmentHeaderTitle: {
+    },
+    fragmentHeaderTitle: {
         fontSize: 16, fontWeight: '700', color: '#000000', fontFamily: 'Poppins-Bold',
-    }, fragmentHeaderPlaceholder: {
+    },
+    fragmentHeaderPlaceholder: {
         width: 36,
-    }, fragmentContent: {
+    },
+    fragmentContent: {
         flex: 1, flexDirection: 'row',
-    }, fragmentLeftColumn: {
+    },
+    fragmentLeftColumn: {
         width: '25%', backgroundColor: '#F8F9FA', borderRightWidth: 1, borderRightColor: '#E8E8E8',
-    }, fragmentCategoriesList: {
+    },
+    fragmentCategoriesList: {
         flex: 1,
-    }, fragmentCategoryItem: {
+    },
+    fragmentCategoryItem: {
         paddingVertical: 16, paddingHorizontal: 12, borderBottomColor: '#4CAD73', backgroundColor: '#FFFFFF',
-    }, fragmentSelectedCategoryItem: {
+    },
+    fragmentSelectedCategoryItem: {
         backgroundColor: '#FFF5F5', borderRightWidth: 4, borderRadius: 4, borderRightColor: '#4CAD73',
-    }, fragmentCategoryContent: {
+    },
+    fragmentCategoryContent: {
         alignItems: 'center', justifyContent: 'center',
-    }, fragmentCategoryImage: {
+    },
+    fragmentCategoryImage: {
         width: 50, height: 50, borderRadius: 25, marginBottom: 8, backgroundColor: '#F5F5F5',
-    }, fragmentCategoryName: {
+    },
+    fragmentCategoryName: {
         fontSize: 11, color: '#666', textAlign: 'center', fontFamily: 'Poppins-Regular', lineHeight: 14, minHeight: 28,
-    }, fragmentSelectedCategoryName: {
+    },
+    fragmentSelectedCategoryName: {
         color: '#EC0505', fontWeight: '600', fontFamily: 'Poppins-SemiBold',
-    }, fragmentRightColumn: {
+    },
+    fragmentRightColumn: {
         flex: 1, backgroundColor: '#FFFFFF',
-    }, fragmentLoading: {
+    },
+    fragmentLoading: {
         flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF',
-    }, fragmentLoadingText: {
+    },
+    fragmentLoadingText: {
         fontSize: 14, color: '#666', fontFamily: 'Poppins-Medium',
-    }, fragmentEmpty: {
+    },
+    fragmentEmpty: {
         flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF', paddingHorizontal: 40,
-    }, fragmentEmptyIcon: {
+    },
+    fragmentEmptyIcon: {
         width: 80, height: 80, marginBottom: 16, opacity: 0.5,
-    }, fragmentEmptyText: {
+    },
+    fragmentEmptyText: {
         fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#666', marginBottom: 8, textAlign: 'center',
-    }, fragmentEmptySubtext: {
+    },
+    fragmentEmptySubtext: {
         fontSize: 12, fontFamily: 'Poppins-Regular', color: '#999', textAlign: 'center',
-    }, fragmentProductsGrid: {
+    },
+    fragmentProductsGrid: {
         padding: 14, paddingBottom: 100,
-    }, fragmentProductCard: {
+    },
+    fragmentProductCard: {
         flex: 1,
         backgroundColor: '#FFFFFF',
         borderRadius: 12,
@@ -2100,15 +2666,20 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 3,
-    }, fragmentLeftCard: {
+    },
+    fragmentLeftCard: {
         marginRight: 4,
-    }, fragmentRightCard: {
+    },
+    fragmentRightCard: {
         marginLeft: 4,
-    }, fragmentProductImage: {
+    },
+    fragmentProductImage: {
         width: '100%', height: 120, borderRadius: 8, marginBottom: 8, backgroundColor: '#F8F9FA',
-    }, fragmentProductInfo: {
+    },
+    fragmentProductInfo: {
         flex: 1, marginBottom: 8,
-    }, fragmentProductName: {
+    },
+    fragmentProductName: {
         fontSize: 12,
         fontWeight: '500',
         color: '#1B1B1B',
@@ -2116,28 +2687,37 @@ const styles = StyleSheet.create({
         lineHeight: 16,
         fontFamily: 'Poppins-Medium',
         minHeight: 32,
-    }, fragmentProductPrice: {
+    },
+    fragmentProductPrice: {
         fontSize: 14, fontWeight: '700', color: '#1B1B1B', fontFamily: 'Poppins-Bold',
-    }, fragmentProductOriginalPrice: {
+    },
+    fragmentProductOriginalPrice: {
         fontSize: 12, color: '#999', textDecorationLine: 'line-through', marginLeft: 6, fontFamily: 'Poppins-Regular',
-    }, fragmentAddButton: {
+    },
+    fragmentAddButton: {
         borderWidth: 1,
         borderColor: '#27AF34',
         borderRadius: 6,
         paddingVertical: 4,
         paddingHorizontal: 12,
         alignSelf: 'flex-start',
-    }, fragmentAddButtonText: {
+    },
+    fragmentAddButtonText: {
         fontFamily: 'Poppins', fontSize: 10, fontWeight: '600', lineHeight: 15, letterSpacing: -0.3, color: '#27AF34',
-    }, fragmentAddButtonDisabled: {
+    },
+    fragmentAddButtonDisabled: {
         opacity: 0.6,
-    }, rowBetween: {
+    },
+    rowBetween: {
         flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6, marginLeft: 6
-    }, leftPriceBox: {
+    },
+    leftPriceBox: {
         flexDirection: "column", maxWidth: "65%",
-    }, discountBox: {
+    },
+    discountBox: {
         flexDirection: "row", alignItems: "center", marginTop: 2,
-    }, businessBadge: {
+    },
+    businessBadge: {
         position: 'absolute',
         top: 8,
         left: 8,
@@ -2146,9 +2726,11 @@ const styles = StyleSheet.create({
         paddingVertical: 2,
         borderRadius: 4,
         zIndex: 1,
-    }, businessBadgeText: {
+    },
+    businessBadgeText: {
         color: '#FFFFFF', fontSize: 8, fontFamily: 'Poppins-Bold',
-    }, minQtyBadge: {
+    },
+    minQtyBadge: {
         position: 'absolute',
         top: 8,
         right: 8,
@@ -2157,18 +2739,22 @@ const styles = StyleSheet.create({
         paddingVertical: 2,
         borderRadius: 4,
         zIndex: 1,
-    }, minQtyText: {
+    },
+    minQtyText: {
         color: '#FFFFFF', fontSize: 8, fontFamily: 'Poppins-Bold',
-    }, businessMinQty: {
+    },
+    businessMinQty: {
         fontSize: 10, fontFamily: 'Poppins-Regular', color: '#FF6B35', marginTop: 2,
-    }, bottomQuantityContainer: {
+    },
+    bottomQuantityContainer: {
         borderTopColor: '#eee',
         paddingTop: 10,
         paddingBottom: 4,
         flexDirection: 'row',
         justifyContent: 'flex-start',
         alignItems: 'center',
-    }, cartPopupContainer: {
+    },
+    cartPopupContainer: {
         position: 'absolute', bottom: 100, left: 0, right: 0, alignItems: 'center', zIndex: 1000,
     },
 
@@ -2222,7 +2808,8 @@ const styles = StyleSheet.create({
 
     cartItemsCount: {
         fontSize: 15, fontFamily: 'Poppins-SemiBold', color: '#1B1B1B',
-    }, tierPricingInfo: {
+    },
+    tierPricingInfo: {
         fontSize: 9, fontFamily: 'Poppins-Regular', color: '#4CAD73', marginTop: 2, fontStyle: 'italic',
     },
     tabLoadingContainer: {
@@ -2322,5 +2909,59 @@ const styles = StyleSheet.create({
 
     quantityButtonDisabledText: {
         color: '#CCC',
+    },
+
+    // New styles for variant selector with attributes
+    variantsContainer: {
+        marginBottom: 8,
+    },
+    variantAttributeSection: {
+        marginBottom: 6,
+    },
+    variantLabel: {
+        fontSize: 10,
+        fontFamily: 'Poppins-Medium',
+        color: '#666',
+        marginBottom: 2,
+    },
+    variantScroll: {
+        flexDirection: 'row',
+    },
+    variantOption: {
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 4,
+        backgroundColor: '#F5F5F5',
+        marginRight: 6,
+        borderWidth: 1,
+        borderColor: '#E0E0E0',
+    },
+    selectedVariantOption: {
+        backgroundColor: '#4CAD73',
+        borderColor: '#4CAD73',
+    },
+    disabledVariantOption: {
+        backgroundColor: '#F5F5F5',
+        borderColor: '#E0E0E0',
+        opacity: 0.5,
+    },
+    outOfStockVariantOption: {
+        borderColor: '#FFCCCB',
+        backgroundColor: '#FFF5F5',
+    },
+    variantText: {
+        fontSize: 9,
+        fontFamily: 'Poppins-Regular',
+        color: '#666',
+    },
+    selectedVariantText: {
+        color: '#FFFFFF',
+        fontFamily: 'Poppins-SemiBold',
+    },
+    disabledVariantText: {
+        color: '#999',
+    },
+    outOfStockVariantText: {
+        color: '#FF4444',
     },
 });

@@ -89,7 +89,7 @@ export const addCartItem = async ({productId, variantId = null, quantity = 1}) =
         quantity,
         sessionId,
     };
-
+    console.log(body)
     const res = await apiClient.post('/api/cart/item', body);
     return res.data;
 };

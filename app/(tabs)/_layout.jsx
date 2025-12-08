@@ -1,52 +1,10 @@
-import {Tabs} from 'expo-router';
+import { Tabs } from 'expo-router';
 import React from 'react';
-import {Image, View} from "react-native";
+import { Image, View, Platform } from "react-native";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
-    const tabConfig = [
-        {
-            name: "Home",
-            title: "Home",
-            icon: require("../../assets/icons/home.png"),
-            activeIcon: require("../../assets/icons/home_green.png"),
-        },
-        {
-            name: "Cart",
-            title: "Cart",
-            icon: require("../../assets/icons/cart.png"),
-            activeIcon: require("../../assets/icons/cart_green.png"),
-        },
-        {
-            name: "Account",
-            title: "Account",
-            icon: require("../../assets/icons/account.png"),
-            activeIcon: require("../../assets/icons/account_green.png"),
-        },
-        {
-            name: "Order",
-            title: "Order",
-            icon: require("../../assets/icons/order_menu.png"),
-            activeIcon: require("../../assets/icons/order_green.png"),
-        }
-    ];
-
-    const TabItem = ({focused, icon, activeIcon}) => (
-        <View style={{
-            justifyContent: 'center',
-            marginTop: 30,
-            width: 65,
-            height: 65,
-        }}>
-            <Image
-                source={focused ? activeIcon : icon}
-                style={{
-                    width: 50,
-                    height: 50,
-                }}
-                resizeMode="contain"
-            />
-        </View>
-    );
+    const insets = useSafeAreaInsets();
 
     return (
         <Tabs
@@ -56,18 +14,19 @@ export default function TabLayout() {
                 tabBarStyle: {
                     position: 'absolute',
                     width: '100%',
-                    height: 90,
+                    height: 60 + insets.bottom,
                     bottom: 0,
                     backgroundColor: '#FFFFFF',
-                    borderTopLeftRadius: 40,
-                    borderTopRightRadius: 40,
+                    borderTopLeftRadius: 25,
+                    borderTopRightRadius: 25,
                     shadowColor: '#000',
-                    shadowOffset: {width: 0, height: -10},
-                    shadowOpacity: 0.07,
-                    shadowRadius: 70,
-                    elevation: 10,
+                    shadowOffset: { width: 0, height: -5 },
+                    shadowOpacity: 0.08,
+                    shadowRadius: 25,
+                    elevation: 15,
                     paddingHorizontal: 20,
-                    paddingVertical: 10,
+                    paddingBottom: insets.bottom,
+                    paddingTop: 10,
                 },
             }}
         >
@@ -75,12 +34,17 @@ export default function TabLayout() {
             <Tabs.Screen
                 name="Home"
                 options={{
-                    tabBarIcon: ({focused}) => (
-                        <TabItem
-                            focused={focused}
-                            icon={require("../../assets/icons/home.png")}
-                            activeIcon={require("../../assets/icons/home_green.png")}
-                        />
+                    tabBarIcon: ({ focused }) => (
+                        <View style={{ alignItems: 'center', marginTop: 5 }}>
+                            <Image
+                                source={focused ?
+                                    require("../../assets/icons/home_green.png") :
+                                    require("../../assets/icons/home.png")
+                                }
+                                style={{ width: 50, height: 50 }}
+                                resizeMode="contain"
+                            />
+                        </View>
                     ),
                 }}
             />
@@ -89,43 +53,58 @@ export default function TabLayout() {
             <Tabs.Screen
                 name="Cart"
                 options={{
-                    tabBarIcon: ({focused}) => (
-                        <TabItem
-                            focused={focused}
-                            icon={require("../../assets/icons/cart.png")}
-                            activeIcon={require("../../assets/icons/cart_green.png")}
-                        />
+                    tabBarIcon: ({ focused }) => (
+                        <View style={{ alignItems: 'center', marginTop: 5}}>
+                            <Image
+                                source={focused ?
+                                    require("../../assets/icons/cart_green.png") :
+                                    require("../../assets/icons/cart.png")
+                                }
+                                style={{ width: 50, height: 50 }}
+                                resizeMode="contain"
+                            />
+                        </View>
                     ),
                 }}
             />
+
             {/* Order Tab */}
             <Tabs.Screen
                 name="Order"
                 options={{
-                    tabBarIcon: ({focused}) => (
-                        <TabItem
-                            focused={focused}
-                            icon={require("../../assets/icons/order_menu.png")}
-                            activeIcon={require("../../assets/icons/order_green.png")}
-                        />
+                    tabBarIcon: ({ focused }) => (
+                        <View style={{ alignItems: 'center', marginTop: 5}}>
+                            <Image
+                                source={focused ?
+                                    require("../../assets/icons/order_green.png") :
+                                    require("../../assets/icons/order_menu.png")
+                                }
+                                style={{ width: 58, height: 58 }}
+                                resizeMode="contain"
+                            />
+                        </View>
                     ),
                 }}
             />
+
             {/* Account Tab */}
             <Tabs.Screen
                 name="Account"
                 options={{
-                    tabBarIcon: ({focused}) => (
-                        <TabItem
-                            focused={focused}
-                            icon={require("../../assets/icons/account.png")}
-                            activeIcon={require("../../assets/icons/account_green.png")}
-                        />
+                    tabBarIcon: ({ focused }) => (
+                        <View style={{ alignItems: 'center', marginTop: 5 }}>
+                            <Image
+                                source={focused ?
+                                    require("../../assets/icons/account_green.png") :
+                                    require("../../assets/icons/account.png")
+                                }
+                                style={{ width: 55, height: 55 }}
+                                resizeMode="contain"
+                            />
+                        </View>
                     ),
                 }}
             />
-
-
         </Tabs>
     );
 }

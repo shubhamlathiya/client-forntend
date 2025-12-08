@@ -18,9 +18,11 @@ import {
 } from 'react-native';
 import {getAddresses, deleteAddress, setDefaultAddress} from '../../api/addressApi';
 import * as Location from 'expo-location';
+import {useSafeAreaInsets} from "react-native-safe-area-context";
 
 export default function AddressListScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
     const [addresses, setAddresses] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -84,7 +86,7 @@ export default function AddressListScreen() {
             setGettingLocation(true);
 
             // Request location permissions
-            let { status } = await Location.requestForegroundPermissionsAsync();
+            let {status} = await Location.requestForegroundPermissionsAsync();
 
             if (status !== 'granted') {
                 showMessage('Permission to access location was denied', true);
@@ -97,7 +99,7 @@ export default function AddressListScreen() {
                 timeout: 15000
             });
 
-            const { latitude, longitude } = location.coords;
+            const {latitude, longitude} = location.coords;
 
             // Reverse geocode to get address
             let geocode = await Location.reverseGeocodeAsync({
@@ -284,7 +286,7 @@ export default function AddressListScreen() {
                         </Text>
                     </View>
                     {gettingLocation ? (
-                        <ActivityIndicator size="small" color="#4CAD73" />
+                        <ActivityIndicator size="small" color="#4CAD73"/>
                     ) : (
                         <Image
                             source={require('../../assets/icons/right-arrow.png')}
@@ -408,7 +410,13 @@ export default function AddressListScreen() {
             </ScrollView>
 
             {/* Fixed Add Address Button - Blinkit Style */}
-            <View style={styles.footer}>
+            <View
+                style={[
+                    styles.footer,
+                    {bottom: insets.bottom}
+                ]}
+            >
+
                 <Pressable
                     style={styles.addButton}
                     onPress={handleAddNew}
@@ -729,7 +737,6 @@ const styles = StyleSheet.create({
     },
     // Footer
     footer: {
-        position: 'absolute',
         bottom: 0,
         left: 0,
         right: 0,
@@ -742,7 +749,6 @@ const styles = StyleSheet.create({
         shadowOffset: {width: 0, height: -2},
         shadowOpacity: 0.1,
         shadowRadius: 4,
-        elevation: 8,
     },
     addButton: {
         flexDirection: 'row',

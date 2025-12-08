@@ -24,34 +24,12 @@ import {getCategories, getProducts, toggleWishlist, checkWishlist} from "../../a
 import {addCartItem, getCart, removeCartItem, updateCartItem} from "../../api/cartApi";
 import {API_BASE_URL} from "../../config/apiConfig";
 import Slider from '@react-native-community/slider';
+import {useSafeAreaInsets} from "react-native-safe-area-context";
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 
 // Check if device has notch (iPhone X and above)
 const hasNotch = Platform.OS === 'ios' && (screenHeight >= 812 || screenWidth >= 812);
-
-// Safe area insets for different devices
-const getSafeAreaInsets = () => {
-    if (Platform.OS === 'ios') {
-        if (hasNotch) {
-            return {
-                top: 44, // Status bar + notch area
-                bottom: 34 // Home indicator area
-            };
-        }
-        return {
-            top: 20, // Regular status bar
-            bottom: 0
-        };
-    }
-    // Android
-    return {
-        top: StatusBar.currentHeight || 25,
-        bottom: 0
-    };
-};
-
-const safeAreaInsets = getSafeAreaInsets();
 
 // Responsive size calculator with constraints
 const RF = (size) => {
@@ -66,6 +44,7 @@ const isTablet = screenWidth >= 768;
 export default function AllProductsScreen() {
     const router = useRouter();
     const params = useLocalSearchParams();
+    const insets = useSafeAreaInsets();
 
     const [products, setProducts] = useState([]);
     const [filteredProducts, setFilteredProducts] = useState([]);
@@ -93,6 +72,9 @@ export default function AllProductsScreen() {
     const [selectedVariants, setSelectedVariants] = useState({});
     const [selectedAttributes, setSelectedAttributes] = useState({});
     const [groupedVariants, setGroupedVariants] = useState({});
+
+    // Bottom navigation state
+    const [activeTab, setActiveTab] = useState('home');
 
     // Calculate number of columns based on screen width
     const getColumnsCount = () => {
@@ -154,6 +136,18 @@ export default function AllProductsScreen() {
             }
         });
     }, [filteredProducts]);
+
+    // Calculate bottom navigation height
+    const getBottomNavigationHeight = () => {
+        const baseHeight = RF(60);
+        const bottomPadding = Platform.select({
+            ios: insets.bottom,
+            android: Math.max(insets.bottom, 10),
+        });
+        return baseHeight + bottomPadding;
+    };
+
+    const bottomNavHeight = getBottomNavigationHeight();
 
     const loadInitialData = async () => {
         await Promise.all([
@@ -507,7 +501,7 @@ export default function AllProductsScreen() {
         if (!product) return;
 
         const currentAttrs = selectedAttributes[productId] || {};
-        const updatedAttrs = { ...currentAttrs, [attributeType]: value };
+        const updatedAttrs = {...currentAttrs, [attributeType]: value};
 
         // Update attributes
         setSelectedAttributes(prev => ({
@@ -989,7 +983,7 @@ export default function AllProductsScreen() {
                 'Login Required',
                 'Please login to add items to your wishlist',
                 [
-                    { text: 'Cancel', style: 'cancel' },
+                    {text: 'Cancel', style: 'cancel'},
                     {
                         text: 'Login',
                         onPress: () => router.push('/screens/LoginScreen')
@@ -1175,7 +1169,8 @@ export default function AllProductsScreen() {
                             {Object.keys(grouped).map((attributeType) => (
                                 <View key={attributeType} style={styles.variantAttributeSection}>
                                     <Text style={styles.variantLabel}>{grouped[attributeType].name}:</Text>
-                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.variantScroll}>
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                                                style={styles.variantScroll}>
                                         {grouped[attributeType].values.map((value) => {
                                             const isSelected = currentAttributes[attributeType] === value;
                                             const isAvailable = isAttributeAvailable(item.variants, attributeType, value, currentAttributes);
@@ -1268,7 +1263,7 @@ export default function AllProductsScreen() {
                                 onPress={() => handleAddToCart(item)}
                             >
                                 {addingToCart[productId] ? (
-                                    <ActivityIndicator size="small" color="#27AF34" />
+                                    <ActivityIndicator size="small" color="#27AF34"/>
                                 ) : (
                                     <Text style={styles.addButtonText}>ADD</Text>
                                 )}
@@ -1302,7 +1297,7 @@ export default function AllProductsScreen() {
                 <StatusBar backgroundColor="#4CAD73" barStyle="light-content"/>
                 <SafeAreaView style={styles.container}>
                     <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="large" color="#4CAD73" />
+                        <ActivityIndicator size="large" color="#4CAD73"/>
                         <Text style={styles.loadingText}>Loading products...</Text>
                     </View>
                 </SafeAreaView>
@@ -1319,8 +1314,7 @@ export default function AllProductsScreen() {
                 <View style={[
                     styles.header,
                     {
-                        height: RF(60) + safeAreaInsets.top,
-                        paddingTop: safeAreaInsets.top,
+                        paddingTop: insets.top > 0 ? insets.top : Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0,
                     }
                 ]}>
                     <Pressable
@@ -1358,8 +1352,13 @@ export default function AllProductsScreen() {
             </SafeAreaView>
 
             {/* Main Content with bottom safe area */}
-            <SafeAreaView style={styles.contentSafeArea}>
-                <View style={styles.mainContent}>
+            <SafeAreaView
+                style={[
+                    styles.contentSafeArea,
+
+                ]}
+            >
+                <View style={[styles.mainContent, {marginBottom: insets.bottom}]}>
 
                     {/* Search Bar */}
                     <View style={styles.searchContainer}>
@@ -1417,7 +1416,7 @@ export default function AllProductsScreen() {
                         contentContainerStyle={[
                             styles.productsGrid,
                             {
-                                paddingBottom: safeAreaInsets.bottom + RF(20),
+                                paddingBottom: bottomNavHeight + RF(20), // Add space for bottom navigation
                             }
                         ]}
                         showsVerticalScrollIndicator={false}
@@ -1444,7 +1443,7 @@ export default function AllProductsScreen() {
                 </View>
             </SafeAreaView>
 
-            {/* Filters Modal */}
+            {/* Filters Modal - Fixed scrolling */}
             <Modal
                 visible={showFilters}
                 animationType="slide"
@@ -1453,8 +1452,8 @@ export default function AllProductsScreen() {
                 statusBarTranslucent={true}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={[styles.modalContent, {
-                        maxHeight: screenHeight * 0.85,
+                    <View style={[styles.modalContainer, {
+                        height: screenHeight * 0.75,
                         borderTopLeftRadius: RF(20),
                         borderTopRightRadius: RF(20),
                     }]}>
@@ -1471,6 +1470,7 @@ export default function AllProductsScreen() {
                         <ScrollView
                             style={styles.filterContent}
                             showsVerticalScrollIndicator={false}
+                            contentContainerStyle={styles.filterContentContainer}
                         >
                             {/* Sort By */}
                             <View style={styles.filterSection}>
@@ -1586,6 +1586,10 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#FFFFFF',
     },
+    mainContent: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+    },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1611,10 +1615,79 @@ const styles = StyleSheet.create({
     headerPlaceholder: {
         opacity: 0,
     },
-    mainContent: {
-        flex: 1,
-        backgroundColor: '#FFFFFF',
+    // Bottom Navigation Styles
+    bottomNavigation: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        borderTopLeftRadius: RF(25),
+        borderTopRightRadius: RF(25),
+        shadowColor: '#000',
+        shadowOffset: {width: 0, height: -4},
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+        elevation: 15,
+        zIndex: 1000,
     },
+    bottomNavContent: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        alignItems: 'center',
+        height: RF(60),
+    },
+    bottomNavItem: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        flex: 1,
+        paddingHorizontal: RF(8),
+    },
+    bottomNavIconContainer: {
+        position: 'relative',
+        marginBottom: RF(4),
+    },
+    bottomNavIcon: {
+        width: RF(28),
+        height: RF(28),
+    },
+    orderNavIcon: {
+        width: RF(32),
+        height: RF(32),
+    },
+    accountNavIcon: {
+        width: RF(30),
+        height: RF(30),
+    },
+    cartBadge: {
+        position: 'absolute',
+        top: -RF(6),
+        right: -RF(6),
+        backgroundColor: '#FF4444',
+        borderRadius: RF(10),
+        minWidth: RF(18),
+        height: RF(18),
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: RF(4),
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
+    },
+    cartBadgeText: {
+        color: '#FFFFFF',
+        fontSize: RF(10),
+        fontWeight: 'bold',
+        fontFamily: 'Poppins-Bold',
+    },
+    bottomNavLabel: {
+        fontSize: RF(10),
+        color: '#666',
+        fontFamily: 'Poppins-Medium',
+    },
+    bottomNavLabelActive: {
+        color: '#4CAD73',
+        fontWeight: '600',
+    },
+    // ... rest of your existing styles remain the same
     searchContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1749,9 +1822,9 @@ const styles = StyleSheet.create({
         marginBottom: RF(6),
     },
     productPrice: {
-        fontSize: RF(14),
-        fontFamily: 'Poppins-Bold',
-        color: '#1B1B1B',
+        fontSize: 16,
+        fontWeight: '900',
+        color: '#4CAD73',
     },
     discountContainer: {
         flexDirection: 'row',
@@ -1777,7 +1850,7 @@ const styles = StyleSheet.create({
     stockInfo: {
         fontSize: RF(10),
         fontFamily: 'Poppins-Regular',
-        color: '#4CAF50',
+        color: '#2196F3',
         marginBottom: RF(8),
     },
     businessMinQty: {
@@ -1807,13 +1880,12 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         backgroundColor: '#F8F8F8',
         borderRadius: RF(6),
-        paddingHorizontal: RF(8),
+        paddingHorizontal: RF(6),
         paddingVertical: RF(6),
         borderWidth: 1,
         borderColor: '#E8E8E8',
     },
     quantityButton: {
-        padding: RF(4),
         minWidth: RF(24),
         alignItems: 'center',
         justifyContent: 'center',
@@ -1822,12 +1894,12 @@ const styles = StyleSheet.create({
         opacity: 0.5,
     },
     quantityButtonText: {
-        fontSize: RF(14),
+        fontSize: RF(11),
         color: '#666',
         fontWeight: 'bold',
     },
     quantityText: {
-        fontSize: RF(12),
+        fontSize: RF(11),
         fontWeight: '600',
         color: '#1B1B1B',
         marginHorizontal: RF(12),
@@ -1893,13 +1965,6 @@ const styles = StyleSheet.create({
         color: '#666',
         marginTop: RF(10),
     },
-    listHeaderText: {
-        fontSize: RF(11),
-        color: '#666',
-        fontFamily: 'Poppins-Regular',
-        marginLeft: RF(5),
-        marginBottom: RF(8),
-    },
     emptyContainer: {
         flex: 1,
         justifyContent: 'center',
@@ -1943,7 +2008,7 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0, 0, 0, 0.5)',
         justifyContent: 'flex-end',
     },
-    modalContent: {
+    modalContainer: {
         backgroundColor: '#FFFFFF',
         width: '100%',
     },
@@ -1966,8 +2031,10 @@ const styles = StyleSheet.create({
         tintColor: '#666',
     },
     filterContent: {
+        flex: 1,
+    },
+    filterContentContainer: {
         padding: RF(20),
-        maxHeight: screenHeight * 0.6,
     },
     filterSection: {
         marginBottom: RF(20),

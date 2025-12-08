@@ -13,6 +13,7 @@ import {
     Platform,
     Image,
     Modal,
+    Dimensions,
 } from 'react-native';
 
 import {generateOrderSummary, createOrder, getOrderById} from '../../api/ordersApi';
@@ -20,9 +21,25 @@ import {getCart} from '../../api/cartApi';
 import {initiatePayment, verifyRazorpayPayment} from '../../api/paymentApi';
 import PaymentWebView from './PaymentWebView';
 import {API_BASE_URL} from "../../config/apiConfig";
+import {useSafeAreaInsets} from "react-native-safe-area-context";
+
+
+const {width, height} = Dimensions.get('window');
+
+// Responsive calculations
+const RF = (size) => {
+    const scale = width / 375;
+    return Math.ceil(size * scale);
+};
+
+const RH = (size) => {
+    const scale = height / 812;
+    return Math.ceil(size * scale);
+};
 
 export default function SummaryScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
 
     const [loading, setLoading] = useState(true);
     const [placing, setPlacing] = useState(false);
@@ -39,6 +56,25 @@ export default function SummaryScreen() {
     const [paymentCompleted, setPaymentCompleted] = useState(false);
     const [createdOrderId, setCreatedOrderId] = useState(null);
     const [paymentVerificationData, setPaymentVerificationData] = useState(null);
+
+    // Calculate bottom padding for tab bar
+    const getTabBarBottomPadding = () => {
+        const baseTabHeight = RH(60); // Base tab bar height
+
+        if (Platform.OS === 'ios') {
+            // iOS: tab bar height + home indicator area
+            return baseTabHeight + insets.bottom;
+        } else {
+            // Android: handle gesture navigation
+            if (insets.bottom === 0) {
+                // Gesture navigation enabled
+                return baseTabHeight + RH(20);
+            } else {
+                // Software navigation bar
+                return baseTabHeight + insets.bottom;
+            }
+        }
+    };
 
     const showMessage = (message, isError = false) => {
         if (Platform.OS === 'android') {
@@ -318,6 +354,7 @@ export default function SummaryScreen() {
                         setPaymentData(null);
                         setPaymentInitialized(false);
                         setShowPaymentModal(false);
+                        setStartingPayment(false);
                     }
                 }
             ]
@@ -355,6 +392,8 @@ export default function SummaryScreen() {
         else router.replace('/Home');
     };
 
+    const tabBarPadding = getTabBarBottomPadding();
+
     return (
         <View style={styles.container}>
             {/* TOP BAR */}
@@ -369,7 +408,10 @@ export default function SummaryScreen() {
             </View>
 
             <ScrollView
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[
+                    styles.scrollContent,
+                    { paddingBottom: tabBarPadding + RH(10) }
+                ]}
                 showsVerticalScrollIndicator={false}
             >
                 {/* ADDRESS CARD */}
@@ -509,8 +551,13 @@ export default function SummaryScreen() {
 
             </ScrollView>
 
-            {/* ACTION BUTTONS */}
-            <View style={styles.footer}>
+            {/* ACTION BUTTONS - Fixed footer with tab bar padding */}
+            <View style={[
+                styles.footer,
+                {
+                    bottom: tabBarPadding - RH(60) // Position above tab bar
+                }
+            ]}>
                 <View style={styles.footerTotal}>
                     <Text style={styles.footerTotalLabel}>Total Payable</Text>
                     <Text style={styles.footerTotalValue}>₹{total.toFixed(2)}</Text>
@@ -586,8 +633,8 @@ const styles = StyleSheet.create({
         backgroundColor: '#F8F9FA',
     },
     topBar: {
-        padding: 20,
-        marginTop: 20,
+        padding: RF(20),
+        marginTop: Platform.OS === 'ios' ? 0 : RH(20),
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: '#FFFFFF',
@@ -595,14 +642,14 @@ const styles = StyleSheet.create({
         borderBottomColor: '#F0F0F0',
     },
     heading: {
-        fontSize: 20,
+        fontSize: RF(20),
         fontWeight: '600',
-        marginLeft: 20,
+        marginLeft: RF(20),
         color: '#1B1B1B'
     },
     iconBox: {
-        width: 32,
-        height: 32,
+        width: RF(32),
+        height: RF(32),
     },
     loadingContainer: {
         flex: 1,
@@ -611,19 +658,18 @@ const styles = StyleSheet.create({
         backgroundColor: '#F8F9FA',
     },
     loadingText: {
-        marginTop: 8,
-        fontSize: 16,
+        marginTop: RH(8),
+        fontSize: RF(16),
         color: '#666'
     },
     scrollContent: {
-        padding: 16,
-        paddingBottom: 180,
+        padding: RF(16),
     },
     card: {
         backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 12,
+        borderRadius: RF(12),
+        padding: RF(16),
+        marginBottom: RH(12),
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
@@ -631,63 +677,63 @@ const styles = StyleSheet.create({
         elevation: 3,
     },
     cardTitle: {
-        fontSize: 16,
+        fontSize: RF(16),
         fontWeight: '600',
         color: '#1B1B1B',
-        marginBottom: 12,
+        marginBottom: RH(12),
     },
     addressHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 8,
+        marginBottom: RH(8),
     },
     addressName: {
-        fontSize: 16,
+        fontSize: RF(16),
         fontWeight: '600',
         color: '#1B1B1B',
     },
     addressPhone: {
-        fontSize: 14,
+        fontSize: RF(14),
         color: '#666',
     },
     addressText: {
-        fontSize: 14,
+        fontSize: RF(14),
         color: '#333',
-        lineHeight: 20,
-        marginBottom: 4,
+        lineHeight: RH(20),
+        marginBottom: RH(4),
     },
     addressArea: {
-        fontSize: 14,
+        fontSize: RF(14),
         color: '#666',
-        marginBottom: 4,
+        marginBottom: RH(4),
     },
     addressCountry: {
-        fontSize: 14,
+        fontSize: RF(14),
         color: '#666',
-        marginBottom: 8,
+        marginBottom: RH(8),
     },
     linkButton: {
-        marginTop: 8,
+        marginTop: RH(8),
     },
     linkText: {
         color: '#4CAD73',
-        fontSize: 14,
+        fontSize: RF(14),
         fontWeight: '600',
     },
     orderItem: {
         flexDirection: 'row',
-        paddingVertical: 12,
+        paddingVertical: RH(12),
         borderBottomWidth: 1,
         borderBottomColor: '#F0F0F0',
     },
     itemImageContainer: {
-        marginRight: 12,
+        marginRight: RF(12),
     },
     itemImage: {
-        width: 60,
-        height: 60,
-        borderRadius: 8,
+        width: RF(60),
+        height: RF(60),
+        borderRadius: RF(8),
         backgroundColor: '#F5F6FA',
     },
     itemDetails: {
@@ -695,20 +741,20 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
     },
     itemName: {
-        fontSize: 14,
+        fontSize: RF(14),
         fontWeight: '600',
         color: '#1B1B1B',
-        marginBottom: 4,
+        marginBottom: RH(4),
     },
     itemBrand: {
-        fontSize: 12,
+        fontSize: RF(12),
         color: '#666',
-        marginBottom: 2,
+        marginBottom: RH(2),
     },
     itemVariant: {
-        fontSize: 12,
+        fontSize: RF(12),
         color: '#888',
-        marginBottom: 6,
+        marginBottom: RH(6),
     },
     itemPriceRow: {
         flexDirection: 'row',
@@ -716,28 +762,28 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     itemQuantity: {
-        fontSize: 12,
+        fontSize: RF(12),
         color: '#666',
     },
     itemPrice: {
-        fontSize: 14,
+        fontSize: RF(14),
         fontWeight: '600',
         color: '#1B1B1B',
     },
     shippingText: {
-        fontSize: 11,
+        fontSize: RF(11),
         color: '#666',
-        marginTop: 2,
+        marginTop: RH(2),
     },
     paymentMethod: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 12,
+        padding: RF(12),
         borderWidth: 1,
         borderColor: '#E6E6E6',
-        borderRadius: 8,
-        marginBottom: 8,
+        borderRadius: RF(8),
+        marginBottom: RH(8),
     },
     paymentMethodSelected: {
         borderColor: '#4CAD73',
@@ -748,12 +794,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     radioButton: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
+        width: RF(20),
+        height: RF(20),
+        borderRadius: RF(10),
         borderWidth: 2,
         borderColor: '#CCC',
-        marginRight: 12,
+        marginRight: RF(12),
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -761,54 +807,54 @@ const styles = StyleSheet.create({
         borderColor: '#4CAD73',
     },
     radioButtonInner: {
-        width: 10,
-        height: 10,
-        borderRadius: 5,
+        width: RF(10),
+        height: RF(10),
+        borderRadius: RF(5),
         backgroundColor: '#4CAD73',
     },
     paymentMethodName: {
-        fontSize: 14,
+        fontSize: RF(14),
         fontWeight: '600',
         color: '#1B1B1B',
     },
     paymentMethodDesc: {
-        fontSize: 12,
+        fontSize: RF(12),
         color: '#666',
     },
     paymentNote: {
-        fontSize: 12,
+        fontSize: RF(12),
         color: '#666',
         fontStyle: 'italic',
-        marginTop: 8,
+        marginTop: RH(8),
     },
     detailRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingVertical: 4,
+        paddingVertical: RH(4),
     },
     detailLabel: {
-        fontSize: 13,
+        fontSize: RF(13),
         color: '#666',
     },
     detailValue: {
-        fontSize: 13,
+        fontSize: RF(13),
         fontWeight: '500',
         color: '#1B1B1B',
     },
     finalRow: {
         borderTopWidth: 1,
         borderTopColor: '#F0F0F0',
-        marginTop: 6,
-        paddingTop: 8,
+        marginTop: RH(6),
+        paddingTop: RH(8),
     },
     finalLabel: {
-        fontSize: 14,
+        fontSize: RF(14),
         fontWeight: '600',
         color: '#1B1B1B',
     },
     finalValue: {
-        fontSize: 15,
+        fontSize: RF(15),
         fontWeight: '700',
         color: '#4CAD73',
     },
@@ -816,49 +862,50 @@ const styles = StyleSheet.create({
         color: '#EC0505',
     },
     textMuted: {
-        fontSize: 14,
+        fontSize: RF(14),
         color: '#777',
         fontStyle: 'italic',
     },
     footer: {
-        position: 'absolute',
-        bottom: 0,
         left: 0,
         right: 0,
         backgroundColor: '#FFFFFF',
         borderTopWidth: 1,
         borderTopColor: '#F0F0F0',
-        padding: 16,
-        paddingBottom: 34,
+        padding: RF(16),
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
     },
     footerTotal: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 12,
-        paddingBottom: 12,
+        marginBottom: RH(12),
+        paddingBottom: RH(12),
         borderBottomWidth: 1,
         borderBottomColor: '#F0F0F0',
     },
     footerTotalLabel: {
-        fontSize: 16,
+        fontSize: RF(16),
         fontWeight: '600',
         color: '#1B1B1B',
     },
     footerTotalValue: {
-        fontSize: 18,
+        fontSize: RF(18),
         fontWeight: '700',
         color: '#4CAD73',
     },
     actions: {
         flexDirection: 'row',
-        gap: 12,
+        gap: RF(12),
     },
     primaryButton: {
         flex: 1,
         backgroundColor: '#4CAD73',
-        paddingVertical: 16,
-        borderRadius: 12,
+        paddingVertical: RH(16),
+        borderRadius: RF(12),
         alignItems: 'center',
         justifyContent: 'center',
         shadowColor: '#4CAD73',
@@ -869,7 +916,7 @@ const styles = StyleSheet.create({
     },
     primaryButtonText: {
         color: '#FFFFFF',
-        fontSize: 16,
+        fontSize: RF(16),
         fontWeight: '600',
     },
     secondaryButton: {
@@ -877,14 +924,14 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
         borderWidth: 1,
         borderColor: '#DDD',
-        paddingVertical: 16,
-        borderRadius: 12,
+        paddingVertical: RH(16),
+        borderRadius: RF(12),
         alignItems: 'center',
         justifyContent: 'center',
     },
     secondaryButtonText: {
         color: '#1B1B1B',
-        fontSize: 16,
+        fontSize: RF(16),
         fontWeight: '600',
     },
     buttonDisabled: {
@@ -898,21 +945,21 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 16,
+        padding: RF(16),
         borderBottomWidth: 1,
         borderBottomColor: '#E0E0E0',
-        paddingTop: 60
+        paddingTop: Platform.OS === 'ios' ? RF(60) : RF(20)
     },
     modalTitle: {
-        fontSize: 18,
+        fontSize: RF(18),
         fontWeight: '600',
         color: '#333'
     },
     closeButton: {
-        padding: 8
+        padding: RF(8)
     },
     closeButtonText: {
-        fontSize: 20,
+        fontSize: RF(20),
         color: '#666',
         fontWeight: 'bold'
     }

@@ -15,6 +15,7 @@ import {
 import {useRouter} from 'expo-router';
 import {getCategories} from "../../api/catalogApi";
 import {API_BASE_URL} from "../../config/apiConfig";
+import {useSafeAreaInsets} from "react-native-safe-area-context";
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 
@@ -56,6 +57,8 @@ const isTablet = screenWidth >= 768;
 
 export default function AllCategoriesScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
+
     const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -316,7 +319,7 @@ export default function AllCategoriesScreen() {
 
             {/* Main Content with bottom safe area */}
             <SafeAreaView style={styles.contentSafeArea}>
-                <View style={styles.mainContent}>
+                <View style={[styles.mainContent, {marginBottom: insets.bottom}]}>
                     <FlatList
                         data={categories}
                         keyExtractor={(item) => item._id}

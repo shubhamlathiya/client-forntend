@@ -25,6 +25,7 @@ import {LinearGradient} from "expo-linear-gradient";
 import * as ImagePicker from 'expo-image-picker';
 import {uploadProfileImage, getUserProfile, logoutUser, updateUserPhone} from "../../api/authApi";
 import {API_BASE_URL} from "../../config/apiConfig";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const {width, height} = Dimensions.get('window');
 
@@ -41,6 +42,7 @@ const RH = (size) => {
 
 export default function AccountScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
     const [user, setUser] = useState(null);
     const [loggingOut, setLoggingOut] = useState(false);
     const [uploading, setUploading] = useState(false);
@@ -51,6 +53,25 @@ export default function AccountScreen() {
     const [updatingPhone, setUpdatingPhone] = useState(false);
     const [isPhoneEditable, setIsPhoneEditable] = useState(false);
     const [loadingProfile, setLoadingProfile] = useState(true);
+
+    // Calculate bottom padding for tab bar
+    const getTabBarBottomPadding = () => {
+        const baseTabHeight = RH(0); // Base tab bar height
+
+        if (Platform.OS === 'ios') {
+            // iOS: tab bar height + home indicator area
+            return baseTabHeight + insets.bottom;
+        } else {
+            // Android: handle gesture navigation
+            if (insets.bottom === 0) {
+                // Gesture navigation enabled
+                return baseTabHeight + RH(20);
+            } else {
+                // Software navigation bar
+                return baseTabHeight + insets.bottom;
+            }
+        }
+    };
 
     // Helper function to format phone number with +91
     const formatPhoneNumber = (phone) => {
@@ -390,343 +411,356 @@ export default function AccountScreen() {
         );
     }
 
-    return (<SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFE59A"/>
+    const tabBarPadding = getTabBarBottomPadding();
 
-        {/* Image Upload Modal */}
-        <Modal
-            visible={showImageOptions}
-            transparent={true}
-            animationType="slide"
-            onRequestClose={() => setShowImageOptions(false)}
-        >
-            <Pressable
-                style={styles.modalOverlay}
-                onPress={() => setShowImageOptions(false)}
-            >
-                <View style={styles.imageOptionsContainer}>
+    return (
+        <View style={styles.safeContainer}>
+            <StatusBar barStyle="dark-content" backgroundColor="#FFE59A"/>
+
+            <SafeAreaView style={[styles.container, { paddingBottom: tabBarPadding }]}>
+                {/* Image Upload Modal */}
+                <Modal
+                    visible={showImageOptions}
+                    transparent={true}
+                    animationType="slide"
+                    onRequestClose={() => setShowImageOptions(false)}
+                >
                     <Pressable
-                        style={styles.optionButton}
-                        onPress={() => pickImage('camera')}
-                    >
-                        <Text style={styles.optionText}>Take Photo</Text>
-                    </Pressable>
-                    <Pressable
-                        style={styles.optionButton}
-                        onPress={() => pickImage('gallery')}
-                    >
-                        <Text style={styles.optionText}>Choose from Gallery</Text>
-                    </Pressable>
-                    <Pressable
-                        style={[styles.optionButton, styles.cancelButton]}
+                        style={styles.modalOverlay}
                         onPress={() => setShowImageOptions(false)}
                     >
-                        <Text style={styles.cancelText}>Cancel</Text>
+                        <View style={styles.imageOptionsContainer}>
+                            <Pressable
+                                style={styles.optionButton}
+                                onPress={() => pickImage('camera')}
+                            >
+                                <Text style={styles.optionText}>Take Photo</Text>
+                            </Pressable>
+                            <Pressable
+                                style={styles.optionButton}
+                                onPress={() => pickImage('gallery')}
+                            >
+                                <Text style={styles.optionText}>Choose from Gallery</Text>
+                            </Pressable>
+                            <Pressable
+                                style={[styles.optionButton, styles.cancelButton]}
+                                onPress={() => setShowImageOptions(false)}
+                            >
+                                <Text style={styles.cancelText}>Cancel</Text>
+                            </Pressable>
+                        </View>
                     </Pressable>
-                </View>
-            </Pressable>
-        </Modal>
+                </Modal>
 
-        {/* Phone Update Modal */}
-        <Modal
-            visible={showPhoneModal}
-            transparent={true}
-            animationType="fade"
-            onRequestClose={() => {
-                setShowPhoneModal(false);
-                setIsPhoneEditable(false);
-                // Reset phone number to current user phone when modal closes
-                setPhoneNumber(extractPhoneDigits(user?.phone || ""));
-            }}
-        >
-            <TouchableWithoutFeedback onPress={() => {
-                setShowPhoneModal(false);
-                setIsPhoneEditable(false);
-                setPhoneNumber(extractPhoneDigits(user?.phone || ""));
-            }}>
-                <View style={styles.phoneModalOverlay}>
-                    <TouchableWithoutFeedback>
-                        <KeyboardAvoidingView
-                            behavior={Platform.OS === "ios" ? "padding" : "height"}
-                            style={styles.phoneModalContainer}
-                        >
-                            <Text style={styles.phoneModalTitle}>Update Phone Number</Text>
+                {/* Phone Update Modal */}
+                <Modal
+                    visible={showPhoneModal}
+                    transparent={true}
+                    animationType="fade"
+                    onRequestClose={() => {
+                        setShowPhoneModal(false);
+                        setIsPhoneEditable(false);
+                        // Reset phone number to current user phone when modal closes
+                        setPhoneNumber(extractPhoneDigits(user?.phone || ""));
+                    }}
+                >
+                    <TouchableWithoutFeedback onPress={() => {
+                        setShowPhoneModal(false);
+                        setIsPhoneEditable(false);
+                        setPhoneNumber(extractPhoneDigits(user?.phone || ""));
+                    }}>
+                        <View style={styles.phoneModalOverlay}>
+                            <TouchableWithoutFeedback>
+                                <KeyboardAvoidingView
+                                    behavior={Platform.OS === "ios" ? "padding" : "height"}
+                                    style={styles.phoneModalContainer}
+                                >
+                                    <Text style={styles.phoneModalTitle}>Update Phone Number</Text>
 
-                            <View style={styles.phoneInputContainer}>
-                                <View style={styles.countryCodeContainer}>
-                                    <Text style={styles.countryCodeText}>+91</Text>
-                                </View>
-                                <TextInput
-                                    style={styles.phoneInput}
-                                    value={phoneNumber}
-                                    onChangeText={(text) => {
-                                        // Only allow digits
-                                        const digits = text.replace(/\D/g, '');
-                                        // Limit to 10 digits
-                                        const limitedDigits = digits.substring(0, 10);
-                                        setPhoneNumber(limitedDigits);
-                                    }}
-                                    placeholder="Enter 10-digit number"
-                                    keyboardType="phone-pad"
-                                    maxLength={10}
-                                    autoFocus
+                                    <View style={styles.phoneInputContainer}>
+                                        <View style={styles.countryCodeContainer}>
+                                            <Text style={styles.countryCodeText}>+91</Text>
+                                        </View>
+                                        <TextInput
+                                            style={styles.phoneInput}
+                                            value={phoneNumber}
+                                            onChangeText={(text) => {
+                                                // Only allow digits
+                                                const digits = text.replace(/\D/g, '');
+                                                // Limit to 10 digits
+                                                const limitedDigits = digits.substring(0, 10);
+                                                setPhoneNumber(limitedDigits);
+                                            }}
+                                            placeholder="Enter 10-digit number"
+                                            keyboardType="phone-pad"
+                                            maxLength={10}
+                                            autoFocus
+                                        />
+                                    </View>
+
+                                    <Text style={styles.phoneFormatHint}>
+                                        Format: +91 XXXXXXXXXX
+                                    </Text>
+
+                                    <View style={styles.phoneModalButtons}>
+                                        <Pressable
+                                            style={[styles.phoneModalButton, styles.cancelPhoneButton]}
+                                            onPress={() => {
+                                                setShowPhoneModal(false);
+                                                setIsPhoneEditable(false);
+                                                setPhoneNumber(extractPhoneDigits(user?.phone || ""));
+                                            }}
+                                        >
+                                            <Text style={styles.cancelPhoneText}>Cancel</Text>
+                                        </Pressable>
+
+                                        <Pressable
+                                            style={[styles.phoneModalButton, styles.updatePhoneButton]}
+                                            onPress={handleUpdatePhone}
+                                            disabled={updatingPhone}
+                                        >
+                                            {updatingPhone ? (<ActivityIndicator size="small" color="#fff"/>) : (
+                                                <Text style={styles.updatePhoneText}>Update</Text>)}
+                                        </Pressable>
+                                    </View>
+                                </KeyboardAvoidingView>
+                            </TouchableWithoutFeedback>
+                        </View>
+                    </TouchableWithoutFeedback>
+                </Modal>
+
+                {/* Fixed Header */}
+                <LinearGradient colors={["#FFE59A", "#FFD56C"]} style={styles.header}>
+                    {/* Top Row with Back Button and Profile Text */}
+                    <View style={styles.topHeaderRow}>
+                        <Pressable onPress={() => router.back()}>
+                            <Image
+                                source={require("../../assets/icons/back_icon.png")}
+                                style={styles.backIcon}
+                            />
+                        </Pressable>
+
+                        <Text style={styles.profileText}>
+                            Profile
+                        </Text>
+
+                        <View style={styles.placeholder}/>
+                    </View>
+
+                    {/* Avatar with Upload Option */}
+                    <Pressable
+                        style={styles.avatarWrapper}
+                        onPress={() => setShowImageOptions(true)}
+                        disabled={uploading}
+                    >
+                        {uploading ? (<View style={[styles.avatar, styles.uploadingAvatar]}>
+                            <ActivityIndicator size="large" color="#FFD56C"/>
+                        </View>) : (<>
+                            <Image
+                                source={userProfileImage ? {uri: userProfileImage} : require("../../assets/icons/user-avatar.png")}
+                                style={styles.avatar}
+                            />
+                            <View style={styles.cameraIconContainer}>
+                                <Image
+                                    source={require("../../assets/icons/camera.png")}
+                                    style={styles.cameraIcon}
                                 />
                             </View>
+                        </>)}
+                    </Pressable>
 
-                            <Text style={styles.phoneFormatHint}>
-                                Format: +91 XXXXXXXXXX
-                            </Text>
-
-                            <View style={styles.phoneModalButtons}>
-                                <Pressable
-                                    style={[styles.phoneModalButton, styles.cancelPhoneButton]}
-                                    onPress={() => {
-                                        setShowPhoneModal(false);
-                                        setIsPhoneEditable(false);
-                                        setPhoneNumber(extractPhoneDigits(user?.phone || ""));
-                                    }}
-                                >
-                                    <Text style={styles.cancelPhoneText}>Cancel</Text>
-                                </Pressable>
-
-                                <Pressable
-                                    style={[styles.phoneModalButton, styles.updatePhoneButton]}
-                                    onPress={handleUpdatePhone}
-                                    disabled={updatingPhone}
-                                >
-                                    {updatingPhone ? (<ActivityIndicator size="small" color="#fff"/>) : (
-                                        <Text style={styles.updatePhoneText}>Update</Text>)}
-                                </Pressable>
-                            </View>
-                        </KeyboardAvoidingView>
-                    </TouchableWithoutFeedback>
-                </View>
-            </TouchableWithoutFeedback>
-        </Modal>
-
-        {/* Fixed Header */}
-        <LinearGradient colors={["#FFE59A", "#FFD56C"]} style={styles.header}>
-            {/* Top Row with Back Button and Profile Text */}
-            <View style={styles.topHeaderRow}>
-                <Pressable onPress={() => router.back()}>
-                    <Image
-                        source={require("../../assets/icons/back_icon.png")}
-                        style={styles.backIcon}
-                    />
-                </Pressable>
-
-                <Text style={styles.profileText}>
-                    Profile
-                </Text>
-
-                <View style={styles.placeholder}/>
-            </View>
-
-            {/* Avatar with Upload Option */}
-            <Pressable
-                style={styles.avatarWrapper}
-                onPress={() => setShowImageOptions(true)}
-                disabled={uploading}
-            >
-                {uploading ? (<View style={[styles.avatar, styles.uploadingAvatar]}>
-                    <ActivityIndicator size="large" color="#FFD56C"/>
-                </View>) : (<>
-                    <Image
-                        source={userProfileImage ? {uri: userProfileImage} : require("../../assets/icons/user-avatar.png")}
-                        style={styles.avatar}
-                    />
-                    <View style={styles.cameraIconContainer}>
-                        <Image
-                            source={require("../../assets/icons/camera.png")}
-                            style={styles.cameraIcon}
-                        />
-                    </View>
-                </>)}
-            </Pressable>
-
-            {/* User Name */}
-            <Text
-                style={styles.userName}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-            >
-                {user?.name || "Guest User"}
-            </Text>
-
-            {/* Phone Number Row with Edit Button */}
-            <View style={styles.phoneRow}>
-                <View style={styles.phoneDisplayContainer}>
-                    <Text style={styles.phoneText} numberOfLines={1}>
-                        {user?.phone ? formatPhoneNumber(user.phone) : "Phone not set"}
+                    {/* User Name */}
+                    <Text
+                        style={styles.userName}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                    >
+                        {user?.name || "Guest User"}
                     </Text>
-                    <Pressable
-                        style={styles.editPhoneButton}
-                        onPress={() => {
-                            setShowPhoneModal(true);
-                            // Set current phone digits for editing
-                            setPhoneNumber(extractPhoneDigits(user?.phone || ""));
-                        }}
-                    >
-                        <Image
-                            source={require("../../assets/icons/edit.png")}
-                            style={styles.editIcon}
-                        />
-                    </Pressable>
-                </View>
-            </View>
-        </LinearGradient>
 
-        {/* Scrollable Content */}
-        <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            bounces={true}
-        >
-            {/* Your Information Card */}
-            <View style={styles.card}>
-                <Text style={styles.cardTitle}>Your information</Text>
+                    {/* Phone Number Row with Edit Button */}
+                    <View style={styles.phoneRow}>
+                        <View style={styles.phoneDisplayContainer}>
+                            <Text style={styles.phoneText} numberOfLines={1}>
+                                {user?.phone ? formatPhoneNumber(user.phone) : "Phone not set"}
+                            </Text>
+                            <Pressable
+                                style={styles.editPhoneButton}
+                                onPress={() => {
+                                    setShowPhoneModal(true);
+                                    // Set current phone digits for editing
+                                    setPhoneNumber(extractPhoneDigits(user?.phone || ""));
+                                }}
+                            >
+                                <Image
+                                    source={require("../../assets/icons/edit.png")}
+                                    style={styles.editIcon}
+                                />
+                            </Pressable>
+                        </View>
+                    </View>
+                </LinearGradient>
 
+                {/* Scrollable Content */}
                 <ScrollView
-                    style={styles.menuScroll}
+                    style={styles.scrollView}
+                    contentContainerStyle={[
+                        styles.scrollContent,
+                        { paddingBottom: tabBarPadding + RH(0) } // Add extra padding for scroll
+                    ]}
                     showsVerticalScrollIndicator={false}
-                    nestedScrollEnabled={true}
+                    bounces={true}
                 >
-                    <Pressable
-                        style={styles.menuItem}
-                        onPress={() => router.push("/screens/AddressListScreen")}
-                    >
-                        <View style={styles.leftRow}>
-                            <Image
-                                source={require("../../assets/icons/address-book.png")}
-                                style={styles.menuIcon}
-                            />
-                            <Text style={styles.menuLabel}>Address book</Text>
-                        </View>
-                        <Image
-                            source={require("../../assets/icons/right-arrow.png")}
-                            style={styles.arrowIcon}
-                        />
-                    </Pressable>
-                    <Pressable
-                        style={styles.menuItem}
-                        onPress={() => router.push("/screens/MyOrderScreen")}
-                    >
-                        <View style={styles.leftRow}>
-                            <Image
-                                source={require("../../assets/icons/orderDelivery.png")}
-                                style={styles.menuIcon}
-                            />
-                            <Text style={styles.menuLabel}>Your orders</Text>
-                        </View>
-                        <Image
-                            source={require("../../assets/icons/right-arrow.png")}
-                            style={styles.arrowIcon}
-                        />
-                    </Pressable>
+                    {/* Your Information Card */}
+                    <View style={styles.card}>
+                        <Text style={styles.cardTitle}>Your information</Text>
 
-                    <Pressable
-                        style={styles.menuItem}
-                        onPress={() => router.push('/screens/WishlistScreen')}
-                    >
-                        <View style={styles.leftRow}>
+                        <ScrollView
+                            style={styles.menuScroll}
+                            showsVerticalScrollIndicator={false}
+                            nestedScrollEnabled={true}
+                        >
+                            <Pressable
+                                style={styles.menuItem}
+                                onPress={() => router.push("/screens/AddressListScreen")}
+                            >
+                                <View style={styles.leftRow}>
+                                    <Image
+                                        source={require("../../assets/icons/address-book.png")}
+                                        style={styles.menuIcon}
+                                    />
+                                    <Text style={styles.menuLabel}>Address book</Text>
+                                </View>
+                                <Image
+                                    source={require("../../assets/icons/right-arrow.png")}
+                                    style={styles.arrowIcon}
+                                />
+                            </Pressable>
+                            <Pressable
+                                style={styles.menuItem}
+                                onPress={() => router.push("/screens/MyOrderScreen")}
+                            >
+                                <View style={styles.leftRow}>
+                                    <Image
+                                        source={require("../../assets/icons/orderDelivery.png")}
+                                        style={styles.menuIcon}
+                                    />
+                                    <Text style={styles.menuLabel}>Your orders</Text>
+                                </View>
+                                <Image
+                                    source={require("../../assets/icons/right-arrow.png")}
+                                    style={styles.arrowIcon}
+                                />
+                            </Pressable>
+
+                            <Pressable
+                                style={styles.menuItem}
+                                onPress={() => router.push('/screens/WishlistScreen')}
+                            >
+                                <View style={styles.leftRow}>
+                                    <Image
+                                        source={require("../../assets/icons/heart_empty.png")}
+                                        style={styles.menuIcon}
+                                    />
+                                    <Text style={styles.menuLabel}>Your wishlist</Text>
+                                </View>
+                                <Image
+                                    source={require("../../assets/icons/right-arrow.png")}
+                                    style={styles.arrowIcon}
+                                />
+                            </Pressable>
+                        </ScrollView>
+                    </View>
+
+                    {/* Other Information Card */}
+                    <View style={styles.card}>
+                        <Text style={styles.cardTitle}>Other Information</Text>
+
+                        <Pressable
+                            style={styles.menuItem}
+                            onPress={handleShareApp}
+                        >
+                            <View style={styles.leftRow}>
+                                <Image
+                                    source={require("../../assets/icons/share.png")}
+                                    style={styles.menuIcon}
+                                />
+                                <Text style={styles.menuLabel}>Share the app</Text>
+                            </View>
                             <Image
-                                source={require("../../assets/icons/heart_empty.png")}
-                                style={styles.menuIcon}
+                                source={require("../../assets/icons/right-arrow.png")}
+                                style={styles.arrowIcon}
                             />
-                            <Text style={styles.menuLabel}>Your wishlist</Text>
-                        </View>
-                        <Image
-                            source={require("../../assets/icons/right-arrow.png")}
-                            style={styles.arrowIcon}
-                        />
-                    </Pressable>
+                        </Pressable>
+
+                        <Pressable style={styles.menuItem} onPress={() => {
+                            router.push("/screens/NotificationScreen")
+                        }}>
+                            <View style={styles.leftRow}>
+                                <Image
+                                    source={require("../../assets/icons/bell.png")}
+                                    style={styles.menuIcon}
+                                />
+                                <Text style={styles.menuLabel}>Notifications</Text>
+                            </View>
+                            <Image
+                                source={require("../../assets/icons/right-arrow.png")}
+                                style={styles.arrowIcon}
+                            />
+                        </Pressable>
+
+                        <Pressable
+                            style={styles.menuItem}
+                            onPress={handleLogout}
+                            disabled={loggingOut}
+                        >
+                            <View style={styles.leftRow}>
+                                <Image
+                                    source={require("../../assets/icons/logout.png")}
+                                    style={styles.menuIcon}
+                                />
+                                <Text style={[styles.menuLabel, {color: "#E13333"}]}>
+                                    {loggingOut ? "Logging out..." : "Log out"}
+                                </Text>
+                            </View>
+                            <Image
+                                source={require("../../assets/icons/right-arrow.png")}
+                                style={styles.arrowIcon}
+                            />
+                        </Pressable>
+
+                        <Pressable
+                            style={styles.menuItem}
+                            onPress={() => router.push("/screens/LoginTypeSelectionScreen")}
+                        >
+                            <View style={styles.leftRow}>
+                                <Text style={[styles.menuLabel, {color: "#3A7AFE"}]}>
+                                    Switch provider
+                                </Text>
+                            </View>
+                            <Image
+                                source={require("../../assets/icons/right-arrow.png")}
+                                style={styles.arrowIcon}
+                            />
+                        </Pressable>
+                    </View>
+
+                    {/* Bottom padding for scroll */}
+                    <View style={{height: tabBarPadding}}/>
                 </ScrollView>
-            </View>
-
-            {/* Other Information Card */}
-            <View style={styles.card}>
-                <Text style={styles.cardTitle}>Other Information</Text>
-
-                <Pressable
-                    style={styles.menuItem}
-                    onPress={handleShareApp}
-                >
-                    <View style={styles.leftRow}>
-                        <Image
-                            source={require("../../assets/icons/share.png")}
-                            style={styles.menuIcon}
-                        />
-                        <Text style={styles.menuLabel}>Share the app</Text>
-                    </View>
-                    <Image
-                        source={require("../../assets/icons/right-arrow.png")}
-                        style={styles.arrowIcon}
-                    />
-                </Pressable>
-
-                <Pressable style={styles.menuItem} onPress={() => {
-                    router.push("/screens/NotificationScreen")
-                }}>
-                    <View style={styles.leftRow}>
-                        <Image
-                            source={require("../../assets/icons/bell.png")}
-                            style={styles.menuIcon}
-                        />
-                        <Text style={styles.menuLabel}>Notifications</Text>
-                    </View>
-                    <Image
-                        source={require("../../assets/icons/right-arrow.png")}
-                        style={styles.arrowIcon}
-                    />
-                </Pressable>
-
-                <Pressable
-                    style={styles.menuItem}
-                    onPress={handleLogout}
-                    disabled={loggingOut}
-                >
-                    <View style={styles.leftRow}>
-                        <Image
-                            source={require("../../assets/icons/logout.png")}
-                            style={styles.menuIcon}
-                        />
-                        <Text style={[styles.menuLabel, {color: "#E13333"}]}>
-                            {loggingOut ? "Logging out..." : "Log out"}
-                        </Text>
-                    </View>
-                    <Image
-                        source={require("../../assets/icons/right-arrow.png")}
-                        style={styles.arrowIcon}
-                    />
-                </Pressable>
-
-                <Pressable
-                    style={styles.menuItem}
-                    onPress={() => router.push("/screens/LoginTypeSelectionScreen")}
-                >
-                    <View style={styles.leftRow}>
-                        <Text style={[styles.menuLabel, {color: "#3A7AFE"}]}>
-                            Switch provider
-                        </Text>
-                    </View>
-                    <Image
-                        source={require("../../assets/icons/right-arrow.png")}
-                        style={styles.arrowIcon}
-                    />
-                </Pressable>
-            </View>
-
-            {/* Bottom padding */}
-            <View style={{height: RH(40)}}/>
-        </ScrollView>
-    </SafeAreaView>);
+            </SafeAreaView>
+        </View>
+    );
 }
 
 const styles = StyleSheet.create({
+    safeContainer: {
+        flex: 1,
+        backgroundColor: "#FFE59A",
+    },
     container: {
         flex: 1,
-        backgroundColor: "#F7F7F7"
+        backgroundColor: "#F7F7F7",
     },
     loadingContainer: {
         flex: 1,
@@ -949,7 +983,6 @@ const styles = StyleSheet.create({
     scrollContent: {
         paddingHorizontal: RF(12),
         paddingTop: RH(20),
-        paddingBottom: RH(40),
         backgroundColor: "#F7F7F7",
     },
     card: {

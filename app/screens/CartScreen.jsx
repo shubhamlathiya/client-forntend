@@ -89,34 +89,62 @@ const CartItem = memo(({
                            onOpenNegotiation
                        }) => {
     const itemValidation = stockValidation[item.id] || {};
+    // Note: canIncrease/canDecrease logic is here but not fully used in the redesigned quantity control's disabled state in this snippet.
     const canIncrease = itemValidation.canIncrease !== false;
-    const canDecrease = itemValidation.canDecrease !== false;
     const isOutOfStock = !item.isAvailable;
     const maxReached = item.quantity >= Math.min(item.currentStock, item.maxOrderQty);
 
+    // Dynamic styling helper
+    const isDisabled = isOutOfStock || updatingItems[item.id];
+    const tierPricingApplied = isBusinessUser && tierPricing[item.variantId ? `${item.productId}_${item.variantId}` : item.productId];
+
+
     return (
-        <View style={[styles.cartItem, isOutOfStock && styles.outOfStockItem]}>
+        <View style={[styles.cartItemContainer, isOutOfStock && styles.outOfStockItem]}>
+
+            {/* Out of Stock Overlay */}
             {isOutOfStock && (
                 <View style={styles.outOfStockOverlay}>
                     <Text style={styles.outOfStockText}>Out of Stock</Text>
                 </View>
             )}
 
-            <View style={styles.itemLeft}>
-                <View style={styles.productImage}>
+            <View style={styles.contentRow}>
+                {/* 1. Left Section: Product Image */}
+                <View style={styles.imageWrapper}>
                     <Image
                         source={item.imageUrl ? {uri: `${API_BASE_URL}${item.imageUrl}`} : require("../../assets/sample-product.png")}
                         style={styles.image}
                         resizeMode="cover"
                     />
                 </View>
-                <View style={styles.productInfo}>
-                    <Text style={[styles.productName, isOutOfStock && styles.disabledText]}
-                          numberOfLines={2}>{item.name}</Text>
-                    <Text style={[styles.productDescription, isOutOfStock && styles.disabledText]}
-                          numberOfLines={1}>{item.description}</Text>
 
-                    {/* Stock Info */}
+                {/* 2. Right Section: Details, Pricing, Controls */}
+                <View style={styles.detailsContainer}>
+
+                    {/* Top Row: Name and Remove Button */}
+                    <View style={styles.headerRow}>
+                        <Text style={[styles.productName, isDisabled && styles.disabledText]} numberOfLines={2}>
+                            {item.name}
+                        </Text>
+                        <Pressable
+                            style={[styles.removeButton, isDisabled && styles.disabledButton]}
+                            onPress={() => onRemoveItem(item.productId, item.variantId, item.id)}
+                            disabled={isDisabled}
+                        >
+                            {/* Assuming you have a standard icon like a close X or a trash can */}
+                            <Image
+                                source={require("../../assets/icons/deleteIcon.png")} // Re-using deleteIcon
+                                style={[styles.removeIcon, isDisabled && styles.disabledIcon]}
+                            />
+                        </Pressable>
+                    </View>
+
+                    {/* Description/Stock/Min Qty Info */}
+                    <Text style={[styles.productDescription, isDisabled && styles.disabledText]} numberOfLines={1}>
+                        {item.description}
+                    </Text>
+
                     <Text style={[
                         styles.stockText,
                         isOutOfStock ? styles.outOfStockLabel : styles.inStockLabel
@@ -128,115 +156,85 @@ const CartItem = memo(({
                         <Text style={styles.minQtyText}>Min. Qty: {item.minQty}</Text>
                     )}
 
-                    {item.shippingCharge > 0 && (
-                        <Text style={styles.shippingText}>Shipping: ₹{item.shippingCharge.toFixed(2)}</Text>
-                    )}
-
-                    <View style={styles.priceContainer}>
+                    {/* Pricing */}
+                    <View style={styles.priceSection}>
                         {item.hasDiscount ? (
-                            <>
-                                <View style={styles.priceRow}>
-                                    <Text style={[styles.finalPrice, isOutOfStock && styles.disabledText]}>
-                                        ₹{item.finalPrice.toFixed(2)}
-                                    </Text>
-                                    <Text style={[styles.originalPrice, isOutOfStock && styles.disabledText]}>
-                                        ₹{item.basePrice.toFixed(2)}
-                                    </Text>
-                                    <View style={styles.discountBadge}>
-                                        <Text style={styles.discountText}>
-                                            {Math.round(((item.basePrice - item.finalPrice) / item.basePrice) * 100)}%
-                                            OFF
-                                        </Text>
-                                    </View>
-                                </View>
-                                {item.quantity > 1 && (
-                                    <Text style={styles.itemSubtotal}>
-                                        {item.quantity} × ₹{item.finalPrice.toFixed(2)} =
-                                        ₹{(item.finalPrice * item.quantity).toFixed(2)}
-                                    </Text>
-                                )}
-                            </>
-                        ) : (
-                            <>
-                                <Text style={[styles.finalPrice, isOutOfStock && styles.disabledText]}>
+                            <View style={styles.priceRow}>
+                                <Text style={[styles.finalPrice, isDisabled && styles.disabledText]}>
                                     ₹{item.finalPrice.toFixed(2)}
                                 </Text>
-                                {item.quantity > 1 && (
-                                    <Text style={styles.itemSubtotal}>
-                                        {item.quantity} × ₹{item.finalPrice.toFixed(2)} =
-                                        ₹{(item.finalPrice * item.quantity).toFixed(2)}
+                                <Text style={[styles.originalPrice, isDisabled && styles.disabledText]}>
+                                    ₹{item.basePrice.toFixed(2)}
+                                </Text>
+                                <View style={styles.discountBadge}>
+                                    <Text style={styles.discountText}>
+                                        {Math.round(((item.basePrice - item.finalPrice) / item.basePrice) * 100)}% OFF
                                     </Text>
-                                )}
-                            </>
+                                </View>
+                            </View>
+                        ) : (
+                            <Text style={[styles.finalPrice, isDisabled && styles.disabledText]}>
+                                ₹{item.finalPrice.toFixed(2)}
+                            </Text>
                         )}
                     </View>
 
-                    {isBusinessUser && tierPricing[item.variantId ? `${item.productId}_${item.variantId}` : item.productId] && (
-                        <Text style={styles.tierPricingText}>
-                            Tier pricing applied
-                        </Text>
-                    )}
-
-                    {isBusinessUser && !isOutOfStock && (
-                        <Pressable
-                            style={styles.negotiateButton}
-                            onPress={() => onOpenNegotiation(item)}
-                        >
-                            <Text style={styles.negotiateButtonText}>Request Better Price</Text>
-                        </Pressable>
-                    )}
-                </View>
-            </View>
-
-            <View style={styles.itemRight}>
-                <Pressable
-                    style={[styles.deleteButton, isOutOfStock && styles.disabledButton]}
-                    onPress={() => onRemoveItem(item.productId, item.variantId, item.id)}
-                    disabled={updatingItems[item.id] || isOutOfStock}
-                >
-                    <Image
-                        source={require("../../assets/icons/deleteIcon.png")}
-                        style={[styles.deleteIcon, (updatingItems[item.id] || isOutOfStock) && styles.disabledIcon]}
-                    />
-                </Pressable>
-
-                <View style={[styles.quantityControl, isOutOfStock && styles.disabledControl]}>
-                    <Pressable
-                        style={styles.quantityButton}
-                        onPress={() => onUpdateQuantity(item.id, item.quantity - 1, item.productId, item.variantId)}
-                    >
-                        <View
-                            style={[
-                                styles.minusButton,
-                            ]}>
-                            <Text style={[
-                                styles.minusText,
-                            ]}>-</Text>
-                        </View>
-                    </Pressable>
-
-                    <Text style={[styles.quantityText, isOutOfStock && styles.disabledText]}>
-                        {updatingItems[item.id] ? '...' : item.quantity}
-                        {maxReached && !updatingItems[item.id] && (
-                            <Text style={styles.maxIndicator}> (Max)</Text>
+                    {/* Subtotal and Additional Info */}
+                    <View style={styles.subtotalRow}>
+                        {/* Shipping Charge */}
+                        {item.shippingCharge > 0 && (
+                            <Text style={styles.shippingText}>Shipping: ₹{item.shippingCharge.toFixed(2)}</Text>
                         )}
-                    </Text>
+                    </View>
 
-                    <Pressable
-                        style={styles.quantityButton}
-                        onPress={() => onUpdateQuantity(item.id, item.quantity + 1, item.productId, item.variantId)}
-                        disabled={!canIncrease || updatingItems[item.id] || isOutOfStock}
-                    >
-                        <View style={[
-                            styles.plusButton,
-                            (!canIncrease || updatingItems[item.id] || isOutOfStock) && styles.disabledButton
-                        ]}>
-                            <Text style={[
-                                styles.plusText,
-                                (!canIncrease || updatingItems[item.id] || isOutOfStock) && styles.disabledText
-                            ]}>+</Text>
+                    {/* Tier Pricing / Negotiation */}
+                    {(tierPricingApplied || (isBusinessUser && !isOutOfStock)) && (
+                        <View style={styles.businessFeaturesRow}>
+                            {tierPricingApplied && (
+                                <Text style={styles.tierPricingText}>
+                                    Tier pricing applied
+                                </Text>
+                            )}
+
+                            {isBusinessUser && !isOutOfStock && (
+                                <Pressable
+                                    style={styles.negotiateButton}
+                                    onPress={() => onOpenNegotiation(item)}
+                                >
+                                    <Text style={styles.negotiateButtonText}>Request Better Price</Text>
+                                </Pressable>
+                            )}
                         </View>
-                    </Pressable>
+                    )}
+
+                    {/* Quantity Control (Bottom Right) */}
+                    <View style={styles.quantityControlWrapper}>
+                        <View style={[styles.quantityControl, isDisabled && styles.disabledControl]}>
+                            <Pressable
+                                style={styles.quantityButton}
+                                onPress={() => onUpdateQuantity(item.id, item.quantity - 1, item.productId, item.variantId)}
+                                disabled={isDisabled || item.quantity <= 1} // Add check for min 1
+                            >
+                                <Text style={styles.controlText}>-</Text>
+                            </Pressable>
+
+                            <Text style={[styles.quantityText, isDisabled && styles.disabledText]}>
+                                {updatingItems[item.id] ? '...' : item.quantity}
+                            </Text>
+
+                            <Pressable
+                                style={styles.quantityButton}
+                                onPress={() => onUpdateQuantity(item.id, item.quantity + 1, item.productId, item.variantId)}
+                                disabled={!canIncrease || isDisabled}
+                            >
+                                <Text style={styles.controlText}>+</Text>
+                            </Pressable>
+                        </View>
+                        {maxReached && !updatingItems[item.id] && (
+                            <Text style={styles.maxIndicatorText}>Max Quantity Reached</Text>
+                        )}
+                    </View>
+
                 </View>
             </View>
         </View>
@@ -729,10 +727,18 @@ export default function CartScreen() {
     ), [isBusinessUser, tierPricing, updatingItems, stockValidation, updateQuantity, removeItem, openNegotiationModal]);
 
     const renderWishlistItem = useCallback(({item}) => (
-        <Pressable onPress={() => handleProductPress(item)}>
-            <View style={styles.wishlistCard}>
+        <Pressable
+            onPress={() => handleProductPress(item)}
+            // Use the wishlistCard style directly on the outer Pressable for better hit area
+            style={styles.wishlistCard}
+        >
+            {/*<View style={styles.wishlistCard}>*/}
 
-                <Image source={item.image} style={styles.wishlistImage}/>
+                <Image
+                    source={item.image}
+                    style={styles.wishlistImage}
+                    resizeMode="cover" // Ensure the image covers the area
+                />
 
                 {/* Delete Button */}
                 <Pressable
@@ -766,7 +772,7 @@ export default function CartScreen() {
                     </Text>
                 </View>
 
-            </View>
+            {/*</View>*/}
         </Pressable>
     ), [handleProductPress]);
 
@@ -1288,13 +1294,10 @@ const styles = StyleSheet.create({
         paddingHorizontal: RF(16),
         gap: RF(12),
     },
-
-    // Cart Item Styles
-    cartItem: {
-        flexDirection: "row",
+    cartItemContainer: {
         backgroundColor: "#FFFFFF",
         borderRadius: RF(12),
-        padding: RF(16),
+        padding: RF(12), // Slightly less padding for a tighter look
         shadowColor: "#000",
         shadowOffset: {width: 0, height: RF(2)},
         shadowOpacity: 0.1,
@@ -1302,6 +1305,200 @@ const styles = StyleSheet.create({
         elevation: 3,
         position: 'relative',
     },
+    contentRow: {
+        flexDirection: "row", // Image on the left, Details on the right
+        flex: 1,
+    },
+
+    // 1. LEFT: Image Section
+    imageWrapper: {
+        width: RF(90),
+        height: RF(90),
+        borderRadius: RF(8),
+        overflow: "hidden",
+        backgroundColor: "#F5F6FA",
+        marginRight: RF(12),
+        // Ensure image container doesn't shrink
+        flexShrink: 0,
+    },
+    image: {
+        width: "100%",
+        height: "100%",
+    },
+
+    // 2. RIGHT: Details Section
+    detailsContainer: {
+        flex: 1, // Takes up remaining space
+        justifyContent: 'space-between',
+    },
+
+    // --- DETAILS COMPONENTS ---
+
+    headerRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: RF(4),
+    },
+    removeButton: {
+        padding: RF(4),
+        marginLeft: RF(8),
+    },
+    removeIcon: {
+        width: RF(16),
+        height: RF(16),
+        tintColor: '#999',
+    },
+
+    // Pricing Layout
+    priceSection: {
+        marginTop: RF(6),
+        marginBottom: RF(4),
+    },
+    priceRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    finalPrice: {
+        fontSize: RF(16),
+        fontFamily: 'Poppins-SemiBold',
+        color: '#333',
+        marginRight: RF(8),
+    },
+    originalPrice: {
+        fontSize: RF(12),
+        fontFamily: 'Poppins-Regular',
+        color: '#999',
+        textDecorationLine: 'line-through',
+        marginRight: RF(8),
+    },
+    discountBadge: {
+        backgroundColor: '#FF3B30',
+        borderRadius: RF(4),
+        paddingHorizontal: RF(6),
+        paddingVertical: RF(2),
+    },
+    discountText: {
+        color: '#FFFFFF',
+        fontSize: RF(10),
+        fontFamily: 'Poppins-SemiBold',
+    },
+
+    // Subtotal and Shipping
+    subtotalRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: RF(4),
+        marginBottom: RF(8),
+    },
+    itemSubtotal: {
+        fontSize: RF(12),
+        fontFamily: 'Poppins-Medium',
+        color: '#333',
+    },
+    shippingText: {
+        fontSize: RF(11),
+        fontFamily: 'Poppins-Regular',
+        color: '#007AFF', // Example color for shipping
+    },
+
+    // Business Features
+    businessFeaturesRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: RF(8),
+    },
+    tierPricingText: {
+        fontSize: RF(11),
+        fontFamily: 'Poppins-Medium',
+        color: '#FF9500', // Warning/Highlight color
+    },
+    negotiateButton: {
+        backgroundColor: '#E0F0FF',
+        borderRadius: RF(20),
+        paddingHorizontal: RF(10),
+        paddingVertical: RF(5),
+    },
+    negotiateButtonText: {
+        fontSize: RF(10),
+        fontFamily: 'Poppins-SemiBold',
+        color: '#007AFF',
+    },
+
+    // Quantity Control (Bottom Right Alignment)
+    quantityControlWrapper: {
+        marginTop: RF(10),
+        alignSelf: 'flex-end', // Aligns control to the bottom right
+    },
+    quantityControl: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#E0E0E0',
+        borderRadius: RF(20),
+        backgroundColor: '#F7F7F7',
+    },
+    quantityButton: {
+        paddingHorizontal: RF(12),
+        paddingVertical: RF(4),
+    },
+    controlText: {
+        fontSize: RF(14),
+        fontFamily: 'Poppins-SemiBold',
+        color: '#333',
+    },
+    quantityText: {
+        fontSize: RF(14),
+        fontFamily: 'Poppins-Medium',
+        color: '#333',
+        minWidth: RF(30),
+        textAlign: 'center',
+    },
+    maxIndicatorText: {
+        fontSize: RF(10),
+        fontFamily: 'Poppins-Medium',
+        color: '#FF9500',
+        textAlign: 'right',
+        marginTop: RF(4),
+    },
+
+
+    // --- TEXT & STATUS STYLES (Adjusted/Retained) ---
+
+    productName: {
+        fontSize: RF(14),
+        fontFamily: 'Poppins-SemiBold',
+        color: '#333',
+        flex: 1, // Allows name to take up space beside remove button
+        marginRight: RF(8),
+    },
+    productDescription: {
+        fontSize: RF(12),
+        fontFamily: 'Poppins-Regular',
+        color: '#666',
+    },
+    stockText: {
+        fontSize: RF(11),
+        fontFamily: 'Poppins-Medium',
+        marginTop: RF(4),
+    },
+    inStockLabel: {
+        color: '#34C759', // Green
+    },
+    outOfStockLabel: {
+        color: '#FF3B30', // Red
+    },
+    minQtyText: {
+        fontSize: RF(11),
+        fontFamily: 'Poppins-Regular',
+        color: '#007AFF',
+        marginTop: RF(2),
+    },
+
+    // --- DISABLED/STATUS OVERRIDES (Retained) ---
+
     outOfStockItem: {
         opacity: 0.7,
     },
@@ -1315,7 +1512,7 @@ const styles = StyleSheet.create({
         borderRadius: RF(12),
         justifyContent: 'center',
         alignItems: 'center',
-        zIndex: 1,
+        zIndex: 10, // Increased zIndex to ensure it's on top
     },
     outOfStockText: {
         color: '#FF3B30',
@@ -1335,6 +1532,23 @@ const styles = StyleSheet.create({
     disabledControl: {
         opacity: 0.5,
     },
+    disabledIcon: {
+        tintColor: '#CCC',
+    },
+    // Cart Item Styles
+    cartItem: {
+        flexDirection: "row",
+        backgroundColor: "#FFFFFF",
+        borderRadius: RF(12),
+        padding: RF(16),
+        shadowColor: "#000",
+        shadowOffset: {width: 0, height: RF(2)},
+        shadowOpacity: 0.1,
+        shadowRadius: RF(4),
+        elevation: 3,
+        position: 'relative',
+    },
+
     itemLeft: {
         flexDirection: "row",
         flex: 1,
@@ -1348,70 +1562,12 @@ const styles = StyleSheet.create({
         backgroundColor: "#F5F6FA",
         marginRight: RF(12),
     },
-    image: {
-        width: "100%",
-        height: "100%",
-    },
+
     productInfo: {
         flex: 1,
         justifyContent: 'space-between',
     },
-    productName: {
-        fontSize: RF(15),
-        fontFamily: "Poppins-SemiBold",
-        color: "#1B1B1B",
-        lineHeight: RF(20),
-        marginBottom: RF(4),
-    },
-    productDescription: {
-        fontSize: RF(13),
-        fontFamily: "Poppins-Regular",
-        color: "#666",
-        marginBottom: RF(4),
-    },
-    stockText: {
-        fontSize: RF(12),
-        fontFamily: 'Poppins-Medium',
-        marginBottom: RF(2),
-    },
-    inStockLabel: {
-        color: '#4CAD73',
-    },
-    outOfStockLabel: {
-        color: '#FF3B30',
-    },
-    minQtyText: {
-        fontSize: RF(12),
-        fontFamily: 'Poppins-Regular',
-        color: '#FF6B35',
-        marginTop: RF(2),
-    },
-    shippingText: {
-        fontSize: RF(12),
-        fontFamily: 'Poppins-Regular',
-        color: '#666',
-        marginTop: RF(2),
-    },
-    tierPricingText: {
-        fontSize: RF(11),
-        fontFamily: 'Poppins-Regular',
-        color: '#4CAD73',
-        fontStyle: 'italic',
-        marginTop: RF(2),
-    },
-    negotiateButton: {
-        backgroundColor: '#FFA500',
-        paddingHorizontal: RF(12),
-        paddingVertical: RF(6),
-        borderRadius: RF(6),
-        marginTop: RF(8),
-        alignSelf: 'flex-start',
-    },
-    negotiateButtonText: {
-        color: '#FFFFFF',
-        fontSize: RF(12),
-        fontFamily: 'Poppins-SemiBold',
-    },
+
     priceContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1419,28 +1575,7 @@ const styles = StyleSheet.create({
         flexWrap: 'wrap',
         gap: RF(6),
     },
-    finalPrice: {
-        fontSize: RF(16),
-        fontFamily: "Poppins-SemiBold",
-        color: "#4CAD73",
-    },
-    originalPrice: {
-        fontSize: RF(14),
-        fontFamily: "Poppins-Regular",
-        color: "#999",
-        textDecorationLine: 'line-through',
-    },
-    discountBadge: {
-        backgroundColor: '#FFE8E8',
-        paddingHorizontal: RF(8),
-        paddingVertical: RF(4),
-        borderRadius: RF(6),
-    },
-    discountText: {
-        fontSize: RF(12),
-        fontFamily: "Poppins-SemiBold",
-        color: "#EC0505",
-    },
+
     itemRight: {
         alignItems: "flex-end",
         justifyContent: 'space-between',
@@ -1453,19 +1588,6 @@ const styles = StyleSheet.create({
         width: RF(20),
         height: RF(20),
         tintColor: '#FF3B30',
-    },
-    disabledIcon: {
-        opacity: 0.5,
-    },
-    quantityControl: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: '#F8F9FA',
-        borderRadius: RF(8),
-        padding: RF(2),
-    },
-    quantityButton: {
-        padding: RF(2),
     },
     minusButton: {
         width: RF(32),
@@ -1495,14 +1617,6 @@ const styles = StyleSheet.create({
         fontSize: RF(16),
         fontFamily: "Poppins-SemiBold",
     },
-    quantityText: {
-        fontSize: RF(15),
-        fontFamily: "Poppins-SemiBold",
-        color: "#1B1B1B",
-        marginHorizontal: RF(12),
-        minWidth: RF(24),
-        textAlign: 'center',
-    },
     maxIndicator: {
         fontSize: RF(10),
         color: '#FF6B35',
@@ -1511,8 +1625,8 @@ const styles = StyleSheet.create({
 
     // Wishlist Styles
     wishlistContainer: {
-        paddingHorizontal: RF(16),
-        gap: RF(12),
+        paddingHorizontal: RF(15),
+        gap: RF(11),
     },
     wishlistCard: {
         width: RF(140),
@@ -1891,18 +2005,5 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: RF(14),
         fontFamily: 'Poppins-SemiBold',
-    },
-    priceRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: RF(6),
-        marginBottom: RF(2),
-    },
-    itemSubtotal: {
-        fontSize: RF(12),
-        fontFamily: 'Poppins-Regular',
-        color: '#666',
-        marginTop: RF(2),
     },
 });

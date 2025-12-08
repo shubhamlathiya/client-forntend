@@ -20,34 +20,9 @@ import {
 } from 'react-native';
 import {requestReturn, requestReplacement} from '../../api/ordersApi';
 import {API_BASE_URL} from '../../config/apiConfig';
+import {useSafeAreaInsets} from "react-native-safe-area-context";
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
-
-// Check if device has notch (iPhone X and above)
-const hasNotch = Platform.OS === 'ios' && (screenHeight >= 812 || screenWidth >= 812);
-
-// Safe area insets for different devices
-const getSafeAreaInsets = () => {
-    if (Platform.OS === 'ios') {
-        if (hasNotch) {
-            return {
-                top: 44, // Status bar + notch area
-                bottom: 34 // Home indicator area
-            };
-        }
-        return {
-            top: 20, // Regular status bar
-            bottom: 0
-        };
-    }
-    // Android
-    return {
-        top: StatusBar.currentHeight || 25,
-        bottom: 0
-    };
-};
-
-const safeAreaInsets = getSafeAreaInsets();
 
 // Responsive size calculator
 const RF = (size) => {
@@ -56,11 +31,17 @@ const RF = (size) => {
     return Math.round(normalizedSize);
 };
 
+const RH = (size) => {
+    const scale = screenHeight / 812; // 812 is standard iPhone height
+    return Math.round(size * scale);
+};
+
 // Check if device is tablet
 const isTablet = screenWidth >= 768;
 
 export default function ReturnReplacementScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
     const {orderId, type, orderDetails: orderDetailsParam} = useLocalSearchParams();
     const orderDetails = useMemo(() => {
         try {
@@ -74,6 +55,25 @@ export default function ReturnReplacementScreen() {
     const [reason, setReason] = useState('');
     const [images, setImages] = useState([]);
     const [submitting, setSubmitting] = useState(false);
+
+    // Calculate bottom padding for tab bar
+    const getTabBarBottomPadding = () => {
+        const baseTabHeight = RH(60); // Base tab bar height
+
+        if (Platform.OS === 'ios') {
+            // iOS: tab bar height + home indicator area
+            return baseTabHeight + insets.bottom;
+        } else {
+            // Android: handle gesture navigation
+            if (insets.bottom === 0) {
+                // Gesture navigation enabled
+                return baseTabHeight + RH(20);
+            } else {
+                // Software navigation bar
+                return baseTabHeight + insets.bottom;
+            }
+        }
+    };
 
     useEffect(() => {
         const items = Array.isArray(orderDetails?.items) ? orderDetails.items : [];
@@ -226,6 +226,8 @@ export default function ReturnReplacementScreen() {
         }
     };
 
+    const tabBarPadding = getTabBarBottomPadding();
+
     return (
         <View style={styles.safeContainer}>
             <StatusBar backgroundColor="#4CAD73" barStyle="light-content"/>
@@ -234,8 +236,8 @@ export default function ReturnReplacementScreen() {
             <View style={[
                 styles.header,
                 {
-                    height: RF(60) + safeAreaInsets.top,
-                    paddingTop: safeAreaInsets.top,
+                    height: RF(60) + insets.top,
+                    paddingTop: insets.top,
                 }
             ]}>
                 <Pressable
@@ -271,7 +273,7 @@ export default function ReturnReplacementScreen() {
             <KeyboardAvoidingView
                 style={styles.keyboardAvoidingView}
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? RF(60) + safeAreaInsets.top : 0}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? RF(60) + insets.top : 0}
             >
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                     <ScrollView
@@ -280,7 +282,7 @@ export default function ReturnReplacementScreen() {
                         contentContainerStyle={[
                             styles.contentContainer,
                             {
-                                paddingBottom: safeAreaInsets.bottom + RF(100),
+                                paddingBottom: tabBarPadding + RH(100),
                             }
                         ]}
                     >
@@ -594,7 +596,7 @@ export default function ReturnReplacementScreen() {
                         )}
 
                         {/* Footer Spacer */}
-                        <View style={{height: RF(80)}} />
+                        <View style={{height: RH(80)}} />
                     </ScrollView>
                 </TouchableWithoutFeedback>
             </KeyboardAvoidingView>
@@ -603,7 +605,7 @@ export default function ReturnReplacementScreen() {
             <View style={[
                 styles.footer,
                 {
-                    paddingBottom: safeAreaInsets.bottom,
+                    bottom: tabBarPadding - RH(60) // Position above tab bar
                 }
             ]}>
                 <Pressable
@@ -933,11 +935,18 @@ const styles = StyleSheet.create({
         fontFamily: 'Poppins-Medium',
     },
     footer: {
-        paddingHorizontal: RF(16),
-        paddingVertical: RF(12),
+        position: 'absolute',
+        left: 0,
+        right: 0,
         backgroundColor: '#FFFFFF',
         borderTopWidth: 1,
         borderTopColor: '#F0F0F0',
+        paddingHorizontal: RF(16),
+        paddingVertical: RF(12),
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
     },
     submitButton: {
         backgroundColor: '#4CAD73',
@@ -945,7 +954,6 @@ const styles = StyleSheet.create({
         paddingVertical: RF(14),
         borderRadius: RF(8),
         alignItems: 'center',
-
     },
     submitButtonDisabled: {
         backgroundColor: '#C0C0C0',
@@ -959,7 +967,7 @@ const styles = StyleSheet.create({
         color: '#868889',
         textAlign: 'center',
         fontFamily: 'Poppins-Regular',
-        marginBottom: RF(22),
+        marginTop: RF(8),
     },
     emptyState: {
         alignItems: 'center',

@@ -30,6 +30,7 @@ import {API_BASE_URL} from "../../../config/apiConfig";
 import {getAddresses} from "../../../api/addressApi";
 import {addCartItem, getCart, updateCartItem, removeCartItem, getTierPricing} from "../../../api/cartApi";
 import * as Notifications from "expo-notifications";
+import {useSafeAreaInsets} from "react-native-safe-area-context";
 
 const {width, height} = Dimensions.get('window');
 
@@ -80,6 +81,8 @@ const FALLBACK_TABS = [{
 
 export default function BlinkitHomeScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
+
     const [userAddress, setUserAddress] = useState('');
     const [deliveryTime, setDeliveryTime] = useState('16 minutes');
     const [userName, setUserName] = useState('');
@@ -584,7 +587,7 @@ export default function BlinkitHomeScreen() {
                 products = uniqueProducts;
             } else {
                 // Fallback to fetching all products if no categories specified
-                const res = await getProducts({page: 1, limit: 50});
+                const res = await tProducts({page: 1, limit: 50});
                 products = extractProducts(res);
 
                 // Try to filter by tab name if possible
@@ -1816,7 +1819,7 @@ export default function BlinkitHomeScreen() {
         });
     };
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['bottom', 'top']}>
             <StatusBar backgroundColor={headerColor} barStyle="light-content"/>
 
             {/* Header Section with Dynamic Background */}
@@ -2167,9 +2170,16 @@ export default function BlinkitHomeScreen() {
             {/* Cart Popup - Only show when cart has items */}
             {showCartPopup && cartItems.length > 0 && (
                 <Animated.View
-                    style={[styles.cartPopupContainer, {transform: [{translateX: slideAnim}]}]}
+                    style={[
+                        styles.cartPopupContainer,
+                        {
+                            bottom: 70 + insets.bottom,
+                            transform: [{ translateX: slideAnim }]
+                        }
+                    ]}
                 >
-                    <Pressable
+
+                <Pressable
                         style={styles.cartPopup}
                         activeOpacity={0.9}
                         onPress={handleCartPopupClick}
@@ -2288,7 +2298,9 @@ const styles = StyleSheet.create({
         fontSize: 12, fontFamily: 'Poppins-Medium', color: '#1B1B1B', marginBottom: 6, lineHeight: 16, minHeight: 32,
     },
     tabProductPrice: {
-        fontSize: 14, fontFamily: 'Poppins-Bold', color: '#1B1B1B',
+        fontSize: 16,
+        fontWeight: '900',
+        color: '#4CAD73',
     },
     tabProductOriginalPrice: {
         fontSize: 11, fontFamily: 'Poppins-Regular', color: '#999', textDecorationLine: 'line-through', marginLeft: 4,
@@ -2689,7 +2701,9 @@ const styles = StyleSheet.create({
         minHeight: 32,
     },
     fragmentProductPrice: {
-        fontSize: 14, fontWeight: '700', color: '#1B1B1B', fontFamily: 'Poppins-Bold',
+        fontSize: 16,
+        fontWeight: '900',
+        color: '#4CAD73', // Green final price
     },
     fragmentProductOriginalPrice: {
         fontSize: 12, color: '#999', textDecorationLine: 'line-through', marginLeft: 6, fontFamily: 'Poppins-Regular',
@@ -2755,7 +2769,9 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     cartPopupContainer: {
-        position: 'absolute', bottom: 100, left: 0, right: 0, alignItems: 'center', zIndex: 1000,
+        position: 'absolute',
+
+        left: 0, right: 0, alignItems: 'center', zIndex: 1000,
     },
 
     cartPopup: {
@@ -2882,11 +2898,10 @@ const styles = StyleSheet.create({
 
     stockInfo: {
         fontSize: 10,
-        fontFamily: 'Poppins-Regular',
-        color: '#4CAF50',
+        fontWeight: '500',
+        color: '#2196F3',
         marginTop: 2,
     },
-
     outOfStockButton: {
         backgroundColor: '#F5F5F5',
         borderRadius: 6,

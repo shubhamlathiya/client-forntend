@@ -16,6 +16,7 @@ import {
     ActivityIndicator
 } from 'react-native';
 import {addAddress, getAddresses, updateAddress, setDefaultAddress} from '../../api/addressApi';
+import {useSafeAreaInsets} from "react-native-safe-area-context";
 
 const initialForm = {
     name: '',
@@ -40,6 +41,7 @@ const AddressType = {
 
 export default function AddAddressScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
     const {id, currentLocation} = useLocalSearchParams();
     const isEdit = !!id;
     const [form, setForm] = useState(initialForm);
@@ -666,7 +668,12 @@ export default function AddAddressScreen() {
             </ScrollView>
 
             {/* Submit */}
-            <View style={styles.footer}>
+            <View
+                style={[
+                    styles.footer,
+                    {bottom: insets.bottom}
+                ]}
+            >
                 <Pressable
                     style={[
                         styles.submitButton,
@@ -979,7 +986,6 @@ const styles = StyleSheet.create({
         lineHeight: 18,
     },
     footer: {
-        position: 'absolute',
         bottom: 0,
         left: 0,
         right: 0,

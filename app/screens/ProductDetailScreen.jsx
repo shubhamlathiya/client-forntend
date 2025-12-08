@@ -12,19 +12,21 @@ import {
     Dimensions,
     Alert,
     RefreshControl,
-    Animated
+    Animated, Platform
 } from "react-native";
 import { addCartItem, getCart, removeCartItem, updateCartItem } from '../../api/cartApi';
 import { getProductById, getProductFaqs, toggleWishlist, checkWishlist } from '../../api/catalogApi';
 import { API_BASE_URL } from '../../config/apiConfig';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context'; // Added
 
 const { width: screenWidth } = Dimensions.get('window');
 
 export default function ProductDetailScreen() {
     const router = useRouter();
     const { id, product: productParam } = useLocalSearchParams();
+    const insets = useSafeAreaInsets(); // Added for safe area handling
 
     // State management
     const [quantity, setQuantity] = useState(1);
@@ -47,6 +49,7 @@ export default function ProductDetailScreen() {
     const [showAddToCartSuccess, setShowAddToCartSuccess] = useState(false);
     const [selectedAttributes, setSelectedAttributes] = useState({});
     const [groupedVariants, setGroupedVariants] = useState({});
+    const [cartItemId, setCartItemId] = useState(null); // Added to track cart item ID
 
     // Animation refs
     const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -136,15 +139,21 @@ export default function ProductDetailScreen() {
             });
 
             const cartQty = matchingItem ? Number(matchingItem.quantity) : 0;
+            const cartItemId = matchingItem?._id || matchingItem?.id || null;
 
             if (mountedRef.current) {
                 setCurrentCartQuantity(cartQty);
+                setCartItemId(cartItemId);
+                // Update local quantity to match cart quantity if item exists in cart
+                if (cartQty > 0) {
+                    setQuantity(cartQty);
+                }
             }
 
-            return cartQty;
+            return { quantity: cartQty, cartItemId };
         } catch (error) {
             console.warn('Error checking cart quantity:', error);
-            return 0;
+            return { quantity: 0, cartItemId: null };
         }
     }, [product, id, variants, selectedVariantId]);
 
@@ -159,7 +168,7 @@ export default function ProductDetailScreen() {
             stock = product?.stock || product?.quantity || 0;
         }
 
-        const available = Math.max(0, stock - currentCartQuantity);
+        const available = Math.max(0, stock);
 
         if (mountedRef.current) {
             setAvailableStock(available);
@@ -413,51 +422,7 @@ export default function ProductDetailScreen() {
         return Array.from(availableValues);
     };
 
-    // Quantity handlers with stock validation
-    const increaseQuantity = () => {
-        const available = calculateAvailableStock();
-        if (quantity < available) {
-            setQuantity(prev => prev + 1);
-
-            // Animation effect
-            Animated.sequence([
-                Animated.timing(scaleAnim, {
-                    toValue: 1.2,
-                    duration: 100,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(scaleAnim, {
-                    toValue: 1,
-                    duration: 100,
-                    useNativeDriver: true,
-                }),
-            ]).start();
-        } else {
-            Alert.alert('Stock Limit', `Only ${available} items available in stock`);
-        }
-    };
-
-    const decreaseQuantity = () => {
-        if (quantity > 1) {
-            setQuantity(prev => prev - 1);
-
-            // Animation effect
-            Animated.sequence([
-                Animated.timing(scaleAnim, {
-                    toValue: 0.8,
-                    duration: 100,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(scaleAnim, {
-                    toValue: 1,
-                    duration: 100,
-                    useNativeDriver: true,
-                }),
-            ]).start();
-        }
-    };
-
-    // Add to cart handler with stock validation
+    // Add to cart handler
     const handleAddToCart = async () => {
         if (updatingCart) return;
 
@@ -502,7 +467,6 @@ export default function ProductDetailScreen() {
                 quantity: Number(quantity),
             };
 
-
             const response = await addCartItem(cartData);
 
             if (response.success || response.data) {
@@ -527,6 +491,135 @@ export default function ProductDetailScreen() {
             Alert.alert('Error', errorMessage);
         } finally {
             setUpdatingCart(false);
+        }
+    };
+
+    // Handle Buy Now button
+    const handleBuyNow = async () => {
+        if (updatingCart) return;
+
+        // Check if all required attributes are selected
+        const attributeTypes = Object.keys(groupedVariants);
+        const missingAttributes = attributeTypes.filter(type => !selectedAttributes[type]);
+
+        if (missingAttributes.length > 0) {
+            Alert.alert(
+                'Selection Required',
+                `Please select ${missingAttributes.map(a => a.toLowerCase()).join(' and ')}`
+            );
+            return;
+        }
+
+        // Check if a valid variant is selected
+        if (!selectedVariantId) {
+            Alert.alert('Invalid Selection', 'Please select a valid combination');
+            return;
+        }
+
+        try {
+            setUpdatingCart(true);
+            const productId = product?._id || product?.id || id;
+            const variantId = selectedVariantId;
+
+            // Get current stock
+            const available = calculateAvailableStock();
+
+            // Validate quantity
+            if (quantity > available) {
+                Alert.alert(
+                    'Stock Limit Exceeded',
+                    `You can only add ${available} items.`
+                );
+                return;
+            }
+
+            // If product is already in cart, update quantity to 1
+            if (currentCartQuantity > 0) {
+                // Remove existing item and add new one
+                await removeCartItem(productId, variantId);
+            }
+
+            const cartData = {
+                productId: String(productId),
+                variantId: String(variantId),
+                quantity: 1, // Buy now adds 1 item
+            };
+
+            const response = await addCartItem(cartData);
+
+            if (response.success || response.data) {
+                // Refresh cart
+                await checkCartQuantity();
+                // Navigate directly to checkout/cart
+                router.push("/Cart");
+            } else {
+                throw new Error('Failed to add to cart');
+            }
+        } catch (error) {
+            console.warn('Buy Now Error:', error);
+            const errorMessage = error.response?.data?.message || error.message || 'Failed to process your request';
+            Alert.alert('Error', errorMessage);
+        } finally {
+            setUpdatingCart(false);
+        }
+    };
+
+    // Handle increase quantity (when product is already in cart)
+    const handleIncreaseQuantity = async () => {
+        if (updatingCart || !cartItemId) return;
+
+        const newQuantity = currentCartQuantity + 1;
+        const available = calculateAvailableStock();
+
+        if (newQuantity > available) {
+            Alert.alert('Stock Limit', `Only ${available} items available in stock`);
+            return;
+        }
+
+        try {
+            setUpdatingCart(true);
+            await updateCartItem(cartItemId, newQuantity);
+            await checkCartQuantity(); // Refresh cart data
+        } catch (error) {
+            console.warn('Increase quantity error:', error);
+            Alert.alert('Error', 'Failed to update quantity');
+        } finally {
+            setUpdatingCart(false);
+        }
+    };
+
+    // Handle decrease quantity (when product is already in cart)
+    const handleDecreaseQuantity = async () => {
+        if (updatingCart || !cartItemId) return;
+
+        const newQuantity = currentCartQuantity - 1;
+
+        if (newQuantity === 0) {
+            // Remove item from cart
+            try {
+                setUpdatingCart(true);
+                const productId = product?._id || product?.id || id;
+                const variantId = selectedVariantId;
+                await removeCartItem(productId, variantId);
+                await checkCartQuantity(); // Refresh cart data
+            } catch (error) {
+                console.warn('Remove from cart error:', error);
+                Alert.alert('Error', 'Failed to remove item from cart');
+            } finally {
+                setUpdatingCart(false);
+            }
+        } else {
+            // Update quantity
+            try {
+                setUpdatingCart(true);
+                await updateCartItem(cartItemId, newQuantity);
+                await checkCartQuantity(); // Refresh cart data
+            } catch (error) {
+                console.warn('Decrease quantity error:', error);
+                Alert.alert('Error', 'Failed to update quantity');
+            } finally {
+                setUpdatingCart(false);
+            }
         }
     };
 
@@ -635,6 +728,7 @@ export default function ProductDetailScreen() {
     const outOfStock = isOutOfStock();
     const productImages = product?.images || [];
     const productCategories = product?.categoryIds || [];
+    const isProductInCart = currentCartQuantity > 0;
 
     // Loading state
     if (loading && !refreshing) {
@@ -688,7 +782,7 @@ export default function ProductDetailScreen() {
 
             {/* Main Content */}
             <ScrollView
-                style={styles.scrollView}
+                style={[styles.scrollView, { paddingBottom: 80 + insets.bottom }]}
                 showsVerticalScrollIndicator={false}
                 bounces={false}
                 refreshControl={
@@ -904,26 +998,6 @@ export default function ProductDetailScreen() {
                         ))
                     )}
 
-                    {/* Selected Variant Details */}
-                    {selectedVariantDetails && (
-                        <View style={styles.selectedVariantSection}>
-                            <Text style={styles.sectionTitle}>Selected Variant</Text>
-                            <View style={styles.variantDetails}>
-                                <Text style={styles.variantSku}>
-                                    SKU: {selectedVariantDetails.sku || 'N/A'}
-                                </Text>
-                                <Text style={styles.variantAttributes}>
-                                    Attributes: {selectedVariantDetails.attributes?.map(attr =>
-                                    `${attr?.type || attr?.name}: ${attr?.value || attr?.name}`
-                                ).join(', ')}
-                                </Text>
-                                <Text style={styles.variantStock}>
-                                    Available Stock: {selectedVariantDetails.stock || selectedVariantDetails.quantity || 0}
-                                </Text>
-                            </View>
-                        </View>
-                    )}
-
                     {/* Reviews */}
                     {reviews.length > 0 && (
                         <View style={styles.reviewsSection}>
@@ -973,49 +1047,69 @@ export default function ProductDetailScreen() {
                 </Animated.View>
             )}
 
-            {/* Fixed Bottom Action Bar - Redesigned */}
-            <SafeAreaView style={styles.bottomSafeArea}>
+            {/* Fixed Bottom Action Bar - Dynamic based on cart status */}
+            <View style={[styles.bottomContainer, { paddingBottom: insets.bottom }]}>
                 <View style={styles.bottomActionBar}>
-                    {/* Quantity Selector */}
-                    <View style={styles.quantitySelector}>
-                        <Text style={styles.quantityLabel}>Quantity</Text>
-                        <View style={styles.quantityControls}>
+                    {isProductInCart ? (
+                        // Product already in cart - Show quantity controls
+                        <>
+                            <View style={styles.quantityControlsWrapper}>
+                                <Text style={styles.cartQuantityLabel}>In Cart:</Text>
+                                <View style={styles.cartQuantityControls}>
+                                    <Pressable
+                                        style={[styles.quantityButton, outOfStock && styles.buttonDisabled]}
+                                        onPress={handleDecreaseQuantity}
+                                        disabled={outOfStock || updatingCart}
+                                    >
+                                        <Ionicons
+                                            name="remove"
+                                            size={20}
+                                            color={outOfStock ? "#999999" : "#FFFFFF"}
+                                        />
+                                    </Pressable>
+                                    <Text style={[styles.cartQuantityValue, outOfStock && styles.textDisabled]}>
+                                        {currentCartQuantity}
+                                    </Text>
+                                    <Pressable
+                                        style={[styles.quantityButton, outOfStock && styles.buttonDisabled]}
+                                        onPress={handleIncreaseQuantity}
+                                        disabled={outOfStock || currentCartQuantity >= availableStock || updatingCart}
+                                    >
+                                        <Ionicons
+                                            name="add"
+                                            size={20}
+                                            color={outOfStock ? "#999999" : "#FFFFFF"}
+                                        />
+                                    </Pressable>
+                                </View>
+                            </View>
                             <Pressable
-                                style={[styles.quantityButton, outOfStock && styles.buttonDisabled]}
-                                onPress={decreaseQuantity}
-                                disabled={outOfStock || quantity === 1}
+                                style={[styles.viewCartButton, outOfStock && styles.buttonDisabled]}
+                                onPress={() => router.push("/Cart")}
+                                disabled={outOfStock}
                             >
-                                <Text style={[styles.quantityButtonText, outOfStock && styles.textDisabled]}>-</Text>
+                                <Ionicons name="cart-outline" size={20} color="#FFFFFF" />
+                                <Text style={styles.viewCartButtonText}>View Cart</Text>
                             </Pressable>
-                            <Text style={[styles.quantityValue, outOfStock && styles.textDisabled]}>
-                                {quantity}
-                            </Text>
-                            <Pressable
-                                style={[styles.quantityButton, outOfStock && styles.buttonDisabled]}
-                                onPress={increaseQuantity}
-                                disabled={outOfStock || quantity >= availableStock}
-                            >
-                                <Text style={[styles.quantityButtonText, outOfStock && styles.textDisabled]}>+</Text>
-                            </Pressable>
-                        </View>
-                    </View>
-
-                    {/* Add to Cart Button */}
-                    <Pressable
-                        style={[styles.addToCartButton, outOfStock && styles.buttonDisabled]}
-                        onPress={handleAddToCart}
-                        disabled={outOfStock || updatingCart || !selectedVariantId}
-                    >
-                        {updatingCart ? (
-                            <ActivityIndicator size="small" color="#FFFFFF" />
-                        ) : (
-                            <Text style={styles.addToCartButtonText}>
-                                {outOfStock ? 'Out of Stock' : 'Add to Cart'}
-                            </Text>
-                        )}
-                    </Pressable>
+                        </>
+                    ) : (
+                        // Product not in cart - Show Buy Now button
+                        <Pressable
+                            style={[styles.buyNowButton, outOfStock && styles.buttonDisabled]}
+                            onPress={handleBuyNow}
+                            disabled={outOfStock || updatingCart}
+                        >
+                            {updatingCart ? (
+                                <ActivityIndicator size="small" color="#FFFFFF" />
+                            ) : (
+                                <Text style={styles.buyNowButtonText}>
+                                    {outOfStock ? 'Out of Stock' : 'Buy Now'}
+                                </Text>
+                            )}
+                        </Pressable>
+                    )}
                 </View>
-            </SafeAreaView>
+            </View>
         </View>
     );
 }
@@ -1159,7 +1253,7 @@ const styles = StyleSheet.create({
         marginTop: -30,
         paddingTop: 30,
         paddingHorizontal: 20,
-        paddingBottom: 140,
+        paddingBottom: 130,
     },
     productBasicInfo: {
         gap: 12,
@@ -1454,12 +1548,17 @@ const styles = StyleSheet.create({
         marginTop: 4,
     },
     // Bottom Action Bar Styles
-    bottomSafeArea: {
+    bottomContainer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
         backgroundColor: '#FFFFFF',
     },
     bottomActionBar: {
         backgroundColor: '#FFFFFF',
         padding: 16,
+        paddingBottom: 12 + (Platform.OS === 'android' ? 8 : 0),
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -1469,25 +1568,41 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: -2 },
         shadowOpacity: 0.1,
         shadowRadius: 8,
-        elevation: 8,
+        minHeight: 70,
     },
-    quantitySelector: {
+    // Buy Now Button (when product not in cart)
+    buyNowButton: {
+        flex: 1,
+        height: 48,
+        backgroundColor: "#4CAD73",
+        borderRadius: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    buyNowButtonText: {
+        fontSize: 16,
+        fontFamily: "Poppins",
+        fontWeight: "600",
+        color: "#FFFFFF",
+    },
+    // Cart Quantity Controls (when product is in cart)
+    quantityControlsWrapper: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
     },
-    quantityLabel: {
+    cartQuantityLabel: {
         fontSize: 14,
         fontFamily: "Poppins",
         fontWeight: "600",
         color: "#333",
     },
-    quantityControls: {
+    cartQuantityControls: {
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: '#F5F5F5',
         borderRadius: 20,
-        paddingHorizontal: 8,
+        paddingHorizontal: 4,
         paddingVertical: 4,
     },
     quantityButton: {
@@ -1498,13 +1613,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    quantityButtonText: {
-        color: '#FFFFFF',
-        fontSize: 18,
-        fontWeight: 'bold',
-        fontFamily: 'Poppins',
-    },
-    quantityValue: {
+    cartQuantityValue: {
         fontSize: 16,
         fontFamily: "Poppins",
         fontWeight: "600",
@@ -1513,16 +1622,18 @@ const styles = StyleSheet.create({
         minWidth: 30,
         textAlign: 'center',
     },
-    addToCartButton: {
+    viewCartButton: {
         flex: 1,
         marginLeft: 16,
         height: 48,
-        backgroundColor: "#4CAD73",
+        backgroundColor: "#FF6B35",
         borderRadius: 8,
         justifyContent: 'center',
         alignItems: 'center',
+        flexDirection: 'row',
+        gap: 8,
     },
-    addToCartButtonText: {
+    viewCartButtonText: {
         fontSize: 16,
         fontFamily: "Poppins",
         fontWeight: "600",

@@ -22,6 +22,7 @@ import {addCartItem, getCart, removeCartItem, updateCartItem} from '../../api/ca
 import {getProducts, getCategories, toggleWishlist, checkWishlist} from '../../api/catalogApi';
 import {API_BASE_URL} from '../../config/apiConfig';
 import { useFocusEffect } from '@react-navigation/native';
+import {useSafeAreaInsets} from "react-native-safe-area-context";
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 
@@ -56,14 +57,9 @@ const responsiveWidth = (percentage) => {
     return (screenWidth * percentage) / 100;
 };
 
-// Responsive height percentage (excluding status bar and safe areas)
-const responsiveHeight = (percentage) => {
-    const availableHeight = screenHeight - statusBarHeight - bottomSafeArea;
-    return (availableHeight * percentage) / 100;
-};
-
 export default function ProductsScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
     const {selectedCategory, categoryName, searchQuery} = useLocalSearchParams();
     const [products, setProducts] = useState([]);
     const [categories, setCategories] = useState([]);
@@ -82,6 +78,17 @@ export default function ProductsScreen() {
     const [orientation, setOrientation] = useState(
         screenWidth > screenHeight ? 'landscape' : 'portrait'
     );
+
+    const responsiveHeight = (percentage) => {
+        const availableHeight = screenHeight - insets.top - insets.bottom;
+        return (availableHeight * percentage) / 100;
+    };
+
+    const responsiveHeightWithInsets = (percentage) => {
+        const availableHeight = screenHeight - insets.top - insets.bottom;
+        return (availableHeight * percentage) / 100;
+    };
+
 
     // Parse the selected category from params
     const parsedSelectedCategory = selectedCategory ?
@@ -1090,7 +1097,7 @@ export default function ProductsScreen() {
     };
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container]}>
             <StatusBar
                 backgroundColor="#4CAD73"
                 barStyle="light-content"
@@ -1101,8 +1108,8 @@ export default function ProductsScreen() {
             <View style={[
                 styles.header,
                 {
-                    paddingTop: statusBarHeight,
-                    height: statusBarHeight + responsiveSize(60),
+                    height: responsiveSize(60) + insets.top,
+                    paddingTop: insets.top,
                     paddingHorizontal: responsiveSize(16),
                 }
             ]}>
@@ -1135,13 +1142,13 @@ export default function ProductsScreen() {
             </View>
 
             {/* MAIN CONTENT - Properly positioned below header */}
-            <View style={styles.mainContent}>
+            <View style={[styles.mainContent, { marginTop: responsiveSize(60) + insets.top }]}>
                 {/* TWO COLUMN LAYOUT */}
                 <View style={styles.twoColumnLayout}>
                     {/* LEFT COLUMN - CATEGORIES */}
                     <View style={[
                         styles.leftColumn,
-                        { width: leftColumnWidth }
+                        { width: leftColumnWidth }, {marginBottom: insets.bottom}
                     ]}>
                         <ScrollView
                             style={styles.categoriesList}
@@ -1203,7 +1210,7 @@ export default function ProductsScreen() {
                     </View>
 
                     {/* RIGHT COLUMN - PRODUCTS */}
-                    <View style={styles.rightColumn}>
+                    <View style={[styles.rightColumn, {marginBottom: insets.bottom}]}>
                         {loading ? (
                             <View style={styles.loadingContainer}>
                                 <ActivityIndicator size="large" color="#4CAD73" />
@@ -1249,7 +1256,7 @@ export default function ProductsScreen() {
                                 showsVerticalScrollIndicator={false}
                                 contentContainerStyle={[
                                     styles.productsGrid,
-                                    { paddingBottom: bottomSafeArea + responsiveSize(20) }
+                                    { paddingBottom: insets.bottom + responsiveSize(20) }
                                 ]}
                                 key={`product-grid-${productColumns}-${orientation}`}
                                 removeClippedSubviews={true}
@@ -1270,22 +1277,22 @@ export default function ProductsScreen() {
                 statusBarTranslucent={true}
                 onRequestClose={closeVariantModal}
             >
-                <View style={styles.modalOverlay}>
+                <View style={[styles.modalOverlay, { paddingTop: insets.top }]}>
                     <View style={[
                         styles.modalContainer,
                         {
-                            height: responsiveHeight(80) + bottomSafeArea,
+                            height: responsiveHeightWithInsets(80) + insets.bottom,
                             borderTopLeftRadius: responsiveSize(20),
                             borderTopRightRadius: responsiveSize(20),
                         }
                     ]}>
-                        <SafeAreaView style={styles.modalContent}>
+                        <SafeAreaView style={[styles.modalContent, { paddingBottom: insets.bottom }]}>
                             <View style={[
                                 styles.modalHeader,
                                 {
                                     paddingHorizontal: responsiveSize(20),
                                     paddingVertical: responsiveSize(16),
-                                    paddingTop: statusBarHeight,
+                                    paddingTop: insets.top > 0 ? insets.top : responsiveSize(16),
                                 }
                             ]}>
                                 <Text style={[
@@ -1529,9 +1536,9 @@ const styles = StyleSheet.create({
         fontFamily: 'Poppins',
     },
     newPrice: {
-        fontWeight: '700',
-        color: '#1B1B1B',
-        fontFamily: 'Poppins-Bold',
+        fontSize: 16,
+        fontWeight: '900',
+        color: '#4CAD73',
     },
     discountPercent: {
         color: '#EC0505',
@@ -1739,8 +1746,10 @@ const styles = StyleSheet.create({
         fontFamily: 'Poppins-SemiBold',
     },
     inStockText: {
-        color: '#4CAD73',
         fontSize: responsiveSize(10),
         fontFamily: 'Poppins-SemiBold',
+        fontWeight: '500',
+        color: '#2196F3',
+
     },
 });

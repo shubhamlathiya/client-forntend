@@ -123,6 +123,45 @@ export default function BlinkitHomeScreen() {
     const [selectedVariants, setSelectedVariants] = useState({});
     const [selectedAttributes, setSelectedAttributes] = useState({});
     const [groupedVariants, setGroupedVariants] = useState({});
+    const [displayImages, setDisplayImages] = useState({}); // Track images for each product
+
+    // Get display images for a product based on selected variant
+    const getDisplayImageForProduct = useCallback((productId, product) => {
+        const selectedVariantId = selectedVariants[productId];
+
+        if (!product) {
+            return product?.image || require("../../../assets/Rectangle 24904.png");
+        }
+
+        // If variant is selected and has images
+        if (selectedVariantId && product.variants) {
+            const variant = product.variants.find(v => v._id === selectedVariantId);
+            if (variant && variant.images && variant.images.length > 0) {
+                const firstImage = variant.images[0];
+                const imageUrl = typeof firstImage === 'string' ? firstImage : (firstImage?.url || firstImage?.path);
+                if (imageUrl) {
+                    return { uri: `${API_BASE_URL}${imageUrl}` };
+                }
+            }
+        }
+
+        // Fallback to product thumbnail
+        if (product.thumbnail) {
+            return { uri: `${API_BASE_URL}${product.thumbnail}` };
+        }
+
+        // Fallback to product images if available
+        if (product.images && product.images.length > 0) {
+            const firstImage = product.images[0];
+            const imageUrl = typeof firstImage === 'string' ? firstImage : (firstImage?.url || firstImage?.path);
+            if (imageUrl) {
+                return { uri: `${API_BASE_URL}${imageUrl}` };
+            }
+        }
+
+        // Default fallback
+        return require("../../../assets/Rectangle 24904.png");
+    }, [selectedVariants]);
 
     // Group variants by attributes for a product
     const groupVariantsByAttributes = useCallback((variantList) => {
@@ -276,7 +315,7 @@ export default function BlinkitHomeScreen() {
 
         if (!product) return null;
 
-        // If selected variant exists and is in stock, return it
+        // If selected variant exists, check if it's in stock
         if (selectedVariant) {
             const stock = getVariantStock(product, selectedVariant);
             if (stock > 0) {
@@ -322,9 +361,16 @@ export default function BlinkitHomeScreen() {
                     ...prev,
                     [productId]: firstAvailable._id
                 }));
+
+                // Update display image for this product
+                const displayImage = getDisplayImageForProduct(productId, product);
+                setDisplayImages(prev => ({
+                    ...prev,
+                    [productId]: displayImage
+                }));
             }
         }
-    }, [groupVariantsByAttributes]);
+    }, [groupVariantsByAttributes, getDisplayImageForProduct]);
 
     // Handle attribute selection for a product
     const handleAttributeSelect = useCallback((productId, attributeType, value) => {
@@ -350,6 +396,13 @@ export default function BlinkitHomeScreen() {
                     ...prev,
                     [productId]: foundVariant._id
                 }));
+
+                // Update display image when variant changes
+                const displayImage = getDisplayImageForProduct(productId, product);
+                setDisplayImages(prev => ({
+                    ...prev,
+                    [productId]: displayImage
+                }));
             } else {
                 // If no variant matches, clear the variant selection
                 setSelectedVariants(prev => ({
@@ -358,7 +411,7 @@ export default function BlinkitHomeScreen() {
                 }));
             }
         }
-    }, [featuredProducts, tabProducts, categoryProducts, selectedAttributes, findVariantByAttributes]);
+    }, [featuredProducts, tabProducts, categoryProducts, selectedAttributes, findVariantByAttributes, getDisplayImageForProduct]);
 
     // Initialize variant selection when products load
     useEffect(() => {
@@ -587,7 +640,7 @@ export default function BlinkitHomeScreen() {
                 products = uniqueProducts;
             } else {
                 // Fallback to fetching all products if no categories specified
-                const res = await tProducts({page: 1, limit: 50});
+                const res = await getProducts({page: 1, limit: 50});
                 products = extractProducts(res);
 
                 // Try to filter by tab name if possible
@@ -1060,49 +1113,95 @@ export default function BlinkitHomeScreen() {
             };
         };
 
+        // If variantId is provided, use that variant's pricing FIRST
+        if (variantId && product.variants) {
+            const variant = product.variants.find(v => v._id === variantId);
+            if (variant) {
+                // Check for business user tier pricing for this specific variant
+                if (isBusinessUser) {
+                    const productId = product._id || product.id;
+                    const variantKey = variantId;
+                    const productTiers = getProductTierPricing(productId, variantKey);
+
+                    if (productTiers.length > 0) {
+                        const applicableTier = productTiers.find(tier =>
+                            quantity >= tier.minQty && quantity <= tier.maxQty
+                        );
+
+                        if (applicableTier) {
+                            return buildResponse(
+                                applicableTier.price,
+                                applicableTier.price,
+                                null,
+                                0,
+                                applicableTier.minQty
+                            );
+                        }
+
+                        const firstTier = productTiers[0];
+                        if (firstTier) {
+                            return buildResponse(
+                                firstTier.price,
+                                firstTier.price,
+                                null,
+                                0,
+                                firstTier.minQty
+                            );
+                        }
+                    }
+                }
+
+                // Use variant's own pricing
+                return buildResponse(
+                    variant.basePrice ?? variant.price ?? product.basePrice,
+                    variant.finalPrice ?? variant.price ?? product.finalPrice ?? product.price,
+                    variant.discount ?? product.discount,
+                    variant.discountPercent ?? product.discountPercent
+                );
+            }
+        }
+
+        // If no variant found but business user, check for default pricing
         if (isBusinessUser) {
             const productId = product._id || product.id;
-            const variantKey = variantId || (product.variants?.[0]?._id) || 'default';
+            const variantKey = variantId || 'default';
             const productTiers = getProductTierPricing(productId, variantKey);
 
             if (productTiers.length > 0) {
-                const applicableTier = productTiers.find(tier => quantity >= tier.minQty && quantity <= tier.maxQty);
+                const applicableTier = productTiers.find(tier =>
+                    quantity >= tier.minQty && quantity <= tier.maxQty
+                );
 
                 if (applicableTier) {
-                    return buildResponse(applicableTier.price, applicableTier.price, null, 0, applicableTier.minQty);
+                    return buildResponse(
+                        applicableTier.price,
+                        applicableTier.price,
+                        null,
+                        0,
+                        applicableTier.minQty
+                    );
                 }
 
                 const firstTier = productTiers[0];
                 if (firstTier) {
-                    return buildResponse(firstTier.price, firstTier.price, null, 0, firstTier.minQty);
+                    return buildResponse(
+                        firstTier.price,
+                        firstTier.price,
+                        null,
+                        0,
+                        firstTier.minQty
+                    );
                 }
             }
         }
 
-        // If variantId is provided, use that variant's pricing
-        if (variantId && product.variants) {
-            const variant = product.variants.find(v => v._id === variantId);
-            if (variant) {
-                return buildResponse(variant.basePrice ?? product.basePrice,
-                    variant.finalPrice ?? product.finalPrice ?? product.price,
-                    variant.discount ?? product.discount,
-                    variant.discountPercent ?? product.discountPercent);
-            }
-        }
-
-        // Use first variant if available
-        if (Array.isArray(product?.variants) && product.variants.length > 0) {
-            const v = product.variants[0];
-            return buildResponse(v.basePrice ?? product.basePrice,
-                v.finalPrice ?? product.finalPrice ?? product.price,
-                v.discount ?? product.discount,
-                v.discountPercent ?? product.discountPercent);
-        }
-
-        return buildResponse(product.basePrice ?? product.price,
+        // Use product's default pricing
+        return buildResponse(
+            product.basePrice ?? product.price,
             product.finalPrice ?? product.price,
             product.discount,
-            product.discountPercent);
+            product.discountPercent
+        );
     };
 
     const renderFragmentProduct = ({item, index}) => {
@@ -1111,7 +1210,10 @@ export default function BlinkitHomeScreen() {
         const priceInfo = calculateProductPrice(item, selectedVariantId);
         const cartQuantity = getCartQuantity(productId, selectedVariantId);
         const stock = getVariantStock(item, selectedVariantId);
-        const imageSource = item.image?.uri ? {uri: item.image.uri} : require("../../../assets/Rectangle 24904.png");
+
+        // Get the correct image based on selected variant
+        const imageSource = getDisplayImageForProduct(productId, item.originalProduct || item);
+
         const hasAvailable = hasAvailableVariant(item);
         const grouped = groupedVariants[productId];
         const currentAttributes = selectedAttributes[productId] || {};
@@ -1126,12 +1228,6 @@ export default function BlinkitHomeScreen() {
                         <Text style={styles.outOfStockText}>Out of Stock</Text>
                     </View>
                 )}
-
-                {/*{hasAvailable && stock <= 10 && (*/}
-                {/*    <View style={styles.lowStockBadge}>*/}
-                {/*        <Text style={styles.lowStockText}>Only {stock} left</Text>*/}
-                {/*    </View>*/}
-                {/*)}*/}
 
                 <Image
                     source={imageSource}
@@ -1262,7 +1358,10 @@ export default function BlinkitHomeScreen() {
         const priceInfo = calculateProductPrice(item, selectedVariantId);
         const cartQuantity = getCartQuantity(productId, selectedVariantId);
         const stock = getVariantStock(item, selectedVariantId);
-        const imageSource = item.image?.uri ? {uri: item.image.uri} : require("../../../assets/Rectangle 24904.png");
+
+        // Get the correct image based on selected variant
+        const imageSource = getDisplayImageForProduct(productId, item.originalProduct || item);
+
         const productTiers = getProductTierPricing(productId, selectedVariantId);
         const hasAvailable = hasAvailableVariant(item);
         const grouped = groupedVariants[productId];
@@ -1284,12 +1383,6 @@ export default function BlinkitHomeScreen() {
                         <Text style={styles.minQtyText}>Min: {priceInfo.minQty}</Text>
                     </View>
                 )}
-
-                {/*{hasAvailable && stock < 10 && (*/}
-                {/*    <View style={styles.lowStockBadge}>*/}
-                {/*        <Text style={styles.lowStockText}>Only {stock} left</Text>*/}
-                {/*    </View>*/}
-                {/*)}*/}
 
                 <Image
                     source={imageSource}
@@ -1662,7 +1755,10 @@ export default function BlinkitHomeScreen() {
         const priceInfo = calculateProductPrice(product, selectedVariantId);
         const cartQuantity = getCartQuantity(productId, selectedVariantId);
         const stock = getVariantStock(product, selectedVariantId);
-        const imageSource = product.image?.uri ? {uri: product.image.uri} : require("../../../assets/Rectangle 24904.png");
+
+        // Get the correct image based on selected variant
+        const imageSource = getDisplayImageForProduct(productId, product.originalProduct || product);
+
         const hasAvailable = hasAvailableVariant(product);
         const grouped = groupedVariants[productId];
         const currentAttributes = selectedAttributes[productId] || {};
@@ -1678,12 +1774,6 @@ export default function BlinkitHomeScreen() {
                         <Text style={styles.outOfStockText}>Out of Stock</Text>
                     </View>
                 )}
-
-                {/*{hasAvailable && stock <= 10 && (*/}
-                {/*    <View style={styles.lowStockBadge}>*/}
-                {/*        <Text style={styles.lowStockText}>Only {stock} left</Text>*/}
-                {/*    </View>*/}
-                {/*)}*/}
 
                 <Image
                     source={imageSource}
@@ -1927,6 +2017,9 @@ export default function BlinkitHomeScreen() {
                         onRefresh={() => {
                             loadTabCategories();
                             loadUserData();
+                            fetchCategories();
+                            loadFeaturedProducts();
+                            loadCartItems();
                         }}
                         colors={[headerColor]}
                         tintColor={headerColor}
@@ -2179,7 +2272,7 @@ export default function BlinkitHomeScreen() {
                     ]}
                 >
 
-                <Pressable
+                    <Pressable
                         style={styles.cartPopup}
                         activeOpacity={0.9}
                         onPress={handleCartPopupClick}
@@ -2206,7 +2299,7 @@ export default function BlinkitHomeScreen() {
 
                             <View style={styles.cartInfo}>
                                 <Text style={styles.cartItemsCount}>
-                                    View in cart
+                                    View In Cart
                                 </Text>
                             </View>
                         </View>

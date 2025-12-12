@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {useFocusEffect, useRouter} from "expo-router";
-import React, {useCallback, useState, useRef} from "react";
+import React, {useCallback, useState, useRef, useEffect} from "react";
 import {
     Image,
     StatusBar,
@@ -19,13 +19,14 @@ import {
     TextInput,
     KeyboardAvoidingView,
     TouchableWithoutFeedback,
-    Keyboard
+    Keyboard,
 } from "react-native";
 import {LinearGradient} from "expo-linear-gradient";
 import * as ImagePicker from 'expo-image-picker';
 import {uploadProfileImage, getUserProfile, logoutUser, updateUserPhone} from "../../api/authApi";
 import {API_BASE_URL} from "../../config/apiConfig";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {useSafeAreaInsets} from "react-native-safe-area-context";
+import {safeAreaInsets} from "../../utils/responsive";
 
 const {width, height} = Dimensions.get('window');
 
@@ -48,11 +49,35 @@ export default function AccountScreen() {
     const [uploading, setUploading] = useState(false);
     const [showImageOptions, setShowImageOptions] = useState(false);
     const [userProfileImage, setUserProfileImage] = useState(null);
-    const [showPhoneModal, setShowPhoneModal] = useState(false);
+    const [showUpdateModal, setShowUpdateModal] = useState(false);
+    const [name, setName] = useState("");
     const [phoneNumber, setPhoneNumber] = useState("");
-    const [updatingPhone, setUpdatingPhone] = useState(false);
-    const [isPhoneEditable, setIsPhoneEditable] = useState(false);
+    const [updating, setUpdating] = useState(false);
     const [loadingProfile, setLoadingProfile] = useState(true);
+    const nameInputRef = useRef(null);
+    const phoneInputRef = useRef(null);
+    const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+    // Keyboard listeners
+    useEffect(() => {
+        const keyboardDidShowListener = Keyboard.addListener(
+            'keyboardDidShow',
+            () => {
+                setKeyboardVisible(true);
+            }
+        );
+        const keyboardDidHideListener = Keyboard.addListener(
+            'keyboardDidHide',
+            () => {
+                setKeyboardVisible(false);
+            }
+        );
+
+        return () => {
+            keyboardDidHideListener.remove();
+            keyboardDidShowListener.remove();
+        };
+    }, []);
 
     // Calculate bottom padding for tab bar
     const getTabBarBottomPadding = () => {
@@ -124,7 +149,8 @@ export default function AccountScreen() {
                 const userId = userData.id || userData._id;
                 setUser(userData);
 
-                // Extract just the digits for editing field
+                // Set name and phone for editing
+                setName(userData.name || "");
                 const phoneDigits = extractPhoneDigits(userData.phone || "");
                 setPhoneNumber(phoneDigits);
 
@@ -155,7 +181,6 @@ export default function AccountScreen() {
                             fetchedUser = profileData;
                         }
 
-
                         if (fetchedUser) {
                             // Update user state with fetched data
                             const updatedUser = {
@@ -168,6 +193,7 @@ export default function AccountScreen() {
                             };
 
                             setUser(updatedUser);
+                            setName(updatedUser.name || "");
 
                             // Update AsyncStorage with merged data
                             await AsyncStorage.setItem("userData", JSON.stringify(updatedUser));
@@ -175,7 +201,6 @@ export default function AccountScreen() {
                             // Set profile image if available
                             if (fetchedUser.profile?.picture) {
                                 const imageUrl = `${API_BASE_URL}${fetchedUser.profile.picture}`;
-                                // console.log("Setting profile image URL:", imageUrl);
                                 setUserProfileImage(imageUrl);
                             } else if (fetchedUser.profileImageUrl) {
                                 setUserProfileImage(fetchedUser.profileImageUrl);
@@ -199,6 +224,7 @@ export default function AccountScreen() {
                     name: "Guest User",
                     phone: "",
                 });
+                setName("Guest User");
             }
         } catch (err) {
             console.error("Failed to read AsyncStorage:", err);
@@ -206,6 +232,7 @@ export default function AccountScreen() {
                 name: "Guest User",
                 phone: "",
             });
+            setName("Guest User");
         } finally {
             setLoadingProfile(false);
         }
@@ -252,8 +279,6 @@ export default function AccountScreen() {
 
     const uploadImage = async (imageUri) => {
         const stored = await AsyncStorage.getItem("userData");
-
-
         const userData = JSON.parse(stored);
         const userId = userData.id || userData._id;
 
@@ -279,7 +304,6 @@ export default function AccountScreen() {
 
             // Upload to server
             const response = await uploadProfileImage(userId, formData);
-
 
             if (response.success) {
                 let profileImageUrl = response.data?.profileImageUrl || response.data?.picture;
@@ -320,62 +344,54 @@ export default function AccountScreen() {
         }
     };
 
-    const handleUpdatePhone = async () => {
-        // Extract just digits for validation
-        const phoneDigits = phoneNumber.replace(/\D/g, '');
-
-        if (!phoneDigits) {
-            Alert.alert('Error', 'Please Enter A Valid Phone Number');
+    const handleUpdateUserInfo = async () => {
+        // Validate name
+        if (!name.trim()) {
+            Alert.alert('Error', 'Please enter your name');
+            nameInputRef.current?.focus();
             return;
         }
 
-        // Validate 10 digits
-        if (phoneDigits.length === 10) {
+        // Validate phone number
+        const phoneDigits = phoneNumber.replace(/\D/g, '');
+        if (!phoneDigits || phoneDigits.length !== 10) {
+            Alert.alert('Error', 'Please enter a valid 10-digit phone number');
+            phoneInputRef.current?.focus();
+            return;
+        }
 
-            // Format phone number with +91
-            const formattedPhone = `+91 ${phoneDigits}`;
+        // Format phone number with +91
+        const formattedPhone = `+91 ${phoneDigits}`;
 
-            setUpdatingPhone(true);
+        setUpdating(true);
 
-            try {
-                const stored = await AsyncStorage.getItem("userData");
-                if (!stored) {
-                    Alert.alert('Error', 'User not found');
-                    return;
-                }
-
-                const userData = JSON.parse(stored);
-                const userId = userData.id || userData._id;
-
-                // Send the formatted phone number to API
-                const response = await updateUserPhone(userId, formattedPhone);
-
-                if (response.success) {
-                    // Update local storage with formatted number
-                    userData.phone = formattedPhone;
-                    await AsyncStorage.setItem("userData", JSON.stringify(userData));
-
-                    // Update state
-                    setUser(prev => ({...prev, phone: formattedPhone}));
-
-                    Alert.alert('Success', 'Phone Number Updated Successfully');
-                    setIsPhoneEditable(false);
-                    setShowPhoneModal(false);
-                } else {
-                    Alert.alert('Error', response.message || 'Failed to update phone number');
-                }
-            } catch (error) {
-                console.error('Update phone error:', error);
-                Alert.alert('Error', 'Failed to update phone number');
-            } finally {
-                setUpdatingPhone(false);
+        try {
+            const stored = await AsyncStorage.getItem("userData");
+            if (!stored) {
+                Alert.alert('Error', 'User not found');
+                return;
             }
 
-        } else {
-            Alert.alert('Error', 'Please Enter a Valid 10-digit Phone Number');
-            return;
-        }
+            const userData = JSON.parse(stored);
+            const userId = userData.id || userData._id;
 
+
+            const nameResponse = await updateUserPhone(userId, name.trim(), formattedPhone);
+            if (nameResponse.success) {
+                Alert.alert('Success', 'Profile updated successfully');
+                loadUserData();
+            } else {
+                Alert.alert('Error', nameResponse.message || 'Failed to update name');
+                return;
+            }
+
+            setShowUpdateModal(false);
+        } catch (error) {
+            console.error('Update error:', error);
+            Alert.alert('Error', 'Failed to update profile');
+        } finally {
+            setUpdating(false);
+        }
     };
 
     const handleLogout = async () => {
@@ -417,7 +433,7 @@ export default function AccountScreen() {
         <View style={styles.safeContainer}>
             <StatusBar barStyle="dark-content" backgroundColor="#FFE59A"/>
 
-            <SafeAreaView style={[styles.container, { paddingBottom: tabBarPadding }]}>
+            <SafeAreaView style={[styles.container, {paddingBottom: tabBarPadding}]}>
                 {/* Image Upload Modal */}
                 <Modal
                     visible={showImageOptions}
@@ -452,77 +468,112 @@ export default function AccountScreen() {
                     </Pressable>
                 </Modal>
 
-                {/* Phone Update Modal */}
+                {/* Update Profile Modal with Keyboard Avoidance */}
                 <Modal
-                    visible={showPhoneModal}
+                    visible={showUpdateModal}
                     transparent={true}
                     animationType="fade"
                     onRequestClose={() => {
-                        setShowPhoneModal(false);
-                        setIsPhoneEditable(false);
-                        // Reset phone number to current user phone when modal closes
-                        setPhoneNumber(extractPhoneDigits(user?.phone || ""));
+                        setShowUpdateModal(false);
+                        Keyboard.dismiss();
                     }}
                 >
-                    <TouchableWithoutFeedback onPress={() => {
-                        setShowPhoneModal(false);
-                        setIsPhoneEditable(false);
-                        setPhoneNumber(extractPhoneDigits(user?.phone || ""));
-                    }}>
-                        <View style={styles.phoneModalOverlay}>
-                            <TouchableWithoutFeedback>
+                    <TouchableWithoutFeedback
+                        onPress={() => {
+                            setShowUpdateModal(false);
+                            Keyboard.dismiss();
+                        }}
+                    >
+                        <View style={styles.updateModalOverlay}>
+                            <TouchableWithoutFeedback onPress={() => {
+                            }}>
                                 <KeyboardAvoidingView
                                     behavior={Platform.OS === "ios" ? "padding" : "height"}
-                                    style={styles.phoneModalContainer}
+                                    style={styles.updateModalContainer}
                                 >
-                                    <Text style={styles.phoneModalTitle}>Update Phone Number</Text>
+                                    <ScrollView
+                                        style={styles.modalScrollView}
+                                        showsVerticalScrollIndicator={false}
+                                        keyboardShouldPersistTaps="handled"
+                                    >
+                                        <Text style={styles.updateModalTitle}>Update Profile</Text>
 
-                                    <View style={styles.phoneInputContainer}>
-                                        <View style={styles.countryCodeContainer}>
-                                            <Text style={styles.countryCodeText}>+91</Text>
+                                        {/* Name Field */}
+                                        <View style={styles.inputContainer}>
+                                            <Text style={styles.inputLabel}>Full Name</Text>
+                                            <TextInput
+                                                ref={nameInputRef}
+                                                style={styles.textInput}
+                                                value={name}
+                                                onChangeText={setName}
+                                                placeholder="Enter your full name"
+                                                placeholderTextColor="#999"
+                                                autoCapitalize="words"
+                                                returnKeyType="next"
+                                                onSubmitEditing={() => phoneInputRef.current?.focus()}
+                                            />
                                         </View>
-                                        <TextInput
-                                            style={styles.phoneInput}
-                                            value={phoneNumber}
-                                            onChangeText={(text) => {
-                                                // Only allow digits
-                                                const digits = text.replace(/\D/g, '');
-                                                // Limit to 10 digits
-                                                const limitedDigits = digits.substring(0, 10);
-                                                setPhoneNumber(limitedDigits);
-                                            }}
-                                            placeholder="Enter 10-digit number"
-                                            keyboardType="phone-pad"
-                                            maxLength={10}
-                                            autoFocus
-                                        />
-                                    </View>
 
-                                    <Text style={styles.phoneFormatHint}>
-                                        Format: +91 XXXXXXXXXX
-                                    </Text>
+                                        {/* Phone Field */}
+                                        <View style={styles.inputContainer}>
+                                            <Text style={styles.inputLabel}>Phone Number</Text>
+                                            <View style={styles.phoneInputWrapper}>
+                                                <View style={styles.countryCodeContainer}>
+                                                    <Text style={styles.countryCodeText}>+91</Text>
+                                                </View>
+                                                <TextInput
+                                                    ref={phoneInputRef}
+                                                    style={styles.phoneInput}
+                                                    value={phoneNumber}
+                                                    onChangeText={(text) => {
+                                                        // Only allow digits
+                                                        const digits = text.replace(/\D/g, '');
+                                                        // Limit to 10 digits
+                                                        const limitedDigits = digits.substring(0, 10);
+                                                        setPhoneNumber(limitedDigits);
+                                                    }}
+                                                    placeholder="Enter 10-digit number"
+                                                    placeholderTextColor="#999"
+                                                    keyboardType="phone-pad"
+                                                    maxLength={10}
+                                                    returnKeyType="done"
+                                                    onSubmitEditing={handleUpdateUserInfo}
+                                                />
+                                            </View>
+                                            <Text style={styles.phoneFormatHint}>
+                                                Enter your 10-digit mobile number
+                                            </Text>
+                                        </View>
 
-                                    <View style={styles.phoneModalButtons}>
-                                        <Pressable
-                                            style={[styles.phoneModalButton, styles.cancelPhoneButton]}
-                                            onPress={() => {
-                                                setShowPhoneModal(false);
-                                                setIsPhoneEditable(false);
-                                                setPhoneNumber(extractPhoneDigits(user?.phone || ""));
-                                            }}
-                                        >
-                                            <Text style={styles.cancelPhoneText}>Cancel</Text>
-                                        </Pressable>
+                                        {/* Buttons */}
+                                        <View style={[
+                                            styles.updateModalButtons,
+                                            {marginTop: keyboardVisible ? RH(20) : RH(40)}
+                                        ]}>
+                                            <Pressable
+                                                style={[styles.updateModalButton, styles.cancelUpdateButton]}
+                                                onPress={() => {
+                                                    setShowUpdateModal(false);
+                                                    Keyboard.dismiss();
+                                                }}
+                                                disabled={updating}
+                                            >
+                                                <Text style={styles.cancelUpdateText}>Cancel</Text>
+                                            </Pressable>
 
-                                        <Pressable
-                                            style={[styles.phoneModalButton, styles.updatePhoneButton]}
-                                            onPress={handleUpdatePhone}
-                                            disabled={updatingPhone}
-                                        >
-                                            {updatingPhone ? (<ActivityIndicator size="small" color="#fff"/>) : (
-                                                <Text style={styles.updatePhoneText}>Update</Text>)}
-                                        </Pressable>
-                                    </View>
+                                            <Pressable
+                                                style={[styles.updateModalButton, styles.submitUpdateButton]}
+                                                onPress={handleUpdateUserInfo}
+                                                disabled={updating}
+                                            >
+                                                {updating ? (
+                                                    <ActivityIndicator size="small" color="#fff"/>
+                                                ) : (
+                                                    <Text style={styles.submitUpdateText}>Update</Text>
+                                                )}
+                                            </Pressable>
+                                        </View>
+                                    </ScrollView>
                                 </KeyboardAvoidingView>
                             </TouchableWithoutFeedback>
                         </View>
@@ -532,8 +583,9 @@ export default function AccountScreen() {
                 {/* Fixed Header */}
                 <LinearGradient colors={["#FFE59A", "#FFD56C"]} style={styles.header}>
                     {/* Top Row with Back Button and Profile Text */}
-                    <View style={styles.topHeaderRow}>
-                        <Pressable onPress={() => router.back()}>
+                    <View style={[styles.topHeaderRow ,{paddingTop: safeAreaInsets.top}]}>
+                        <Pressable onPress={() => router.back()}  style={styles.backButton}
+                                   hitSlop={{top: RF(10), bottom: RF(10), left: RF(10), right: RF(10)}}>
                             <Image
                                 source={require("../../assets/icons/back_icon.png")}
                                 style={styles.backIcon}
@@ -553,51 +605,57 @@ export default function AccountScreen() {
                         onPress={() => setShowImageOptions(true)}
                         disabled={uploading}
                     >
-                        {uploading ? (<View style={[styles.avatar, styles.uploadingAvatar]}>
-                            <ActivityIndicator size="large" color="#FFD56C"/>
-                        </View>) : (<>
-                            <Image
-                                source={userProfileImage ? {uri: userProfileImage} : require("../../assets/icons/user-avatar.png")}
-                                style={styles.avatar}
-                            />
-                            <View style={styles.cameraIconContainer}>
-                                <Image
-                                    source={require("../../assets/icons/camera.png")}
-                                    style={styles.cameraIcon}
-                                />
+                        {uploading ? (
+                            <View style={[styles.avatar, styles.uploadingAvatar]}>
+                                <ActivityIndicator size="large" color="#FFD56C"/>
                             </View>
-                        </>)}
+                        ) : (
+                            <>
+                                <Image
+                                    source={userProfileImage ? {uri: userProfileImage} : require("../../assets/icons/user-avatar.png")}
+                                    style={styles.avatar}
+                                />
+                                <View style={styles.cameraIconContainer}>
+                                    <Image
+                                        source={require("../../assets/icons/camera.png")}
+                                        style={styles.cameraIcon}
+                                    />
+                                </View>
+                            </>
+                        )}
                     </Pressable>
 
-                    {/* User Name */}
-                    <Text
-                        style={styles.userName}
-                        numberOfLines={1}
-                        adjustsFontSizeToFit
-                    >
-                        {user?.name || "Guest User"}
-                    </Text>
+                    {/* User Name with Edit Option */}
+                    <View style={styles.nameRow}>
+                        <Text
+                            style={styles.userName}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                        >
+                            {user?.name || "Guest User"}
+                        </Text>
+                        <Pressable
+                            style={styles.editNameButton}
+                            onPress={() => {
+                                setShowUpdateModal(true);
+                                // Focus on name field after modal opens
+                                setTimeout(() => {
+                                    nameInputRef.current?.focus();
+                                }, 300);
+                            }}
+                        >
+                            <Image
+                                source={require("../../assets/icons/edit.png")}
+                                style={styles.editIcon}
+                            />
+                        </Pressable>
+                    </View>
 
-                    {/* Phone Number Row with Edit Button */}
+                    {/* Phone Number Row */}
                     <View style={styles.phoneRow}>
-                        <View style={styles.phoneDisplayContainer}>
-                            <Text style={styles.phoneText} numberOfLines={1}>
-                                {user?.phone ? formatPhoneNumber(user.phone) : "Phone not set"}
-                            </Text>
-                            <Pressable
-                                style={styles.editPhoneButton}
-                                onPress={() => {
-                                    setShowPhoneModal(true);
-                                    // Set current phone digits for editing
-                                    setPhoneNumber(extractPhoneDigits(user?.phone || ""));
-                                }}
-                            >
-                                <Image
-                                    source={require("../../assets/icons/edit.png")}
-                                    style={styles.editIcon}
-                                />
-                            </Pressable>
-                        </View>
+                        <Text style={styles.phoneText} numberOfLines={1}>
+                            {user?.phone ? formatPhoneNumber(user.phone) : "Phone not set"}
+                        </Text>
                     </View>
                 </LinearGradient>
 
@@ -606,19 +664,21 @@ export default function AccountScreen() {
                     style={styles.scrollView}
                     contentContainerStyle={[
                         styles.scrollContent,
-                        { paddingBottom: tabBarPadding + RH(0) } // Add extra padding for scroll
+                        {paddingBottom: tabBarPadding + RH(0)}
                     ]}
                     showsVerticalScrollIndicator={false}
                     bounces={true}
+                    keyboardShouldPersistTaps="handled"
                 >
                     {/* Your Information Card */}
                     <View style={styles.card}>
-                        <Text style={styles.cardTitle}>Your information</Text>
+                        <Text style={styles.cardTitle}>Your Information</Text>
 
                         <ScrollView
                             style={styles.menuScroll}
                             showsVerticalScrollIndicator={false}
                             nestedScrollEnabled={true}
+                            keyboardShouldPersistTaps="handled"
                         >
                             <Pressable
                                 style={styles.menuItem}
@@ -629,7 +689,7 @@ export default function AccountScreen() {
                                         source={require("../../assets/icons/address-book.png")}
                                         style={styles.menuIcon}
                                     />
-                                    <Text style={styles.menuLabel}>Address book</Text>
+                                    <Text style={styles.menuLabel}>Address Book</Text>
                                 </View>
                                 <Image
                                     source={require("../../assets/icons/right-arrow.png")}
@@ -645,7 +705,7 @@ export default function AccountScreen() {
                                         source={require("../../assets/icons/orderDelivery.png")}
                                         style={styles.menuIcon}
                                     />
-                                    <Text style={styles.menuLabel}>Your orders</Text>
+                                    <Text style={styles.menuLabel}>Your Orders</Text>
                                 </View>
                                 <Image
                                     source={require("../../assets/icons/right-arrow.png")}
@@ -662,7 +722,7 @@ export default function AccountScreen() {
                                         source={require("../../assets/icons/heart_empty.png")}
                                         style={styles.menuIcon}
                                     />
-                                    <Text style={styles.menuLabel}>Your wishlist</Text>
+                                    <Text style={styles.menuLabel}>Your Wishlist</Text>
                                 </View>
                                 <Image
                                     source={require("../../assets/icons/right-arrow.png")}
@@ -685,7 +745,7 @@ export default function AccountScreen() {
                                     source={require("../../assets/icons/share.png")}
                                     style={styles.menuIcon}
                                 />
-                                <Text style={styles.menuLabel}>Share the app</Text>
+                                <Text style={styles.menuLabel}>Share The App</Text>
                             </View>
                             <Image
                                 source={require("../../assets/icons/right-arrow.png")}
@@ -720,7 +780,7 @@ export default function AccountScreen() {
                                     style={styles.menuIcon}
                                 />
                                 <Text style={[styles.menuLabel, {color: "#E13333"}]}>
-                                    {loggingOut ? "Logging out..." : "Log out"}
+                                    {loggingOut ? "Logging Out..." : "Log Out"}
                                 </Text>
                             </View>
                             <Image
@@ -735,7 +795,7 @@ export default function AccountScreen() {
                         >
                             <View style={styles.leftRow}>
                                 <Text style={[styles.menuLabel, {color: "#3A7AFE"}]}>
-                                    Switch provider
+                                    Switch Provider
                                 </Text>
                             </View>
                             <Image
@@ -776,16 +836,11 @@ const styles = StyleSheet.create({
     },
     header: {
         width: "100%",
-        paddingTop: Platform.OS === 'ios' ? RH(10) : RH(20),
         paddingBottom: RH(20),
-        paddingHorizontal: RF(18),
         borderBottomLeftRadius: RF(24),
         borderBottomRightRadius: RF(24),
         shadowColor: "#FFD56C",
-        shadowOffset: {width: 0, height: RF(8)},
-        shadowOpacity: 0.25,
         shadowRadius: RF(18),
-        elevation: 6,
     },
     topHeaderRow: {
         flexDirection: "row",
@@ -794,11 +849,14 @@ const styles = StyleSheet.create({
         paddingHorizontal: RF(16),
         paddingVertical: RF(12),
     },
-    backIcon: {
+    backButton: {
         padding: RF(4),
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    backIcon: {
         width: RF(24),
         height: RF(24),
-        tintColor: "#000"
     },
     profileText: {
         fontSize: RF(18),
@@ -848,15 +906,23 @@ const styles = StyleSheet.create({
         width: RF(18),
         height: RF(18),
     },
+    nameRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        marginTop: RH(8),
+    },
     userName: {
         textAlign: "center",
-        marginTop: RH(8),
         fontWeight: "700",
         color: "#111",
         fontSize: RF(20),
         fontFamily: "Poppins-Bold",
-        maxWidth: '90%',
-        alignSelf: 'center',
+        maxWidth: '80%',
+    },
+    editNameButton: {
+        padding: RF(6),
+        marginLeft: RF(8),
     },
     phoneRow: {
         flexDirection: "row",
@@ -864,59 +930,74 @@ const styles = StyleSheet.create({
         marginTop: RH(8),
         alignItems: "center",
     },
-    phoneDisplayContainer: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: 'rgba(255, 255, 255, 0.7)',
-        borderRadius: RF(20),
-        paddingHorizontal: RF(12),
-        paddingVertical: RH(6),
-    },
     phoneText: {
         fontSize: RF(15),
         color: "#333",
         fontFamily: "Poppins-Medium",
-        marginRight: RF(8),
-    },
-    editPhoneButton: {
-        padding: RF(4),
+        backgroundColor: 'rgba(255, 255, 255, 0.7)',
+        borderRadius: RF(20),
+        paddingHorizontal: RF(16),
+        paddingVertical: RH(6),
     },
     editIcon: {
         width: RF(14),
         height: RF(14),
         tintColor: "#555",
     },
-    phoneModalOverlay: {
+    updateModalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0, 0, 0, 0.5)',
         justifyContent: 'center',
         alignItems: 'center',
         paddingHorizontal: RF(20),
     },
-    phoneModalContainer: {
+    updateModalContainer: {
         backgroundColor: 'white',
         borderRadius: RF(16),
         padding: RF(20),
         width: '100%',
-        maxWidth: RF(320),
+        maxWidth: RF(340),
+        maxHeight: RH(500),
     },
-    phoneModalTitle: {
-        fontSize: RF(18),
+    modalScrollView: {
+        flexGrow: 1,
+    },
+    updateModalTitle: {
+        fontSize: RF(20),
         fontWeight: "700",
-        marginBottom: RH(16),
+        marginBottom: RH(24),
         fontFamily: "Poppins-Bold",
         textAlign: 'center',
         color: '#333',
     },
-    phoneInputContainer: {
+    inputContainer: {
+        marginBottom: RH(20),
+    },
+    inputLabel: {
+        fontSize: RF(14),
+        fontFamily: "Poppins-Medium",
+        color: "#555",
+        marginBottom: RH(6),
+    },
+    textInput: {
+        backgroundColor: '#f8f8f8',
+        borderRadius: RF(8),
+        paddingHorizontal: RF(16),
+        paddingVertical: RH(14),
+        fontSize: RF(16),
+        fontFamily: "Poppins-Regular",
+        color: "#333",
+        borderWidth: 1,
+        borderColor: '#ddd',
+    },
+    phoneInputWrapper: {
         flexDirection: "row",
         alignItems: "center",
-        marginBottom: RH(8),
     },
     countryCodeContainer: {
         backgroundColor: '#f0f0f0',
-        paddingHorizontal: RF(12),
-        paddingVertical: RH(12),
+        paddingHorizontal: RF(16),
+        paddingVertical: RH(14),
         borderTopLeftRadius: RF(8),
         borderBottomLeftRadius: RF(8),
         borderWidth: 1,
@@ -931,8 +1012,8 @@ const styles = StyleSheet.create({
     phoneInput: {
         flex: 1,
         backgroundColor: '#f8f8f8',
-        paddingHorizontal: RF(12),
-        paddingVertical: RH(12),
+        paddingHorizontal: RF(16),
+        paddingVertical: RH(14),
         borderTopRightRadius: RF(8),
         borderBottomRightRadius: RF(8),
         fontSize: RF(16),
@@ -946,33 +1027,34 @@ const styles = StyleSheet.create({
         fontSize: RF(12),
         color: '#666',
         fontFamily: "Poppins-Regular",
-        marginBottom: RH(20),
-        textAlign: 'center',
+        marginTop: RH(6),
+        textAlign: 'left',
     },
-    phoneModalButtons: {
+    updateModalButtons: {
         flexDirection: "row",
         justifyContent: "space-between",
     },
-    phoneModalButton: {
+    updateModalButton: {
         flex: 1,
-        paddingVertical: RH(12),
+        paddingVertical: RH(14),
         borderRadius: RF(8),
         alignItems: 'center',
+        justifyContent: 'center',
     },
-    cancelPhoneButton: {
+    cancelUpdateButton: {
         backgroundColor: '#f0f0f0',
         marginRight: RF(8),
     },
-    cancelPhoneText: {
+    cancelUpdateText: {
         color: '#666',
         fontSize: RF(14),
         fontFamily: "Poppins-Medium",
     },
-    updatePhoneButton: {
+    submitUpdateButton: {
         backgroundColor: '#4CAF50',
         marginLeft: RF(8),
     },
-    updatePhoneText: {
+    submitUpdateText: {
         color: '#fff',
         fontSize: RF(14),
         fontFamily: "Poppins-Medium",

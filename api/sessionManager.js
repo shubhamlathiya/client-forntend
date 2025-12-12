@@ -11,8 +11,7 @@ export const getUserType = async () => {
     }
 };
 
-
-export const getOrCreateSessionId = async (loginType = null) => {
+export const getOrCreateSessionId = async (loginType = null, forceNew = false) => {
     try {
         // If no loginType provided, get from storage
         if (!loginType) {
@@ -21,15 +20,18 @@ export const getOrCreateSessionId = async (loginType = null) => {
 
         // Create storage key based on login type
         const sessionKey = `sessionId_${loginType}`;
-        let sid = await AsyncStorage.getItem(sessionKey);
 
+        if (!forceNew) {
+            let sid = await AsyncStorage.getItem(sessionKey);
+            if (sid) return sid;
+        }
 
-
-        if (sid) return sid;
-
-        // Create a new session id for this login type
-        sid = `sid_${loginType}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        // Create a new session id
+        const sid = `sid_${loginType}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
         await AsyncStorage.setItem(sessionKey, sid);
+
+        // Also set as current sessionId for compatibility
+        await AsyncStorage.setItem("sessionId", sid);
 
         return sid;
     } catch (err) {
@@ -48,15 +50,27 @@ export const getCurrentSessionId = async () => {
         return null;
     }
 };
+
+export const setCurrentSessionId = async (sessionId) => {
+    try {
+        const loginType = await getUserType();
+        const sessionKey = `sessionId_${loginType}`;
+        await AsyncStorage.setItem(sessionKey, sessionId);
+        await AsyncStorage.setItem("sessionId", sessionId);
+    } catch (error) {
+        console.error('setCurrentSessionId error:', error);
+    }
+};
+
 export const getIdentity = async () => {
     try {
         const token = await SecureStore.getItemAsync('accessToken');
         const loginType = await getUserType();
-        const sessionId = await getOrCreateSessionId(loginType);
+        const sessionId = await getCurrentSessionId();
         return {isAuthenticated: !!token, sessionId, loginType};
     } catch (_) {
         const loginType = await getUserType();
-        const sessionId = await getOrCreateSessionId(loginType);
+        const sessionId = await getCurrentSessionId();
         return {isAuthenticated: false, sessionId, loginType};
     }
 };

@@ -61,7 +61,7 @@ export const getProductById = async (id) => {
     if (!id) throw new Error('Product id is required');
     try {
         const response = await apiClient.get(`/api/catalog/products/${id}`);
-        console.log(response.data.data.variants.attributes)
+        // console.log(response.data.data.variants)
         return response.data;
     } catch (error) {
         console.error(`Failed to fetch product ${id}`, error);
@@ -169,10 +169,10 @@ export const getProductsByTab = async (tabId, params = {}) => {
 
 
 // catalogApi.js - Add this function
-export const getProductRatingByUser = async (userId, productId) => {
+export const getProductRatingByUser = async (userId, orderId) => {
     try {
         const response = await apiClient.get(
-            `/api/catalog/reviews/products/${productId}/userrating`
+            `/api/catalog/reviews/products/${orderId}/userrating`
         );
         return response.data;
     } catch (error) {

@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { API_BASE_URL } from '../../config/apiConfig';
 import { getWishlist, toggleWishlist } from "../../api/catalogApi";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {useSafeAreaInsets} from "react-native-safe-area-context";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -43,6 +44,7 @@ const isLargeTablet = screenWidth >= 1024;
 
 export default function WishlistScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
     const [wishlistItems, setWishlistItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -471,7 +473,8 @@ export default function WishlistScreen() {
             <View style={[
                 styles.header,
                 {
-                    height: responsiveHeight(isTablet ? 8 : 10),
+                    height: responsiveSize(60) + insets.top,
+                    paddingTop: insets.top,
                     paddingHorizontal: responsiveSize(16),
                 }
             ]}>

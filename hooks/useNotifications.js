@@ -95,7 +95,7 @@ const useNotifications = () => {
             return notificationId;
 
         } catch (error) {
-            console.log('❌ Error generating notification:', error.message);
+            console.log('Error generating notification:', error.message);
             return null;
         }
     };
@@ -174,7 +174,7 @@ const useNotifications = () => {
             }
 
         } catch (error) {
-            console.log('❌ Error checking notifications:', error.message);
+            console.log('Error checking notifications:', error.message);
         }
     };
 
@@ -185,7 +185,7 @@ const useNotifications = () => {
         try {
             await apiMarkAsRead(notificationId);
         } catch (error) {
-            console.log('⚠️ Error marking as read in backend:', error.message);
+            console.log('Error marking as read in backend:', error.message);
         }
     };
 
@@ -203,7 +203,7 @@ const useNotifications = () => {
 
         // User tapped notification listener
         responseListener.current = Notifications.addNotificationResponseReceivedListener(
-            (response) => {
+            async (response) => {
                 const data = response.notification.request.content.data;
 
                 // Mark as read if it has an ID
@@ -212,7 +212,7 @@ const useNotifications = () => {
                 }
 
                 // Handle navigation
-                handleNavigation(data);
+                await handleNavigation(data);
             }
         );
     };
@@ -227,7 +227,7 @@ const useNotifications = () => {
             const parsed = JSON.parse(userData);
             return parsed?.id || parsed?._id || null;
         } catch (error) {
-            console.log('⚠️ Get user ID error:', error.message);
+            console.log('Get user ID error:', error.message);
             return null;
         }
     };
@@ -286,7 +286,7 @@ const useNotifications = () => {
 
         } catch (err) {
             setError(err.message || 'Failed to load notifications');
-            console.log('❌ Fetch error:', err.message);
+            console.log('Fetch error:', err.message);
         } finally {
             if (showLoader) {
                 setLoading(false);
@@ -321,7 +321,7 @@ const useNotifications = () => {
 
 
         } catch (error) {
-            console.log('❌ Mark read error:', error.message);
+            console.log('Mark read error:', error.message);
             fetchAndUpdateNotifications(false, false);
         }
     };
@@ -345,7 +345,7 @@ const useNotifications = () => {
             Alert.alert('Success', 'All notifications marked as read');
 
         } catch (error) {
-            console.log('❌ Mark all error:', error.message);
+            console.log('Mark all error:', error.message);
             Alert.alert('Error', 'Failed to mark all as read');
         }
     };
@@ -376,7 +376,7 @@ const useNotifications = () => {
 
 
         } catch (error) {
-            console.log('❌ Delete error:', error.message);
+            console.log('Delete error:', error.message);
             Alert.alert('Error', 'Failed to delete notification');
         }
     };
@@ -384,28 +384,81 @@ const useNotifications = () => {
     // ------------------------------------------------------------
     // 11. HANDLE NOTIFICATION PRESS
     // ------------------------------------------------------------
-    const handleNotificationPress = async (notification) => {
-        try {
-            // Mark as read
-            if (!notification.read) {
-                await markAsRead(notification._id);
+    const handleNotificationPress = (notification) => {
+        if (!notification) return;
+        // // Mark as read
+        // if (!notification.read) handleMarkAsRead(notification._id);
+
+        let targetScreen = '/Home';
+
+        if (notification.data?.screen) {
+            const screen = notification.data.screen;
+
+            // Custom rules
+            if (screen === 'OrderDetails') {
+                targetScreen = '/screens/MyOrderScreen';
+            }
+            else if (screen === 'NegotiationDetails') {
+
+                // Check if it's a negotiation approval with cart
+                if (notification.data.action === 'load_cart' && notification.data.cartId) {
+                    // Navigate to cart tab with parameters
+                    const params = new URLSearchParams();
+                    params.append('cartId', notification.data.cartId);
+                    params.append('sessionId', notification.data.sessionId);
+                    params.append('action', 'load_cart');
+                    if (notification.data.negotiationId) {
+                        params.append('negotiationId', notification.data.negotiationId);
+                    }
+                    // Navigate to cart tab (assuming it's /cart or /(tabs)/cart)
+                    targetScreen = `/screens/CartScreen?${params.toString()}`;
+                } else {
+                    targetScreen = '/screens/CartScreen';
+                }
+            }
+            else if (screen === 'ReturnDetails') {
+                targetScreen = '/screens/MyOrderScreen';
+            }
+            else {
+                targetScreen = `/screens/${screen}`;
             }
 
-            console.log(notification.data)
-            // Navigate based on notification data
-            if (notification.data) {
-                handleNavigation(notification.data);
-            } else {
-                router.push('/Home');
-            }
-        } catch (error) {
-            console.log('❌ Notification press error:', error.message);
+            // Append extra params
+            const params = new URLSearchParams();
+            Object.entries(notification.data).forEach(([key, value]) => {
+                if (key !== 'screen' && value !== undefined && value !== null) {
+                    params.append(key, String(value));
+                }
+            });
+
+            const queryString = params.toString();
+            const url = queryString ? `${targetScreen}?${queryString}` : targetScreen;
+
+            router.replace(url);
+        } else {
+            router.push(targetScreen);
         }
     };
 
-    const handleNavigation = useCallback((data) => {
+
+    const handleNavigation = useCallback(async (data) => {
         if (!data?.screen) {
-            router.push('/(tabs)/notifications');
+
+            router.push('/screens/NotificationScreen');
+            return;
+        }
+
+        // Handle negotiation approval with cart loading
+        if (data.action === 'load_cart' && data.cartId && data.sessionId) {
+            // Navigate to cart tab with notification parameters
+            const params = new URLSearchParams();
+            params.append('cartId', data.cartId);
+            params.append('sessionId', data.sessionId);
+            params.append('action', 'load_cart');
+            if (data.negotiationId) params.append('negotiationId', data.negotiationId);
+
+            // Navigate to cart tab (assuming it's in tabs)
+            router.replace(`/Cart?${params.toString()}`);
             return;
         }
 
@@ -433,7 +486,7 @@ const useNotifications = () => {
         // Check every 15 seconds when app is active
         pollIntervalRef.current = setInterval(() => {
             if (AppState.currentState === 'active') {
-                console.log('🔄 Automatic check for notifications');
+                console.log('Automatic check for notifications');
                 fetchAndUpdateNotifications(false, false);
             }
         }, 5000);
@@ -469,7 +522,7 @@ const useNotifications = () => {
             }
 
         } catch (error) {
-            console.log('ℹ️ Notification setup info:', error.message);
+            console.log('Notification setup info:', error.message);
         }
     };
 

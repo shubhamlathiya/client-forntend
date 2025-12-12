@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useLocalSearchParams, useRouter} from "expo-router";
-import {useEffect, useState, useCallback} from "react";
+import {useEffect, useState, useCallback, useMemo} from "react";
 import {
     Alert,
     Dimensions,
@@ -9,7 +9,6 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    ToastAndroid,
     Pressable,
     View,
     Modal,
@@ -21,7 +20,7 @@ import {
 import {addCartItem, getCart, removeCartItem, updateCartItem} from '../../api/cartApi';
 import {getProducts, getCategories, toggleWishlist, checkWishlist} from '../../api/catalogApi';
 import {API_BASE_URL} from '../../config/apiConfig';
-import { useFocusEffect } from '@react-navigation/native';
+import {useFocusEffect} from '@react-navigation/native';
 import {useSafeAreaInsets} from "react-native-safe-area-context";
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
@@ -75,9 +74,19 @@ export default function ProductsScreen() {
     const [wishlistItems, setWishlistItems] = useState({});
     const [wishlistUpdating, setWishlistUpdating] = useState({});
     const [userId, setUserId] = useState(null);
+    const [selectedAttributes, setSelectedAttributes] = useState({});
     const [orientation, setOrientation] = useState(
         screenWidth > screenHeight ? 'landscape' : 'portrait'
     );
+    const [displayImages, setDisplayImages] = useState({}); // Track images for each product
+
+    const capitalizeWords = (text) => {
+        if (!text || typeof text !== "string") return text;
+        return text
+            .split(" ")
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .join(" ");
+    };
 
     const responsiveHeight = (percentage) => {
         const availableHeight = screenHeight - insets.top - insets.bottom;
@@ -88,7 +97,6 @@ export default function ProductsScreen() {
         const availableHeight = screenHeight - insets.top - insets.bottom;
         return (availableHeight * percentage) / 100;
     };
-
 
     // Parse the selected category from params
     const parsedSelectedCategory = selectedCategory ?
@@ -128,7 +136,7 @@ export default function ProductsScreen() {
 
     // Handle orientation changes
     useEffect(() => {
-        const subscription = Dimensions.addEventListener('change', ({ window }) => {
+        const subscription = Dimensions.addEventListener('change', ({window}) => {
             const newOrientation = window.width > window.height ? 'landscape' : 'portrait';
             setOrientation(newOrientation);
         });
@@ -136,17 +144,278 @@ export default function ProductsScreen() {
         return () => subscription?.remove();
     }, []);
 
+    // Initialize selected attributes when variant modal opens
+    useEffect(() => {
+        if (showVariantModal && selectedProductForVariant) {
+            const productId = getProductId(selectedProductForVariant);
+            const variants = selectedProductForVariant?.variants || [];
+
+            // Try to get current selection from cart
+            const currentCartItem = cartItems.find(item =>
+                item.productId === String(productId)
+            );
+
+            let initialAttributes = {};
+
+            if (currentCartItem?.variantId) {
+                // If item already in cart, use that variant's attributes
+                const currentVariant = variants.find(v =>
+                    String(v._id || v.id) === String(currentCartItem.variantId)
+                );
+                if (currentVariant?.attributes) {
+                    currentVariant.attributes.forEach(attr => {
+                        if (attr.name && attr.value) {
+                            initialAttributes[attr.name] = attr.value;
+                        }
+                    });
+                }
+            } else {
+                // Otherwise, select the first available variant
+                const firstAvailableVariant = variants.find(v =>
+                    isInStock(selectedProductForVariant, v)
+                ) || variants[0];
+
+                if (firstAvailableVariant?.attributes) {
+                    firstAvailableVariant.attributes.forEach(attr => {
+                        if (attr.name && attr.value) {
+                            initialAttributes[attr.name] = attr.value;
+                        }
+                    });
+                }
+            }
+
+            setSelectedAttributes(initialAttributes);
+        }
+    }, [showVariantModal, selectedProductForVariant]);
+
+    // Get display image for a product based on selected variant
+    const getDisplayImageForProduct = useCallback((productId, product, selectedVariant = null) => {
+        if (!product) {
+            return require("../../assets/icons/fruit.png");
+        }
+
+        // If variant is selected and has images
+        if (selectedVariant && selectedVariant.images && selectedVariant.images.length > 0) {
+            const firstImage = selectedVariant.images[0];
+            const imageUrl = typeof firstImage === 'string' ? firstImage : (firstImage?.url || firstImage?.path);
+            if (imageUrl) {
+                return { uri: `${API_BASE_URL}${imageUrl}` };
+            }
+        }
+
+        // Fallback to product thumbnail
+        if (product.thumbnail) {
+            return { uri: `${API_BASE_URL}${product.thumbnail}` };
+        }
+
+        // Fallback to product images if available
+        if (product.images && product.images.length > 0) {
+            const firstImage = product.images[0];
+            const imageUrl = typeof firstImage === 'string' ? firstImage : (firstImage?.url || firstImage?.path);
+            if (imageUrl) {
+                return { uri: `${API_BASE_URL}${imageUrl}` };
+            }
+        }
+
+        // Default fallback
+        return require("../../assets/icons/fruit.png");
+    }, []);
+
+    // Initialize products and variants
+    useEffect(() => {
+        if (products.length === 0) return;
+
+        const newSelectedVariants = {};
+        const newDisplayImages = {};
+
+        products.forEach(product => {
+            const productId = String(getProductId(product));
+            const variants = product?.variants || [];
+
+            if (variants.length > 0) {
+                // Find first available variant
+                const firstAvailableVariant = variants.find(v =>
+                    isInStock(product, v)
+                ) || variants[0];
+
+                if (firstAvailableVariant) {
+                    newSelectedVariants[productId] = String(firstAvailableVariant._id || firstAvailableVariant.id);
+                    newDisplayImages[productId] = getDisplayImageForProduct(productId, product, firstAvailableVariant);
+                }
+            } else {
+                // For products without variants
+                newDisplayImages[productId] = getDisplayImageForProduct(productId, product, null);
+            }
+        });
+
+        setSelectedVariants(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(newSelectedVariants)) {
+                return prev;
+            }
+            return newSelectedVariants;
+        });
+
+        setDisplayImages(prev => {
+            const hasChanges = Object.keys(newDisplayImages).some(key => {
+                const oldImage = prev[key];
+                const newImage = newDisplayImages[key];
+                if (typeof oldImage === 'object' && typeof newImage === 'object') {
+                    return oldImage?.uri !== newImage?.uri;
+                }
+                return oldImage !== newImage;
+            });
+            return hasChanges ? { ...prev, ...newDisplayImages } : prev;
+        });
+    }, [products, getDisplayImageForProduct]);
+
+    // Update display images when variants change
+    useEffect(() => {
+        if (Object.keys(selectedVariants).length === 0 || products.length === 0) return;
+
+        const updatedImages = {};
+        let hasChanges = false;
+
+        Object.keys(selectedVariants).forEach(productId => {
+            const product = products.find(p => String(getProductId(p)) === productId);
+            if (product) {
+                const selectedVariantId = selectedVariants[productId];
+                const variant = product.variants?.find(v => String(v._id || v.id) === selectedVariantId);
+                const newImage = getDisplayImageForProduct(productId, product, variant);
+                const currentImage = displayImages[productId];
+
+                // Compare images properly
+                const isSameImage = (img1, img2) => {
+                    if (img1 === img2) return true;
+                    if (typeof img1 === 'object' && typeof img2 === 'object') {
+                        return img1?.uri === img2?.uri;
+                    }
+                    return false;
+                };
+
+                if (!isSameImage(currentImage, newImage)) {
+                    updatedImages[productId] = newImage;
+                    hasChanges = true;
+                }
+            }
+        });
+
+        if (hasChanges) {
+            setDisplayImages(prev => ({ ...prev, ...updatedImages }));
+        }
+    }, [selectedVariants, products, getDisplayImageForProduct]);
+
+    // Load cart items
+    const loadCartItems = useCallback(async () => {
+        try {
+            const cartData = await getCart();
+            let items = [];
+
+            if (cartData?.success) {
+                if (cartData.data?.items) {
+                    items = cartData.data.items;
+                } else if (Array.isArray(cartData.data)) {
+                    items = cartData.data;
+                }
+            } else if (Array.isArray(cartData)) {
+                items = cartData;
+            }
+
+            setCartItems(prev => {
+                if (JSON.stringify(prev) === JSON.stringify(items)) {
+                    return prev;
+                }
+                return items;
+            });
+        } catch (error) {
+            setCartItems([]);
+        }
+    }, []);
+
+    // Initialize wishlist status
+    const initializeWishlistStatus = useCallback(async (productsList) => {
+        try {
+            if (!userId || !productsList || productsList.length === 0) {
+                const defaultStatus = {};
+                productsList.forEach(product => {
+                    const productId = String(getProductId(product));
+                    if (productId && productId !== 'undefined') {
+                        defaultStatus[productId] = false;
+                    }
+                });
+                setWishlistItems(defaultStatus);
+                return;
+            }
+
+            const wishlistStatus = {};
+            const batchSize = 5;
+
+            // First, initialize all as false
+            productsList.forEach(product => {
+                const productId = String(getProductId(product));
+                if (productId && productId !== 'undefined') {
+                    wishlistStatus[productId] = false;
+                }
+            });
+
+            // Then check actual status in batches
+            for (let i = 0; i < productsList.length; i += batchSize) {
+                const batch = productsList.slice(i, i + batchSize);
+                const batchPromises = batch.map(async (product) => {
+                    const productId = getProductId(product);
+                    if (!productId || productId === 'undefined') return null;
+
+                    try {
+                        const res = await checkWishlist(userId, productId);
+                        const liked = Boolean(res.data.isLiked ?? res?.data?.liked ?? res?.inWishlist ?? res?.data?.inWishlist);
+                        return { productId, isInWishlist: Boolean(liked) };
+                    } catch (error) {
+                        console.log(`Error checking wishlist for product ${productId}:`, error);
+                        return { productId, isInWishlist: false };
+                    }
+                });
+
+                const batchResults = await Promise.allSettled(batchPromises);
+                batchResults.forEach(result => {
+                    if (result.status === 'fulfilled' && result.value) {
+                        wishlistStatus[result.value.productId] = result.value.isInWishlist;
+                    }
+                });
+            }
+
+            setWishlistItems(wishlistStatus);
+        } catch (error) {
+            console.log('Error initializing wishlist:', error);
+        }
+    }, [userId]);
+
     // Auto refresh when screen comes into focus
     useFocusEffect(
         useCallback(() => {
-            loadCartItems();
-            // Refresh wishlist status when screen comes into focus
-            if (userId && products.length > 0) {
-                initializeWishlistStatus(products);
-            }
-        }, [userId, products])
+            let isActive = true;
+
+            const refreshData = async () => {
+                if (!isActive) return;
+
+                try {
+                    await loadCartItems();
+
+                    if (userId && products.length > 0 && isActive) {
+                        await initializeWishlistStatus(products);
+                    }
+                } catch (error) {
+                    console.log('Error in focus effect:', error);
+                }
+            };
+
+            refreshData();
+
+            return () => {
+                isActive = false;
+            };
+        }, [loadCartItems, userId, products.length, initializeWishlistStatus])
     );
 
+    // Load initial data
     useEffect(() => {
         let mounted = true;
 
@@ -157,12 +426,12 @@ export default function ProductsScreen() {
                 const categoryId = parsedSelectedCategory;
 
                 const requests = [
-                    getProducts({categoryId}),
+                    getProducts({ categoryId }),
                     getCategories(),
                     loadCartItems()
                 ];
 
-                const [productsRes, categoriesRes, cartRes] = await Promise.all(requests);
+                const [productsRes, categoriesRes] = await Promise.all(requests);
 
                 let items = [];
                 if (productsRes?.success) {
@@ -195,9 +464,7 @@ export default function ProductsScreen() {
                     setFilteredProducts(items);
                     setCategories(categoriesList);
 
-                    // Set active category based on selectedCategory from params
                     if (categoryId && categoriesList.length > 0) {
-                        // Try to find the category by ID
                         const foundCategory = categoriesList.find(cat =>
                             cat._id === categoryId || cat.id === categoryId
                         );
@@ -205,15 +472,15 @@ export default function ProductsScreen() {
                         if (foundCategory) {
                             setActiveCategory(foundCategory);
                         } else if (categoriesList.length > 0) {
-                            // Fallback to first category if not found
                             setActiveCategory(categoriesList[0]);
                         }
                     } else if (categoriesList.length > 0) {
                         setActiveCategory(categoriesList[0]);
                     }
 
-                    // Initialize wishlist status
-                    await initializeWishlistStatus(items);
+                    if (userId && items.length > 0) {
+                        await initializeWishlistStatus(items);
+                    }
                 }
             } catch (e) {
                 console.error('Error loading products:', e);
@@ -236,228 +503,7 @@ export default function ProductsScreen() {
         };
     }, [parsedSelectedCategory]);
 
-    const initializeWishlistStatus = async (productsList) => {
-        try {
-            if (!userId || !productsList || productsList.length === 0) {
-                // Initialize all products as not in wishlist
-                const defaultStatus = {};
-                productsList.forEach(product => {
-                    const productId = String(getProductId(product));
-                    if (productId && productId !== 'undefined') {
-                        defaultStatus[productId] = false;
-                    }
-                });
-                setWishlistItems(defaultStatus);
-                return;
-            }
-
-            const wishlistStatus = {};
-            const batchSize = 5;
-
-            // First, initialize all as false
-            productsList.forEach(product => {
-                const productId = String(getProductId(product));
-                if (productId && productId !== 'undefined') {
-                    wishlistStatus[productId] = false;
-                }
-            });
-
-            // Then check actual status in batches
-            for (let i = 0; i < productsList.length; i += batchSize) {
-                const batch = productsList.slice(i, i + batchSize);
-                const batchPromises = batch.map(async (product) => {
-                    const productId = getProductId(product);
-                    if (!productId || productId === 'undefined') return null;
-
-                    try {
-
-                        const res = await checkWishlist(userId, productId);
-                        // Check multiple possible response structures
-                        const liked = Boolean(res.data.isLiked ?? res?.data?.liked ?? res?.inWishlist ?? res?.data?.inWishlist);
-
-
-                        return { productId, isInWishlist: Boolean(liked) };
-                    } catch (error) {
-                        console.log(`Error checking wishlist for product ${productId}:`, error);
-                        return { productId, isInWishlist: false };
-                    }
-                });
-
-                const batchResults = await Promise.all(batchPromises);
-                batchResults.forEach(result => {
-                    if (result && result.productId) {
-                        wishlistStatus[result.productId] = result.isInWishlist;
-                    }
-                });
-            }
-
-            setWishlistItems(wishlistStatus);
-        } catch (error) {
-            console.log('Error initializing wishlist:', error);
-            // Initialize with all false if error occurs
-            const defaultStatus = {};
-            productsList.forEach(product => {
-                const productId = String(getProductId(product));
-                if (productId && productId !== 'undefined') {
-                    defaultStatus[productId] = false;
-                }
-            });
-            setWishlistItems(defaultStatus);
-        }
-    };
-
-    const isInStock = (item, selectedVariant = null) => {
-        // Check variants first
-        const variants = Array.isArray(item?.variants) ? item.variants : [];
-
-        if (selectedVariant) {
-            // Check specific variant
-            return selectedVariant?.stock > 0 && selectedVariant?.status !== false;
-        } else if (variants.length > 0) {
-            // Check if any variant is in stock
-            return variants.some(variant => variant?.stock > 0 && variant?.status !== false);
-        } else {
-            // Check product stock directly
-            return item?.stock > 0 && item?.status !== false;
-        }
-    };
-
-
-    const toggleWishlistForProduct = async (product) => {
-        try {
-            const productId = String(product);
-            if (!productId || productId === 'undefined') {
-                console.error('Invalid product ID');
-                return;
-            }
-
-            // Check if user is logged in
-            if (!userId) {
-                Alert.alert(
-                    'Login Required',
-                    'Please login to add items to your wishlist',
-                    [
-                        { text: 'Cancel', style: 'cancel' },
-                        {
-                            text: 'Login',
-                            onPress: () => router.push('/screens/LoginScreen')
-                        }
-                    ]
-                );
-                return;
-            }
-
-            // Prevent multiple simultaneous toggles for same product
-            if (wishlistUpdating[productId]) {
-                console.log('Already updating wishlist for product:', productId);
-                return;
-            }
-
-            // Start updating
-            setWishlistUpdating(prev => ({ ...prev, [productId]: true }));
-
-            // Get current wishlist status
-            const currentStatus = wishlistItems[productId] || false;
-
-
-
-            // Perform optimistic update - immediately show the UI change
-            setWishlistItems(prev => ({
-                ...prev,
-                [productId]: !currentStatus
-            }));
-
-            // Call API
-            const response = await toggleWishlist(userId, productId);
-
-            // Determine the actual new state from API response
-            let newWishlistState = false;
-
-            if (response?.success === true) {
-                // If API returns success: true, check if it has a liked/inWishlist field
-                if (response.liked !== undefined) {
-                    newWishlistState = response.liked;
-                } else if (response.data?.liked !== undefined) {
-                    newWishlistState = response.data.liked;
-                } else if (response.inWishlist !== undefined) {
-                    newWishlistState = response.inWishlist;
-                } else if (response.data?.inWishlist !== undefined) {
-                    newWishlistState = response.data.inWishlist;
-                } else {
-                    // If only success: true is returned, assume toggle worked
-                    newWishlistState = !currentStatus;
-                }
-            } else if (response?.success === false) {
-                // If operation failed, revert to original state
-                newWishlistState = currentStatus;
-            } else if (response?.liked !== undefined) {
-                // Direct liked field without success wrapper
-                newWishlistState = response.liked;
-            } else if (response?.inWishlist !== undefined) {
-                // Direct inWishlist field
-                newWishlistState = response.inWishlist;
-            } else {
-                // Default to optimistic update
-                newWishlistState = !currentStatus;
-            }
-
-            // Ensure it's a boolean
-            newWishlistState = Boolean(newWishlistState);
-
-            console.log('Determined new wishlist state:', newWishlistState);
-
-            // Update with actual status from server
-            setWishlistItems(prev => ({
-                ...prev,
-                [productId]: newWishlistState
-            }));
-
-
-        } catch (error) {
-            console.error('Error toggling wishlist:', error);
-
-            // Extract error message
-            let errorMessage = 'Failed to update wishlist. Please try again.';
-
-            if (error.response) {
-                // Server responded with error
-                const serverError = error.response.data;
-                errorMessage = serverError?.message ||
-                    serverError?.error ||
-                    `Server error: ${error.response.status}`;
-            } else if (error.request) {
-                // Request made but no response
-                errorMessage = 'No response from server. Please check your connection.';
-            }
-
-            // Revert optimistic update on error
-            setWishlistItems(prev => ({
-                ...prev,
-                [String(product)]: wishlistItems[String(product)] || false
-            }));
-
-            Alert.alert('Error', errorMessage);
-        } finally {
-            const productId = String(product);
-            setWishlistUpdating(prev => ({ ...prev, [productId]: false }));
-        }
-    };
-
-    const getAvailableStock = (item, selectedVariant = null) => {
-        if (selectedVariant) {
-            return selectedVariant?.stock || 0;
-        } else {
-            const variants = Array.isArray(item?.variants) ? item.variants : [];
-            if (variants.length > 0) {
-                // Return sum of all variant stocks
-                return variants.reduce((total, variant) => total + (variant?.stock || 0), 0);
-            } else {
-                return item?.stock || 0;
-            }
-        }
-    };
-
-
+    // Filter products when category or search changes
     useEffect(() => {
         let filtered = [...products];
 
@@ -490,45 +536,49 @@ export default function ProductsScreen() {
         setFilteredProducts(filtered);
     }, [activeCategory, searchQuery, products]);
 
-    const loadCartItems = async () => {
-        try {
-            const cartData = await getCart();
-            let items = [];
+    // Utility functions
+    const isInStock = useCallback((item, selectedVariant = null) => {
+        const variants = Array.isArray(item?.variants) ? item.variants : [];
 
-            if (cartData?.success) {
-                if (cartData.data?.items) {
-                    items = cartData.data.items;
-                } else if (Array.isArray(cartData.data)) {
-                    items = cartData.data;
-                }
-            } else if (Array.isArray(cartData)) {
-                items = cartData;
-            }
-
-            setCartItems(items);
-            return cartData;
-        } catch (error) {
-            setCartItems([]);
+        if (selectedVariant) {
+            return selectedVariant?.stock > 0 && selectedVariant?.status !== false;
+        } else if (variants.length > 0) {
+            return variants.some(variant => variant?.stock > 0 && variant?.status !== false);
+        } else {
+            return item?.stock > 0 && item?.status !== false;
         }
-    };
+    }, []);
 
-    function handleProductClick(id) {
-        router.replace({pathname: "/screens/ProductDetailScreen", params: {id: String(id)}});
-    }
+    const getAvailableStock = useCallback((item, selectedVariant = null) => {
+        if (selectedVariant) {
+            return selectedVariant?.stock || 0;
+        } else {
+            const variants = Array.isArray(item?.variants) ? item.variants : [];
+            if (variants.length > 0) {
+                return variants.reduce((total, variant) => total + (variant?.stock || 0), 0);
+            } else {
+                return item?.stock || 0;
+            }
+        }
+    }, []);
 
-    function getProductId(item) {
+    const handleProductClick = useCallback((id) => {
+        router.replace({ pathname: "/screens/ProductDetailScreen", params: { id: String(id) } });
+    }, [router]);
+
+    const getProductId = useCallback((item) => {
         return item?.id || item?._id || item?.productId;
-    }
+    }, []);
 
-    const getCartItemId = (productId, variantId = null) => {
+    const getCartItemId = useCallback((productId, variantId = null) => {
         const cartItem = cartItems.find(item =>
             item.productId === String(productId) &&
             item.variantId === (variantId ? String(variantId) : null)
         );
         return cartItem?._id || cartItem?.id;
-    };
+    }, [cartItems]);
 
-    function computeProductPrice(item) {
+    const computeProductPrice = useCallback((item) => {
         const variants = Array.isArray(item?.variants) ? item.variants : [];
         const firstVariant = variants[0];
 
@@ -554,18 +604,103 @@ export default function ProductsScreen() {
             hasDiscount = discountPercent > 0;
         }
 
-        return {base, final, hasDiscount, discountPercent};
-    }
+        return { base, final, hasDiscount, discountPercent };
+    }, []);
 
-    const getCartQuantity = (productId, variantId = null) => {
+    const getCartQuantity = useCallback((productId, variantId = null) => {
         const item = cartItems.find(cartItem =>
             cartItem.productId === String(productId) &&
             cartItem.variantId === (variantId ? String(variantId) : null)
         );
         return item ? item.quantity : 0;
-    };
+    }, [cartItems]);
 
-    const handleAddToCart = async (item, variant = null) => {
+    // Handle wishlist toggle
+    const toggleWishlistForProduct = useCallback(async (productId) => {
+        try {
+            if (!productId || productId === 'undefined') {
+                console.error('Invalid product ID');
+                return;
+            }
+
+            if (!userId) {
+                Alert.alert(
+                    'Login Required',
+                    'Please login to add items to your wishlist',
+                    [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                            text: 'Login',
+                            onPress: () => router.push('/screens/LoginScreen')
+                        }
+                    ]
+                );
+                return;
+            }
+
+            if (wishlistUpdating[productId]) {
+                return;
+            }
+
+            setWishlistUpdating(prev => ({ ...prev, [productId]: true }));
+            const currentStatus = wishlistItems[productId] || false;
+
+            // Optimistic update
+            setWishlistItems(prev => ({
+                ...prev,
+                [productId]: !currentStatus
+            }));
+
+            const response = await toggleWishlist(userId, productId);
+
+            let newWishlistState = false;
+
+            if (response?.success === true) {
+                if (response.liked !== undefined) {
+                    newWishlistState = response.liked;
+                } else if (response.data?.liked !== undefined) {
+                    newWishlistState = response.data.liked;
+                } else if (response.inWishlist !== undefined) {
+                    newWishlistState = response.inWishlist;
+                } else if (response.data?.inWishlist !== undefined) {
+                    newWishlistState = response.data.inWishlist;
+                } else {
+                    newWishlistState = !currentStatus;
+                }
+            } else if (response?.success === false) {
+                newWishlistState = currentStatus;
+            } else if (response?.liked !== undefined) {
+                newWishlistState = response.liked;
+            } else if (response?.inWishlist !== undefined) {
+                newWishlistState = response.inWishlist;
+            } else {
+                newWishlistState = !currentStatus;
+            }
+
+            newWishlistState = Boolean(newWishlistState);
+
+            setWishlistItems(prev => ({
+                ...prev,
+                [productId]: newWishlistState
+            }));
+
+        } catch (error) {
+            console.error('Error toggling wishlist:', error);
+
+            // Revert optimistic update on error
+            setWishlistItems(prev => ({
+                ...prev,
+                [String(productId)]: wishlistItems[String(productId)] || false
+            }));
+
+            Alert.alert('Error', 'Failed to update wishlist. Please try again.');
+        } finally {
+            setWishlistUpdating(prev => ({ ...prev, [String(productId)]: false }));
+        }
+    }, [userId, wishlistItems, wishlistUpdating, router]);
+
+    // Handle add to cart
+    const handleAddToCart = useCallback(async (item, variant = null) => {
         try {
             const productId = getProductId(item);
             const variants = Array.isArray(item?.variants) ? item.variants : [];
@@ -621,18 +756,16 @@ export default function ProductsScreen() {
             Alert.alert('Error', 'Failed to add item to cart');
         } finally {
             const productId = getProductId(item);
-            const variants = Array.isArray(item?.variants) ? item.variants : [];
-            const defaultVariant = variants.find(v => (v?.stock ?? 1) > 0) || variants[0] || null;
-            const effectiveVariantId = variant ? String(variant._id || variant.id) : selectedVariants[String(productId)] || (defaultVariant ? String(defaultVariant?._id || defaultVariant?.id || defaultVariant?.variantId) : null);
+            const effectiveVariantId = variant ? String(variant._id || variant.id) : selectedVariants[String(productId)];
             const tempId = `${productId}_${effectiveVariantId || 'default'}`;
 
             setUpdatingItems(prev => ({ ...prev, [tempId]: false }));
         }
-    };
+    }, [selectedVariants, cartItems, isInStock, getAvailableStock, loadCartItems]);
 
-    const handleUpdateQuantity = async (productId, variantId, newQuantity) => {
+    // Handle quantity update
+    const handleUpdateQuantity = useCallback(async (productId, variantId, newQuantity) => {
         try {
-            // Find the product and variant
             const product = products.find(p => getProductId(p) === productId);
             if (!product) {
                 Alert.alert('Error', 'Product not found');
@@ -652,7 +785,6 @@ export default function ProductsScreen() {
             const itemId = getCartItemId(productId, variantId);
 
             if (!itemId && newQuantity > 0) {
-                // Adding new item to cart
                 const payload = {
                     productId: String(productId),
                     quantity: newQuantity,
@@ -664,7 +796,6 @@ export default function ProductsScreen() {
 
                 await addCartItem(payload);
             } else if (itemId) {
-                // Updating existing item
                 const tempId = `${productId}_${variantId || 'default'}`;
                 setUpdatingItems(prev => ({ ...prev, [tempId]: true }));
 
@@ -684,61 +815,249 @@ export default function ProductsScreen() {
             const tempId = `${productId}_${variantId || 'default'}`;
             setUpdatingItems(prev => ({ ...prev, [tempId]: false }));
         }
-    };
+    }, [products, getCartItemId, loadCartItems]);
 
-    const handleVariantSelect = (product) => {
+    const handleVariantSelect = useCallback((product) => {
         setSelectedProductForVariant(product);
         setShowVariantModal(true);
-    };
+    }, []);
 
-    const closeVariantModal = () => {
+    const closeVariantModal = useCallback(() => {
         setShowVariantModal(false);
         setSelectedProductForVariant(null);
-    };
+        setSelectedAttributes({});
+    }, []);
 
-    const handleBack = () => {
+    const handleBack = useCallback(() => {
         if (router.canGoBack()) {
             router.back();
         } else {
             router.replace('/Home');
         }
-    };
+    }, [router]);
 
     // Dynamic column calculation based on screen size and orientation
-    const getProductColumns = () => {
+    const productColumns = useMemo(() => {
         if (orientation === 'landscape') {
             if (screenWidth >= 1200) return 4;
             if (screenWidth >= 1024) return 3;
             if (screenWidth >= 768) return 2;
             return 2;
         } else {
-            if (screenWidth >= 1024) return 3; // Large tablets
-            if (screenWidth >= 768) return 3;  // Tablets
-            if (screenWidth >= 414) return 2;  // Large phones
-            return 2; // Small phones
+            if (screenWidth >= 1024) return 3;
+            if (screenWidth >= 768) return 3;
+            if (screenWidth >= 414) return 2;
+            return 2;
         }
-    };
-
-    const productColumns = getProductColumns();
+    }, [orientation, screenWidth]);
 
     // Calculate dynamic widths based on orientation
-    const leftColumnWidth = orientation === 'landscape' ?
-        (isTablet ? responsiveWidth(20) : responsiveWidth(25)) :
-        (isTablet ? responsiveWidth(25) : responsiveWidth(30));
+    const leftColumnWidth = useMemo(() => {
+        return orientation === 'landscape' ?
+            (isTablet ? responsiveWidth(20) : responsiveWidth(25)) :
+            (isTablet ? responsiveWidth(25) : responsiveWidth(30));
+    }, [orientation, isTablet]);
 
-    const renderProductItem = ({item}) => {
+    const computeVariantPrice = useCallback((variant, product) => {
+        let base = Number(variant?.basePrice ?? variant?.price ?? 0);
+        let final = Number(variant?.finalPrice ?? variant?.price ?? base);
+        let hasDiscount = false;
+
+        if (base === 0 && product) {
+            const productPrice = computeProductPrice(product);
+            base = productPrice.base;
+            final = productPrice.final;
+            hasDiscount = productPrice.hasDiscount;
+        } else {
+            if (variant?.discountType && variant?.discountValue) {
+                if (variant.discountType === 'percent' && variant.discountValue > 0) {
+                    const discountPercent = Number(variant.discountValue);
+                    final = base - (base * discountPercent / 100);
+                    hasDiscount = true;
+                } else if (variant.discountType === 'flat') {
+                    final = base - Number(variant.discountValue);
+                    hasDiscount = final < base;
+                }
+            } else if (base > final) {
+                hasDiscount = true;
+            }
+        }
+
+        return {
+            base: Number(base.toFixed(2)),
+            final: Number(final.toFixed(2)),
+            hasDiscount,
+            discountPercent: hasDiscount && base > 0 ?
+                Math.round(((base - final) / base) * 100) : 0
+        };
+    }, [computeProductPrice]);
+
+    const formatVariantAttributes = useCallback((variant) => {
+        if (!variant || !variant.attributes || !Array.isArray(variant.attributes)) {
+            return "Default";
+        }
+
+        return variant.attributes
+            .map(attr => {
+                if (typeof attr === 'string') return attr;
+                if (typeof attr === 'object') {
+                    return `${attr.name || attr.attributeName || ''}: ${attr.value || ''}`.trim();
+                }
+                return '';
+            })
+            .filter(Boolean)
+            .join(' • ');
+    }, []);
+
+    const groupAttributesByType = useCallback((variants) => {
+        if (!variants || !Array.isArray(variants)) return {};
+
+        const attributeGroups = {};
+
+        variants.forEach(variant => {
+            if (variant.attributes && Array.isArray(variant.attributes)) {
+                variant.attributes.forEach(attr => {
+                    if (!attr.name || !attr.value) return;
+
+                    const attrName = attr.name.trim();
+                    const attrValue = attr.value.trim();
+
+                    if (!attributeGroups[attrName]) {
+                        attributeGroups[attrName] = new Set();
+                    }
+                    attributeGroups[attrName].add(attrValue);
+                });
+            }
+        });
+
+        const result = {};
+        Object.keys(attributeGroups).forEach(key => {
+            result[key] = Array.from(attributeGroups[key]).sort();
+        });
+
+        return result;
+    }, []);
+
+    const getAvailableVariants = useCallback(() => {
+        if (!selectedProductForVariant?.variants) return [];
+
+        const variants = selectedProductForVariant.variants;
+
+        return variants.filter(variant => {
+            if (!variant.attributes || !Array.isArray(variant.attributes)) return false;
+
+            return Object.keys(selectedAttributes).every(attrName => {
+                const selectedValue = selectedAttributes[attrName];
+                const variantAttr = variant.attributes.find(a =>
+                    a.name === attrName || a.attributeName === attrName
+                );
+                return variantAttr && variantAttr.value === selectedValue;
+            });
+        });
+    }, [selectedProductForVariant, selectedAttributes]);
+
+    const getSelectedVariant = useCallback(() => {
+        const availableVariants = getAvailableVariants();
+
+        const exactMatch = availableVariants.find(variant => {
+            if (!variant.attributes || !Array.isArray(variant.attributes)) return false;
+
+            const variantAttrMap = {};
+            variant.attributes.forEach(attr => {
+                if (attr.name && attr.value) {
+                    variantAttrMap[attr.name] = attr.value;
+                }
+            });
+
+            return Object.keys(selectedAttributes).every(key =>
+                variantAttrMap[key] === selectedAttributes[key]
+            ) && Object.keys(variantAttrMap).length === Object.keys(selectedAttributes).length;
+        });
+
+        return exactMatch || availableVariants[0] || null;
+    }, [getAvailableVariants, selectedAttributes]);
+
+    const isAttributeAvailable = useCallback((attrName, attrValue) => {
+        const tempAttributes = { ...selectedAttributes, [attrName]: attrValue };
+
+        const availableVariants = selectedProductForVariant?.variants?.filter(variant => {
+            if (!variant.attributes || !Array.isArray(variant.attributes)) return false;
+
+            const variantAttrMap = {};
+            variant.attributes.forEach(attr => {
+                if (attr.name && attr.value) {
+                    variantAttrMap[attr.name] = attr.value;
+                }
+            });
+
+            return Object.keys(tempAttributes).every(key =>
+                variantAttrMap[key] === tempAttributes[key]
+            );
+        }) || [];
+
+        return availableVariants.length > 0;
+    }, [selectedProductForVariant, selectedAttributes]);
+
+    // Helper function to find variant by attributes
+    const findVariantByAttributes = useCallback((variants, selectedAttrs) => {
+        return variants.find(variant => {
+            const variantAttrs = variant.attributes || [];
+
+            return Object.keys(selectedAttrs).every(attrType => {
+                const selectedValue = selectedAttrs[attrType];
+                const variantAttr = variantAttrs.find(attr =>
+                    (attr?.type || attr?.name) === attrType
+                );
+                return variantAttr && (variantAttr.value || variantAttr.name) === selectedValue;
+            });
+        });
+    }, []);
+
+    // Handle variant attribute selection
+    const handleVariantAttributeSelect = useCallback((productId, attributeType, value) => {
+        const product = products.find(p => String(getProductId(p)) === productId);
+        if (!product) return;
+
+        const currentAttrs = selectedAttributes[productId] || {};
+        const updatedAttrs = { ...currentAttrs, [attributeType]: value };
+
+        setSelectedAttributes(prev => ({
+            ...prev,
+            [productId]: updatedAttrs
+        }));
+
+        if (product.variants) {
+            const foundVariant = findVariantByAttributes(product.variants, updatedAttrs);
+            if (foundVariant) {
+                setSelectedVariants(prev => ({
+                    ...prev,
+                    [productId]: foundVariant._id
+                }));
+
+                const displayImage = getDisplayImageForProduct(productId, product, foundVariant);
+                setDisplayImages(prev => ({
+                    ...prev,
+                    [productId]: displayImage
+                }));
+            }
+        }
+    }, [products, selectedAttributes, findVariantByAttributes, getDisplayImageForProduct, getProductId]);
+
+    // Render product item
+    const renderProductItem = useCallback(({ item }) => {
         const productId = getProductId(item);
         const productPrice = computeProductPrice(item);
         const variants = Array.isArray(item?.variants) ? item.variants : [];
         const showDiscount = productPrice.hasDiscount;
-        const defaultVariant = variants.find(v => (v?.stock ?? 1) > 0) || variants[0] || null;
         const selectedVariantId = selectedVariants[String(productId)];
-        const selectedVariantObj = variants.find(v => String(v?._id || v?.id) === String(selectedVariantId)) || defaultVariant;
+        const selectedVariantObj = variants.find(v => String(v?._id || v?.id) === String(selectedVariantId)) || variants[0];
+
+        const displayImage = displayImages[productId] || getDisplayImageForProduct(productId, item, selectedVariantObj);
+
         const displayFinalPrice = selectedVariantObj
             ? computeVariantPrice(selectedVariantObj, item).final
             : productPrice.final;
 
-        // Check stock status
         const isOutOfStock = !isInStock(item, selectedVariantObj);
         const availableStock = getAvailableStock(item, selectedVariantObj);
         const cartQuantity = getCartQuantity(productId, selectedVariantObj?._id || selectedVariantObj?.id);
@@ -750,11 +1069,13 @@ export default function ProductsScreen() {
         const isInWishlist = wishlistItems[String(productId)] || false;
         const isWishlistUpdating = wishlistUpdating[String(productId)] || false;
 
-        // Dynamic card width calculation
         const cardSpacing = responsiveSize(12);
         const availableWidth = screenWidth - leftColumnWidth - cardSpacing;
         const cardWidth = (availableWidth / productColumns) - cardSpacing;
         const imageHeight = responsiveHeight(orientation === 'landscape' ? 20 : 15);
+
+        const attributeGroups = groupAttributesByType(variants);
+        const currentAttributes = selectedAttributes[productId] || {};
 
         return (
             <View style={[
@@ -816,9 +1137,7 @@ export default function ProductsScreen() {
 
                         <Image
                             style={styles.image}
-                            source={item?.thumbnail ?
-                                {uri: `${API_BASE_URL}${item.thumbnail}`} :
-                                require("../../assets/icons/fruit.png")}
+                            source={displayImage}
                             defaultSource={require("../../assets/icons/fruit.png")}
                         />
                     </View>
@@ -834,16 +1153,54 @@ export default function ProductsScreen() {
                             {item?.title || item?.name}
                         </Text>
 
-                        {selectedVariantObj && (
-                            <Text style={[
-                                styles.variantText,
-                                { fontSize: responsiveSize(10) }
-                            ]} numberOfLines={1}>
-                                {selectedVariantObj?.name || selectedVariantObj?.sku || 'Default'}
-                            </Text>
+                        {hasMultipleVariants && Object.keys(attributeGroups).length > 0 && (
+                            <View style={styles.variantAttributesContainer}>
+                                {Object.keys(attributeGroups).slice(0, 1).map((attrName) => (
+                                    <View key={attrName} style={styles.variantAttributeRow}>
+                                        <Text style={[
+                                            styles.attributeLabel,
+                                            { fontSize: responsiveSize(10) }
+                                        ]}>
+                                            {attrName}:
+                                        </Text>
+                                        <ScrollView
+                                            horizontal
+                                            showsHorizontalScrollIndicator={false}
+                                            style={styles.attributeOptionsScroll}
+                                        >
+                                            {attributeGroups[attrName].slice(0, 3).map((attrValue) => {
+                                                const isSelected = currentAttributes[attrName] === attrValue;
+                                                return (
+                                                    <Pressable
+                                                        key={attrValue}
+                                                        style={[
+                                                            styles.attributeOptionInline,
+                                                            isSelected && styles.selectedAttributeOptionInline,
+                                                            {
+                                                                paddingHorizontal: responsiveSize(6),
+                                                                paddingVertical: responsiveSize(2),
+                                                                marginRight: responsiveSize(4),
+                                                                borderRadius: responsiveSize(4),
+                                                            }
+                                                        ]}
+                                                        onPress={() => handleVariantAttributeSelect(productId, attrName, attrValue)}
+                                                    >
+                                                        <Text style={[
+                                                            styles.attributeOptionTextInline,
+                                                            isSelected && styles.selectedAttributeOptionTextInline,
+                                                            { fontSize: responsiveSize(9) }
+                                                        ]}>
+                                                            {attrValue}
+                                                        </Text>
+                                                    </Pressable>
+                                                );
+                                            })}
+                                        </ScrollView>
+                                    </View>
+                                ))}
+                            </View>
                         )}
 
-                        {/* Stock Status Indicator */}
                         <View style={styles.stockContainer}>
                             {isOutOfStock ? (
                                 <Text style={styles.outOfStockText}>
@@ -962,139 +1319,289 @@ export default function ProductsScreen() {
                 </View>
             </View>
         );
-    };
+    }, [
+        getProductId, computeProductPrice, selectedVariants, displayImages, getDisplayImageForProduct,
+        computeVariantPrice, isInStock, getAvailableStock, getCartQuantity, updatingItems,
+        wishlistItems, wishlistUpdating, leftColumnWidth, productColumns, orientation,
+        groupAttributesByType, selectedAttributes, toggleWishlistForProduct,
+        handleProductClick, handleVariantAttributeSelect, handleUpdateQuantity,
+        handleVariantSelect, handleAddToCart, responsiveSize, screenWidth, isTablet
+    ]);
 
-    function computeVariantPrice(variant, product) {
-        let base = Number(variant?.basePrice ?? variant?.price ?? 0);
-        let final = Number(variant?.finalPrice ?? variant?.price ?? base);
-        let hasDiscount = false;
+    // Render variant modal content
+    const renderVariantModalContent = useCallback(() => {
+        const availableVariants = getAvailableVariants();
+        const selectedVariant = getSelectedVariant();
+        const attributeGroups = groupAttributesByType(selectedProductForVariant?.variants);
 
-        if (product?.discount?.type === 'percent' && product.discount.value > 0 &&
-            (!variant?.finalPrice && !variant?.basePrice)) {
-            const discountPercent = Number(product.discount.value);
-            final = base - (base * discountPercent / 100);
-            hasDiscount = true;
-        } else if (base > final) {
-            hasDiscount = true;
-        }
+        if (!selectedProductForVariant) return null;
 
-        return {base: Number(base), final: Number(final), hasDiscount};
-    }
+        const productId = getProductId(selectedProductForVariant);
 
-    const renderVariantItem = ({item: variant}) => {
-        const priceInfo = computeVariantPrice(variant, selectedProductForVariant);
-        const isOutOfStock = variant?.stock === 0;
-        const availableStock = variant?.stock || 0;
-        const cartQuantity = getCartQuantity(getProductId(selectedProductForVariant), variant._id || variant.id);
-        const canAddMore = isOutOfStock ? false : (cartQuantity < availableStock);
-        const tempId = `${getProductId(selectedProductForVariant)}_${variant._id || variant.id}`;
-        const isUpdating = updatingItems[tempId];
+        // Get the current display image based on selected variant
+        const currentDisplayImage = getDisplayImageForProduct(productId, selectedProductForVariant, selectedVariant);
 
         return (
-            <View style={[
-                styles.variantCard,
-                isOutOfStock && styles.disabledVariant,
-                {
-                    padding: responsiveSize(16),
-                    borderRadius: responsiveSize(12),
-                    marginBottom: responsiveSize(12),
-                }
-            ]}>
-                <View style={styles.variantInfo}>
-                    <Text style={[
-                        styles.variantName,
-                        { fontSize: responsiveSize(14) }
-                    ]}>
-                        {variant?.name || variant?.sku || 'Variant'}
-                    </Text>
-                    <Text style={[
-                        styles.variantPrice,
-                        { fontSize: responsiveSize(16) }
-                    ]}>
-                        ₹{priceInfo.final.toFixed(2)}
-                    </Text>
-                    <Text style={[
-                        styles.variantStock,
-                        {
-                            fontSize: responsiveSize(12),
-                            color: isOutOfStock ? '#FF4444' : '#4CAD73'
+            <ScrollView style={styles.variantContent}>
+                <View style={styles.productInfoContainer}>
+                    <Image
+                        source={selectedVariant ?
+                            getDisplayImageForProduct(productId, selectedProductForVariant, selectedVariant) :
+                            getDisplayImageForProduct(productId, selectedProductForVariant, null)
                         }
-                    ]}>
-                        {isOutOfStock ? 'Out of Stock' : `Stock: ${availableStock}`}
-                    </Text>
-                </View>
-
-                {cartQuantity > 0 ? (
-                    <View style={[
-                        styles.variantQuantityControl,
-                        {
-                            borderRadius: responsiveSize(20),
-                            paddingHorizontal: responsiveSize(8),
-                            paddingVertical: responsiveSize(6),
-                        }
-                    ]}>
-                        <Pressable
-                            style={styles.variantQuantityButton}
-                            onPress={() => handleUpdateQuantity(getProductId(selectedProductForVariant), variant._id || variant.id, cartQuantity - 1)}
-                            disabled={isUpdating}
-                        >
-                            <Text style={[
-                                styles.variantQuantityText,
-                                { fontSize: responsiveSize(16) },
-                                isUpdating && styles.disabledText
-                            ]}>-</Text>
-                        </Pressable>
-                        <Text style={[
-                            styles.variantQuantity,
-                            { fontSize: responsiveSize(14) }
-                        ]}>
-                            {isUpdating ? '...' : cartQuantity}
-                        </Text>
-                        <Pressable
-                            style={styles.variantQuantityButton}
-                            onPress={() => handleUpdateQuantity(getProductId(selectedProductForVariant), variant._id || variant.id, cartQuantity + 1)}
-                            disabled={isOutOfStock || isUpdating || !canAddMore}
-                        >
-                            <Text style={[
-                                styles.variantQuantityText,
-                                { fontSize: responsiveSize(16) },
-                                (isOutOfStock || isUpdating || !canAddMore) && styles.disabledText
-                            ]}>+</Text>
-                        </Pressable>
-                    </View>
-                ) : (
-                    <Pressable
                         style={[
-                            styles.variantAddButton,
-                            (isOutOfStock || isUpdating) && styles.disabledButton,
+                            styles.productInfoImage,
                             {
-                                paddingVertical: responsiveSize(8),
-                                paddingHorizontal: responsiveSize(16),
+                                width: responsiveSize(80),
+                                height: responsiveSize(80),
                                 borderRadius: responsiveSize(8),
                             }
                         ]}
-                        onPress={() => handleAddToCart(selectedProductForVariant, variant)}
-                        disabled={isOutOfStock || isUpdating}
-                    >
+                        defaultSource={require("../../assets/icons/fruit.png")}
+                    />
+                    <View style={styles.productInfoText}>
                         <Text style={[
-                            styles.variantAddText,
-                            { fontSize: responsiveSize(12) },
-                            (isOutOfStock || isUpdating) && styles.disabledText
-                        ]}>
-                            {isUpdating ? '...' : (isOutOfStock ? 'Out of Stock' : 'ADD')}
+                            styles.productInfoName,
+                            { fontSize: responsiveSize(16) }
+                        ]} numberOfLines={2}>
+                            {selectedProductForVariant?.title || selectedProductForVariant?.name}
                         </Text>
-                    </Pressable>
-                )}
-            </View>
-        );
-    };
+                        {selectedVariant && (
+                            <Text style={[
+                                styles.selectedVariantPrice,
+                                { fontSize: responsiveSize(18) }
+                            ]}>
+                                ₹{computeVariantPrice(selectedVariant, selectedProductForVariant).final.toFixed(2)}
+                            </Text>
+                        )}
+                    </View>
+                </View>
 
-    // Get header title - use categoryName from params if available, otherwise use active category name
-    const getHeaderTitle = () => {
-        if (categoryName) return categoryName;
-        if (activeCategory) return activeCategory.name;
+                {Object.keys(attributeGroups).map((attrName, index) => (
+                    <View key={index} style={styles.attributeSection}>
+                        <Text style={[
+                            styles.attributeTitle,
+                            { fontSize: responsiveSize(14), marginBottom: responsiveSize(8) }
+                        ]}>
+                            {attrName}:
+                        </Text>
+
+                        <View style={styles.attributeOptions}>
+                            {attributeGroups[attrName].map((attrValue, idx) => {
+                                const isSelected = selectedAttributes[attrName] === attrValue;
+                                const isAvailable = isAttributeAvailable(attrName, attrValue);
+
+                                return (
+                                    <Pressable
+                                        key={idx}
+                                        style={[
+                                            styles.attributeOption,
+                                            isSelected && styles.selectedAttributeOption,
+                                            !isAvailable && styles.unavailableAttributeOption,
+                                            {
+                                                paddingHorizontal: responsiveSize(12),
+                                                paddingVertical: responsiveSize(8),
+                                                marginRight: responsiveSize(8),
+                                                marginBottom: responsiveSize(8),
+                                                borderRadius: responsiveSize(6),
+                                            }
+                                        ]}
+                                        onPress={() => {
+                                            if (isAvailable) {
+                                                // Update selected attributes
+                                                const updatedAttributes = { ...selectedAttributes, [attrName]: attrValue };
+                                                setSelectedAttributes(updatedAttributes);
+
+                                                // Find the matching variant
+                                                const matchingVariant = findVariantForAttributes(updatedAttributes);
+                                                if (matchingVariant) {
+                                                    // Update selected variant in state
+                                                    setSelectedVariants(prev => ({
+                                                        ...prev,
+                                                        [productId]: matchingVariant._id || matchingVariant.id
+                                                    }));
+                                                }
+                                            }
+                                        }}
+                                        disabled={!isAvailable}
+                                    >
+                                        <Text style={[
+                                            styles.attributeOptionText,
+                                            isSelected && styles.selectedAttributeOptionText,
+                                            !isAvailable && styles.unavailableAttributeOptionText,
+                                            { fontSize: responsiveSize(12) }
+                                        ]}>
+                                            {attrValue}
+                                        </Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+                    </View>
+                ))}
+                {selectedVariant && (
+                    <View style={styles.selectedVariantDetails}>
+                        <View style={styles.variantInfoRow}>
+                            <Text style={[
+                                styles.variantInfoLabel,
+                                { fontSize: responsiveSize(12), color: '#666' }
+                            ]}>
+                                Selected:
+                            </Text>
+                            <Text style={[
+                                styles.variantInfoValue,
+                                { fontSize: responsiveSize(14) }
+                            ]}>
+                                {formatVariantAttributes(selectedVariant)}
+                            </Text>
+                        </View>
+
+                        <View style={styles.variantInfoRow}>
+                            <Text style={[
+                                styles.variantInfoLabel,
+                                { fontSize: responsiveSize(12), color: '#666' }
+                            ]}>
+                                Stock:
+                            </Text>
+                            <Text style={[
+                                styles.variantStockStatus,
+                                {
+                                    fontSize: responsiveSize(14),
+                                    color: selectedVariant.stock > 0 ? '#4CAD73' : '#FF4444'
+                                }
+                            ]}>
+                                {selectedVariant.stock > 0 ?
+                                    `${selectedVariant.stock} available` :
+                                    'Out of Stock'}
+                            </Text>
+                        </View>
+                    </View>
+                )}
+
+                <View style={styles.actionContainer}>
+                    {selectedVariant ? (
+                        <>
+                            <Text style={[
+                                styles.finalPrice,
+                                { fontSize: responsiveSize(20), marginBottom: responsiveSize(12) }
+                            ]}>
+                                ₹{computeVariantPrice(selectedVariant, selectedProductForVariant).final.toFixed(2)}
+                            </Text>
+
+                            {getCartQuantity(getProductId(selectedProductForVariant), selectedVariant._id || selectedVariant.id) > 0 ? (
+                                <View style={[
+                                    styles.quantityControl,
+                                    {
+                                        borderRadius: responsiveSize(8),
+                                        padding: responsiveSize(8),
+                                        backgroundColor: '#F5F5F5',
+                                    }
+                                ]}>
+                                    <Pressable
+                                        style={styles.quantityButton}
+                                        onPress={() => handleUpdateQuantity(
+                                            getProductId(selectedProductForVariant),
+                                            selectedVariant._id || selectedVariant.id,
+                                            getCartQuantity(getProductId(selectedProductForVariant), selectedVariant._id || selectedVariant.id) - 1
+                                        )}
+                                    >
+                                        <Text style={[
+                                            styles.quantitySymbol,
+                                            { fontSize: responsiveSize(20) }
+                                        ]}>-</Text>
+                                    </Pressable>
+
+                                    <Text style={[
+                                        styles.quantityText,
+                                        { fontSize: responsiveSize(16), marginHorizontal: responsiveSize(20) }
+                                    ]}>
+                                        {getCartQuantity(getProductId(selectedProductForVariant), selectedVariant._id || selectedVariant.id)}
+                                    </Text>
+
+                                    <Pressable
+                                        style={styles.quantityButton}
+                                        onPress={() => handleUpdateQuantity(
+                                            getProductId(selectedProductForVariant),
+                                            selectedVariant._id || selectedVariant.id,
+                                            getCartQuantity(getProductId(selectedProductForVariant), selectedVariant._id || selectedVariant.id) + 1
+                                        )}
+                                        disabled={!selectedVariant.stock || selectedVariant.stock <= getCartQuantity(getProductId(selectedProductForVariant), selectedVariant._id || selectedVariant.id)}
+                                    >
+                                        <Text style={[
+                                            styles.quantitySymbol,
+                                            { fontSize: responsiveSize(20) },
+                                            (!selectedVariant.stock || selectedVariant.stock <= getCartQuantity(getProductId(selectedProductForVariant), selectedVariant._id || selectedVariant.id)) &&
+                                            styles.disabledQuantitySymbol
+                                        ]}>+</Text>
+                                    </Pressable>
+                                </View>
+                            ) : (
+                                <Pressable
+                                    style={[
+                                        styles.addToCartButton,
+                                        {
+                                            paddingVertical: responsiveSize(14),
+                                            borderRadius: responsiveSize(8),
+                                            backgroundColor: '#4CAD73'
+                                        }
+                                    ]}
+                                    onPress={() => handleAddToCart(selectedProductForVariant, selectedVariant)}
+                                    disabled={!selectedVariant.stock || selectedVariant.stock === 0}
+                                >
+                                    <Text style={[
+                                        styles.addToCartText,
+                                        { fontSize: responsiveSize(16) }
+                                    ]}>
+                                        {(!selectedVariant.stock || selectedVariant.stock === 0) ?
+                                            'Out of Stock' :
+                                            'Add to Cart'}
+                                    </Text>
+                                </Pressable>
+                            )}
+                        </>
+                    ) : (
+                        <Text style={[
+                            styles.noVariantText,
+                            { fontSize: responsiveSize(14), color: '#666' }
+                        ]}>
+                            Select {Object.keys(attributeGroups).join(' and ')} to see availability
+                        </Text>
+                    )}
+                </View>
+            </ScrollView>
+        );
+    }, [
+        selectedProductForVariant, selectedAttributes, getAvailableVariants, getSelectedVariant,
+        groupAttributesByType, computeVariantPrice, isAttributeAvailable, getProductId,
+        getDisplayImageForProduct, responsiveSize
+    ]);
+
+    const findVariantForAttributes = useCallback((attributes) => {
+        if (!selectedProductForVariant?.variants) return null;
+
+        const variants = selectedProductForVariant.variants;
+
+        return variants.find(variant => {
+            if (!variant.attributes || !Array.isArray(variant.attributes)) return false;
+
+            const variantAttrMap = {};
+            variant.attributes.forEach(attr => {
+                if (attr.name && attr.value) {
+                    variantAttrMap[attr.name] = attr.value;
+                }
+            });
+
+            return Object.keys(attributes).every(key =>
+                variantAttrMap[key] === attributes[key]
+            ) && Object.keys(variantAttrMap).length === Object.keys(attributes).length;
+        });
+    }, [selectedProductForVariant]);
+
+    const getHeaderTitle = useCallback(() => {
+        if (categoryName) return capitalizeWords(categoryName);
+        if (activeCategory) return capitalizeWords(activeCategory.name);
         return 'All Categories';
-    };
+    }, [categoryName, activeCategory]);
 
     return (
         <View style={[styles.container]}>
@@ -1104,7 +1611,6 @@ export default function ProductsScreen() {
                 translucent={false}
             />
 
-            {/* HEADER - Properly positioned below status bar */}
             <View style={[
                 styles.header,
                 {
@@ -1141,14 +1647,12 @@ export default function ProductsScreen() {
                 <View style={styles.headerSpacer} />
             </View>
 
-            {/* MAIN CONTENT - Properly positioned below header */}
             <View style={[styles.mainContent, { marginTop: responsiveSize(60) + insets.top }]}>
-                {/* TWO COLUMN LAYOUT */}
                 <View style={styles.twoColumnLayout}>
-                    {/* LEFT COLUMN - CATEGORIES */}
                     <View style={[
                         styles.leftColumn,
-                        { width: leftColumnWidth }, {marginBottom: insets.bottom}
+                        { width: leftColumnWidth },
+                        { marginBottom: insets.bottom }
                     ]}>
                         <ScrollView
                             style={styles.categoriesList}
@@ -1158,7 +1662,7 @@ export default function ProductsScreen() {
                             {categories.map((category) => {
                                 const url = category?.image || category?.icon;
                                 const imageSource = url ?
-                                    {uri: `${API_BASE_URL}${url}`} :
+                                    { uri: `${API_BASE_URL}${url}` } :
                                     require("../../assets/images/gifts.png");
 
                                 return (
@@ -1200,7 +1704,7 @@ export default function ProductsScreen() {
                                                 ]}
                                                 numberOfLines={2}
                                             >
-                                                {category.name}
+                                                {capitalizeWords(category.name)}
                                             </Text>
                                         </View>
                                     </Pressable>
@@ -1209,8 +1713,7 @@ export default function ProductsScreen() {
                         </ScrollView>
                     </View>
 
-                    {/* RIGHT COLUMN - PRODUCTS */}
-                    <View style={[styles.rightColumn, {marginBottom: insets.bottom}]}>
+                    <View style={[styles.rightColumn, { marginBottom: insets.bottom }]}>
                         {loading ? (
                             <View style={styles.loadingContainer}>
                                 <ActivityIndicator size="large" color="#4CAD73" />
@@ -1269,7 +1772,6 @@ export default function ProductsScreen() {
                 </View>
             </View>
 
-            {/* VARIANT SELECTION MODAL */}
             <Modal
                 visible={showVariantModal}
                 animationType="slide"
@@ -1281,7 +1783,7 @@ export default function ProductsScreen() {
                     <View style={[
                         styles.modalContainer,
                         {
-                            height: responsiveHeightWithInsets(80) + insets.bottom,
+                            height: responsiveHeightWithInsets(85) + insets.bottom,
                             borderTopLeftRadius: responsiveSize(20),
                             borderTopRightRadius: responsiveSize(20),
                         }
@@ -1299,7 +1801,7 @@ export default function ProductsScreen() {
                                     styles.modalTitle,
                                     { fontSize: responsiveSize(18) }
                                 ]}>
-                                    Select Variant
+                                    Select Options
                                 </Text>
                                 <Pressable
                                     onPress={closeVariantModal}
@@ -1322,58 +1824,7 @@ export default function ProductsScreen() {
                                 </Pressable>
                             </View>
 
-                            {selectedProductForVariant && (
-                                <View style={[
-                                    styles.productHeader,
-                                    {
-                                        padding: responsiveSize(16),
-                                    }
-                                ]}>
-                                    <Image
-                                        source={selectedProductForVariant?.thumbnail ?
-                                            {uri: `${API_BASE_URL}${selectedProductForVariant.thumbnail}`} :
-                                            require("../../assets/icons/fruit.png")}
-                                        style={[
-                                            styles.productHeaderImage,
-                                            {
-                                                width: responsiveSize(60),
-                                                height: responsiveSize(60),
-                                                borderRadius: responsiveSize(8),
-                                                marginRight: responsiveSize(12),
-                                            }
-                                        ]}
-                                        defaultSource={require("../../assets/icons/fruit.png")}
-                                    />
-                                    <View style={styles.productHeaderInfo}>
-                                        <Text style={[
-                                            styles.productHeaderName,
-                                            { fontSize: responsiveSize(16) }
-                                        ]} numberOfLines={2}>
-                                            {selectedProductForVariant?.title || selectedProductForVariant?.name}
-                                        </Text>
-                                        <Text style={[
-                                            styles.productHeaderPrice,
-                                            { fontSize: responsiveSize(14) }
-                                        ]}>
-                                            Starts from ₹{computeProductPrice(selectedProductForVariant).final.toFixed(2)}
-                                        </Text>
-                                    </View>
-                                </View>
-                            )}
-
-                            <FlatList
-                                data={selectedProductForVariant?.variants || []}
-                                renderItem={renderVariantItem}
-                                keyExtractor={(variant) => variant._id || variant.id || Math.random().toString()}
-                                style={styles.variantsList}
-                                contentContainerStyle={[
-                                    styles.variantsContent,
-                                    {
-                                        padding: responsiveSize(16),
-                                        paddingBottom: bottomSafeArea + responsiveSize(20)
-                                    }
-                                ]}
-                            />
+                            {renderVariantModalContent()}
                         </SafeAreaView>
                     </View>
                 </View>
@@ -1383,6 +1834,122 @@ export default function ProductsScreen() {
 }
 
 const styles = StyleSheet.create({
+    variantContent: {
+        flex: 1,
+        paddingHorizontal: responsiveSize(16),
+    },
+    productInfoContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: responsiveSize(16),
+        borderBottomWidth: 1,
+        borderBottomColor: '#F0F0F0',
+    },
+    productInfoImage: {
+        marginRight: responsiveSize(12),
+    },
+    productInfoText: {
+        flex: 1,
+    },
+    productInfoName: {
+        fontFamily: 'Poppins-SemiBold',
+        color: '#1B1B1B',
+        marginBottom: responsiveSize(4),
+    },
+    selectedVariantPrice: {
+        fontFamily: 'Poppins-Bold',
+        color: '#4CAD73',
+    },
+    attributeSection: {
+        paddingVertical: responsiveSize(16),
+        borderBottomWidth: 1,
+        borderBottomColor: '#F0F0F0',
+    },
+    attributeTitle: {
+        fontFamily: 'Poppins-SemiBold',
+        color: '#1B1B1B',
+    },
+    attributeOptions: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        marginTop: responsiveSize(8),
+    },
+    attributeOption: {
+        backgroundColor: '#F5F5F5',
+        borderWidth: 1,
+        borderColor: '#E0E0E0',
+    },
+    selectedAttributeOption: {
+        backgroundColor: '#4CAD73',
+        borderColor: '#4CAD73',
+    },
+    unavailableAttributeOption: {
+        backgroundColor: '#F9F9F9',
+        borderColor: '#E0E0E0',
+        opacity: 0.5,
+    },
+    attributeOptionText: {
+        fontFamily: 'Poppins',
+        color: '#666',
+    },
+    selectedAttributeOptionText: {
+        color: '#FFFFFF',
+        fontFamily: 'Poppins-SemiBold',
+    },
+    unavailableAttributeOptionText: {
+        color: '#999',
+    },
+    selectedVariantDetails: {
+        paddingVertical: responsiveSize(16),
+        borderBottomWidth: 1,
+        borderBottomColor: '#F0F0F0',
+    },
+    variantInfoRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: responsiveSize(8),
+    },
+    variantInfoLabel: {
+        fontFamily: 'Poppins',
+        width: responsiveSize(60),
+    },
+    variantInfoValue: {
+        fontFamily: 'Poppins-SemiBold',
+        color: '#1B1B1B',
+        flex: 1,
+    },
+    variantStockStatus: {
+        fontFamily: 'Poppins-SemiBold',
+    },
+
+    finalPrice: {
+        fontFamily: 'Poppins-Bold',
+        color: '#1B1B1B',
+    },
+    addToCartButton: {
+        width: '100%',
+        alignItems: 'center',
+    },
+    addToCartText: {
+        color: '#FFFFFF',
+        fontFamily: 'Poppins-SemiBold',
+    },
+
+    quantitySymbol: {
+        fontFamily: 'Poppins-Bold',
+        color: '#1B1B1B',
+        minWidth: responsiveSize(30),
+        textAlign: 'center',
+    },
+    disabledQuantitySymbol: {
+        color: '#999',
+    },
+
+    noVariantText: {
+        fontFamily: 'Poppins',
+        textAlign: 'center',
+        paddingVertical: responsiveSize(20),
+    },
     container: {
         flex: 1,
         backgroundColor: '#FFFFFF',

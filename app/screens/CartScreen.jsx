@@ -1,4 +1,4 @@
-import {useRouter} from "expo-router";
+import {useLocalSearchParams, useRouter} from "expo-router";
 import React, {useEffect, useState, useCallback, useRef, memo} from "react";
 import {
     Alert, Image, ScrollView, StyleSheet, Text, TextInput, Pressable, View, Dimensions,
@@ -15,234 +15,53 @@ import {
     updateCartItem as updateCartItemApi,
     createBulkNegotiation,
     getTierPricing,
-    applyTierPricing,
 } from '../../api/cartApi';
 import {API_BASE_URL} from '../../config/apiConfig';
 import {getWishlist, removeFromWishlist} from '../../api/catalogApi';
-import {getOrCreateSessionId, getUserType} from "../../api/sessionManager";
+import {getOrCreateSessionId, getUserType, setCurrentSessionId} from "../../api/sessionManager";
+import {
+    getNotificationContext,
+    loadCartFromNotification,
+    restoreOriginalSession,
+    isNotificationCart as checkIsNotificationCart,
+} from "../../api/cartNotificationHelpers";
+import {RF, RH, safeAreaInsets} from "../../utils/responsive";
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 
-// Check if device has notch (iPhone X and above)
-const hasNotch = Platform.OS === 'ios' && (screenHeight >= 812 || screenWidth >= 812);
-
-// Safe area insets for different devices
-const getSafeAreaInsets = () => {
-    if (Platform.OS === 'ios') {
-        if (hasNotch) {
-            return {
-                top: 44, // Status bar + notch area
-                bottom: 34 // Home indicator area
-            };
-        }
-        return {
-            top: 20, // Regular status bar
-            bottom: 0
-        };
-    }
-    // Android
-    return {
-        top: StatusBar.currentHeight || 25,
-        bottom: 0
-    };
-};
-
-const safeAreaInsets = getSafeAreaInsets();
-
-// Responsive size calculator with constraints
-const RF = (size) => {
-    const scale = screenWidth / 375; // 375 is standard iPhone width
-    const normalizedSize = size * Math.min(scale, 1.5); // Max 1.5x scaling for tablets
-    return Math.round(normalizedSize);
-};
-
-const RH = (size) => {
-    const scale = screenHeight / 812; // 812 is standard iPhone height
-    return Math.round(size * Math.min(scale, 1.5));
-};
 
 // Check if device is tablet
 const isTablet = screenWidth >= 768;
-const isLargeTablet = screenWidth >= 1024;
-const isSmallPhone = screenWidth <= 320;
-
-// Responsive width percentage
-const responsiveWidth = (percentage) => {
-    return Math.round((screenWidth * percentage) / 100);
-};
-
-// Responsive height percentage (excluding safe areas)
-const responsiveHeight = (percentage) => {
-    const availableHeight = screenHeight - safeAreaInsets.top - safeAreaInsets.bottom;
-    return Math.round((availableHeight * percentage) / 100);
-};
-
-// Memoized Cart Item Component for better performance
-const CartItem = memo(({
-                           item,
-                           isBusinessUser,
-                           tierPricing,
-                           updatingItems,
-                           stockValidation,
-                           onUpdateQuantity,
-                           onRemoveItem,
-                           onOpenNegotiation
-                       }) => {
-    const itemValidation = stockValidation[item.id] || {};
-    // Note: canIncrease/canDecrease logic is here but not fully used in the redesigned quantity control's disabled state in this snippet.
-    const canIncrease = itemValidation.canIncrease !== false;
-    const isOutOfStock = !item.isAvailable;
-    const maxReached = item.quantity >= Math.min(item.currentStock, item.maxOrderQty);
-
-    // Dynamic styling helper
-    const isDisabled = isOutOfStock || updatingItems[item.id];
-    const tierPricingApplied = isBusinessUser && tierPricing[item.variantId ? `${item.productId}_${item.variantId}` : item.productId];
-
-
-    return (
-        <View style={[styles.cartItemContainer, isOutOfStock && styles.outOfStockItem]}>
-
-            {/* Out of Stock Overlay */}
-            {isOutOfStock && (
-                <View style={styles.outOfStockOverlay}>
-                    <Text style={styles.outOfStockText}>Out of Stock</Text>
-                </View>
-            )}
-
-            <View style={styles.contentRow}>
-                {/* 1. Left Section: Product Image */}
-                <View style={styles.imageWrapper}>
-                    <Image
-                        source={item.imageUrl ? {uri: `${API_BASE_URL}${item.imageUrl}`} : require("../../assets/sample-product.png")}
-                        style={styles.image}
-                        resizeMode="cover"
-                    />
-                </View>
-
-                {/* 2. Right Section: Details, Pricing, Controls */}
-                <View style={styles.detailsContainer}>
-
-                    {/* Top Row: Name and Remove Button */}
-                    <View style={styles.headerRow}>
-                        <Text style={[styles.productName, isDisabled && styles.disabledText]} numberOfLines={2}>
-                            {item.name}
-                        </Text>
-                        <Pressable
-                            style={[styles.removeButton, isDisabled && styles.disabledButton]}
-                            onPress={() => onRemoveItem(item.productId, item.variantId, item.id)}
-                            disabled={isDisabled}
-                        >
-                            {/* Assuming you have a standard icon like a close X or a trash can */}
-                            <Image
-                                source={require("../../assets/icons/deleteIcon.png")} // Re-using deleteIcon
-                                style={[styles.removeIcon, isDisabled && styles.disabledIcon]}
-                            />
-                        </Pressable>
-                    </View>
-
-                    {/* Description/Stock/Min Qty Info */}
-                    <Text style={[styles.productDescription, isDisabled && styles.disabledText]} numberOfLines={1}>
-                        {item.description}
-                    </Text>
-
-                    <Text style={[
-                        styles.stockText,
-                        isOutOfStock ? styles.outOfStockLabel : styles.inStockLabel
-                    ]}>
-                        {isOutOfStock ? 'Out of Stock' : `${item.currentStock} available`}
-                    </Text>
-
-                    {isBusinessUser && item.minQty && item.minQty > 1 && (
-                        <Text style={styles.minQtyText}>Min. Qty: {item.minQty}</Text>
-                    )}
-
-                    {/* Pricing */}
-                    <View style={styles.priceSection}>
-                        {item.hasDiscount ? (
-                            <View style={styles.priceRow}>
-                                <Text style={[styles.finalPrice, isDisabled && styles.disabledText]}>
-                                    ₹{item.finalPrice.toFixed(2)}
-                                </Text>
-                                <Text style={[styles.originalPrice, isDisabled && styles.disabledText]}>
-                                    ₹{item.basePrice.toFixed(2)}
-                                </Text>
-                                <View style={styles.discountBadge}>
-                                    <Text style={styles.discountText}>
-                                        {Math.round(((item.basePrice - item.finalPrice) / item.basePrice) * 100)}% OFF
-                                    </Text>
-                                </View>
-                            </View>
-                        ) : (
-                            <Text style={[styles.finalPrice, isDisabled && styles.disabledText]}>
-                                ₹{item.finalPrice.toFixed(2)}
-                            </Text>
-                        )}
-                    </View>
-
-                    {/* Subtotal and Additional Info */}
-                    <View style={styles.subtotalRow}>
-                        {/* Shipping Charge */}
-                        {item.shippingCharge > 0 && (
-                            <Text style={styles.shippingText}>Shipping: ₹{item.shippingCharge.toFixed(2)}</Text>
-                        )}
-                    </View>
-
-                    {/* Tier Pricing / Negotiation */}
-                    {(tierPricingApplied || (isBusinessUser && !isOutOfStock)) && (
-                        <View style={styles.businessFeaturesRow}>
-                            {tierPricingApplied && (
-                                <Text style={styles.tierPricingText}>
-                                    Tier pricing applied
-                                </Text>
-                            )}
-
-                            {isBusinessUser && !isOutOfStock && (
-                                <Pressable
-                                    style={styles.negotiateButton}
-                                    onPress={() => onOpenNegotiation(item)}
-                                >
-                                    <Text style={styles.negotiateButtonText}>Request Better Price</Text>
-                                </Pressable>
-                            )}
-                        </View>
-                    )}
-
-                    {/* Quantity Control (Bottom Right) */}
-                    <View style={styles.quantityControlWrapper}>
-                        <View style={[styles.quantityControl, isDisabled && styles.disabledControl]}>
-                            <Pressable
-                                style={styles.quantityButton}
-                                onPress={() => onUpdateQuantity(item.id, item.quantity - 1, item.productId, item.variantId)}
-                                disabled={isDisabled || item.quantity <= 1} // Add check for min 1
-                            >
-                                <Text style={styles.controlText}>-</Text>
-                            </Pressable>
-
-                            <Text style={[styles.quantityText, isDisabled && styles.disabledText]}>
-                                {updatingItems[item.id] ? '...' : item.quantity}
-                            </Text>
-
-                            <Pressable
-                                style={styles.quantityButton}
-                                onPress={() => onUpdateQuantity(item.id, item.quantity + 1, item.productId, item.variantId)}
-                                disabled={!canIncrease || isDisabled}
-                            >
-                                <Text style={styles.controlText}>+</Text>
-                            </Pressable>
-                        </View>
-                        {maxReached && !updatingItems[item.id] && (
-                            <Text style={styles.maxIndicatorText}>Max Quantity Reached</Text>
-                        )}
-                    </View>
-
-                </View>
-            </View>
-        </View>
-    );
-});
 
 export default function CartScreen() {
     const router = useRouter();
+    const params = useLocalSearchParams();
+
+    const [couponCode, setCouponCode] = useState('');
+    const [applyingCoupon, setApplyingCoupon] = useState(false);
+    const [removingCoupon, setRemovingCoupon] = useState(false);
+    const [updatingItems, setUpdatingItems] = useState({});
+    const [selectedAddress, setSelectedAddress] = useState(null);
+    const [notificationLoading, setNotificationLoading] = useState(false);
+    // Business user states
+    const [isBusinessUser, setIsBusinessUser] = useState(false);
+    const [negotiationModalVisible, setNegotiationModalVisible] = useState(false);
+    const [selectedProductForNegotiation, setSelectedProductForNegotiation] = useState(null);
+    const [proposedPrice, setProposedPrice] = useState('');
+    const [negotiationLoading, setNegotiationLoading] = useState(false);
+    const [tierPricing, setTierPricing] = useState({});
+
+    const [wishlistItems, setWishlistItems] = useState([]);
+
+    const [stockValidation, setStockValidation] = useState({});
+
+    const [isNotificationCartMode, setIsNotificationCartMode] = useState(false);
+    const [notificationContext, setNotificationContext] = useState({
+        cartId: null,
+        sessionId: null,
+        negotiationId: null,
+        isNotificationCart: false
+    });
     const [cartItems, setCartItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -254,41 +73,51 @@ export default function CartScreen() {
         marketplaceFees: 0,
         total: 0
     });
-    const [couponCode, setCouponCode] = useState('');
-    const [applyingCoupon, setApplyingCoupon] = useState(false);
-    const [removingCoupon, setRemovingCoupon] = useState(false);
-    const [updatingItems, setUpdatingItems] = useState({});
-    const [selectedAddress, setSelectedAddress] = useState(null);
-
-    // Business user states
-    const [isBusinessUser, setIsBusinessUser] = useState(false);
-    const [negotiationModalVisible, setNegotiationModalVisible] = useState(false);
-    const [selectedProductForNegotiation, setSelectedProductForNegotiation] = useState(null);
-    const [proposedPrice, setProposedPrice] = useState('');
-    const [negotiationLoading, setNegotiationLoading] = useState(false);
-    const [tierPricing, setTierPricing] = useState({});
     const [sessionId, setSessionId] = useState(null);
 
-    const [wishlistItems, setWishlistItems] = useState([]);
+    // Refs for tracking
+    const isProcessingNotification = useRef(false);
+    const lastLoadTime = useRef(0);
+    const paramsProcessed = useRef(false);
+    const notificationLoadingInProgress = useRef(false);
+    const LOAD_THROTTLE_TIME = 3000; // 3 seconds minimum between loads
 
-    // Stock validation states
-    const [stockValidation, setStockValidation] = useState({});
-
-    // Refs for optimization
     const cartItemsRef = useRef(cartItems);
     cartItemsRef.current = cartItems;
 
     // State to track if we should show full loading or just update specific parts
     const [updatingCartData, setUpdatingCartData] = useState(false);
 
-    // Initialize session and user type
-    const initializeSession = async () => {
+    const initializeSession = useCallback(async () => {
         try {
+
             const sid = await getOrCreateSessionId();
             setSessionId(sid);
 
             const loginType = await getUserType();
             setIsBusinessUser(loginType === 'business');
+
+            // THIRD: Check notification context BEFORE processing params
+            const context = await getNotificationContext();
+            setNotificationContext(context);
+
+            if (context.isNotificationCart) {
+
+                setIsNotificationCartMode(true);
+
+                // Verify we're using the correct session
+                const currentSession = await AsyncStorage.getItem("sessionId");
+                if (currentSession !== context.sessionId) {
+
+                    await setCurrentSessionId(context.sessionId);
+                    setSessionId(context.sessionId);
+                }
+
+                // Load cart immediately for notification mode
+                await loadCartData(false, true);
+            } else {
+                await checkNotificationParams();
+            }
 
             // Load tier pricing for business users
             if (loginType === 'business') {
@@ -297,7 +126,294 @@ export default function CartScreen() {
         } catch (error) {
             console.error('Error initializing session:', error);
         }
+    }, []);
+
+    const checkNotificationParams = useCallback(async () => {
+
+
+        const {cartId, sessionId, negotiationId, action} = params;
+
+        if (action === 'load_cart' && cartId && sessionId) {
+
+            const now = Date.now();
+            if (now - lastLoadTime.current < LOAD_THROTTLE_TIME && paramsProcessed.current) {
+                // console.log("Skipping duplicate params processing (throttled)");
+                return;
+            }
+
+            paramsProcessed.current = true;
+            await handleNotificationCartLoading(cartId, sessionId, negotiationId);
+        } else {
+            paramsProcessed.current = true;
+        }
+    }, [params]);
+
+
+    const handleNotificationCartLoading = async (cartId, sessionId, negotiationId = null) => {
+        const now = Date.now();
+
+        if (notificationLoadingInProgress.current) {
+            return;
+        }
+
+        if (now - lastLoadTime.current < LOAD_THROTTLE_TIME) {
+            return;
+        }
+
+        try {
+            notificationLoadingInProgress.current = true;
+            isProcessingNotification.current = true;
+
+
+            // Check if we're already in this notification cart
+            const existingContext = await getNotificationContext();
+            if (existingContext.cartId === cartId && existingContext.sessionId === sessionId) {
+                setIsNotificationCartMode(true);
+                await loadCartData(false, true); // Force refresh
+                return;
+            }
+
+            // FIRST: Save original session context BEFORE switching
+            const originalSessionId = await getOrCreateSessionId();
+            const originalLoginType = await getUserType();
+
+            // Store original context
+            await AsyncStorage.multiSet([
+                ["original_session_id", originalSessionId || ""],
+                ["original_login_type", originalLoginType || ""]
+            ]);
+
+            // SECOND: Switch to notification session
+            await setCurrentSessionId(sessionId);
+            setSessionId(sessionId);
+
+            // THIRD: Load cart from notification
+            const result = await loadCartFromNotification(cartId, sessionId, negotiationId);
+
+            if (result.skip) {
+                return;
+            }
+
+            if (result.success && result.cart) {
+                // Set notification context
+                const newContext = {
+                    cartId,
+                    sessionId,
+                    negotiationId: negotiationId,
+                    isNotificationCart: true
+                };
+                setNotificationContext(newContext);
+                setIsNotificationCartMode(true);
+
+                // Load cart data with force refresh
+                await loadCartData(false, true);
+
+                // Show success message
+                Alert.alert(
+                    'Negotiation Cart Loaded',
+                    'Your approved negotiation cart has been loaded with special prices.',
+                    [{text: 'OK'}]
+                );
+            } else {
+                throw new Error(result.error || 'Failed to load negotiation cart');
+            }
+        } catch (error) {
+            console.error('Error loading notification cart:', error);
+            Alert.alert(
+                'Error',
+                'Could not load the negotiated cart. Please try again.',
+                [
+                    {
+                        text: 'OK',
+                        onPress: async () => {
+                            await restoreOriginalSession();
+                            setIsNotificationCartMode(false);
+                            await loadCartData(false, true);
+                        }
+                    }
+                ]
+            );
+        } finally {
+            notificationLoadingInProgress.current = false;
+            isProcessingNotification.current = false;
+        }
     };
+
+// Memoized Cart Item Component for better performance
+    const CartItem = memo(({
+                               item,
+                               isBusinessUser,
+                               tierPricing,
+                               updatingItems,
+                               stockValidation,
+                               onUpdateQuantity,
+                               onRemoveItem,
+                               onOpenNegotiation,
+                               isNotificationCart // Add this prop
+                           }) => {
+        const itemValidation = stockValidation[item.id] || {};
+        const canIncrease = itemValidation.canIncrease !== false;
+        const isOutOfStock = !item.isAvailable;
+        const maxReached = item.quantity >= Math.min(item.currentStock, item.maxOrderQty);
+        const isDisabled = isOutOfStock || updatingItems[item.id];
+        const tierPricingApplied = isBusinessUser && tierPricing[item.variantId ? `${item.productId}_${item.variantId}` : item.productId];
+        const hasNegotiatedPrice = item.hasNegotiatedPrice && isNotificationCart;
+        console.log("shubham")
+        console.log(item)
+        return (
+            <View style={[styles.cartItemContainer, isOutOfStock && styles.outOfStockItem]}>
+                {/* Out of Stock Overlay */}
+                {isOutOfStock && (
+                    <View style={styles.outOfStockOverlay}>
+                        <Text style={styles.outOfStockText}>Out of Stock</Text>
+                    </View>
+                )}
+
+                {/* Negotiation Badge */}
+                {hasNegotiatedPrice && (
+                    <View style={styles.negotiationBadge}>
+                        <Text style={styles.negotiationBadgeText}>Negotiated Price</Text>
+                    </View>
+                )}
+
+                <View style={styles.contentRow}>
+                    {/* 1. Left Section: Product Image */}
+                    <View style={styles.imageWrapper}>
+                        <Image
+                            source={item.imageUrl ? {uri: `${API_BASE_URL}${item.imageUrl}`} : require("../../assets/sample-product.png")}
+                            style={styles.image}
+                            resizeMode="cover"
+                        />
+                    </View>
+
+                    {/* 2. Right Section: Details, Pricing, Controls */}
+                    <View style={styles.detailsContainer}>
+                        {/* Top Row: Name and Remove Button */}
+                        <View style={styles.headerRow}>
+                            <Text style={[styles.productName, isDisabled && styles.disabledText]} numberOfLines={2}>
+                                {item.name}
+                            </Text>
+                            <Pressable
+                                style={[styles.removeButton, isDisabled && styles.disabledButton]}
+                                onPress={() => onRemoveItem(item.productId, item.variantId, item.id)}
+                                disabled={isDisabled}
+                            >
+                                <Image
+                                    source={require("../../assets/icons/deleteIcon.png")}
+                                    style={[styles.removeIcon, isDisabled && styles.disabledIcon]}
+                                />
+                            </Pressable>
+                        </View>
+
+                        {/* Description/Stock/Min Qty Info */}
+                        <Text style={[styles.productDescription, isDisabled && styles.disabledText]} numberOfLines={1}>
+                            {item.description}
+                        </Text>
+
+                        <Text style={[
+                            styles.stockText,
+                            isOutOfStock ? styles.outOfStockLabel : styles.inStockLabel
+                        ]}>
+                            {isOutOfStock ? 'Out of Stock' : `${item.currentStock} available`}
+                        </Text>
+
+                        {isBusinessUser && item.minQty && item.minQty > 1 && (
+                            <Text style={styles.minQtyText}>Min. Qty: {item.minQty}</Text>
+                        )}
+
+                        {/* Pricing */}
+                        <View style={styles.priceSection}>
+                            {item.hasDiscount || hasNegotiatedPrice ? (
+                                <View style={styles.priceRow}>
+                                    <Text style={[styles.finalPrice, isDisabled && styles.disabledText]}>
+                                        ₹{item.finalPrice.toFixed(2)}
+                                    </Text>
+                                    {hasNegotiatedPrice && (
+                                        <Text style={[styles.originalPrice, styles.negotiatedOriginalPrice]}>
+                                            ₹{item.basePrice.toFixed(2)}
+                                        </Text>
+                                    )}
+                                    {item.hasDiscount && !hasNegotiatedPrice && (
+                                        <Text style={[styles.originalPrice, isDisabled && styles.disabledText]}>
+                                            ₹{item.basePrice.toFixed(2)}
+                                        </Text>
+                                    )}
+                                    {item.hasDiscount && !hasNegotiatedPrice && (
+                                        <View style={styles.discountBadge}>
+                                            <Text style={styles.discountText}>
+                                                {Math.round(((item.basePrice - item.finalPrice) / item.basePrice) * 100)}%
+                                                OFF
+                                            </Text>
+                                        </View>
+                                    )}
+                                </View>
+                            ) : (
+                                <Text style={[styles.finalPrice, isDisabled && styles.disabledText]}>
+                                    ₹{item.finalPrice.toFixed(2)}
+                                </Text>
+                            )}
+                        </View>
+
+                        {/* Subtotal and Additional Info */}
+                        <View style={styles.subtotalRow}>
+                            {/* Shipping Charge */}
+                            {item.shippingCharge > 0 && (
+                                <Text style={styles.shippingText}>Shipping: ₹{item.shippingCharge.toFixed(2)}</Text>
+                            )}
+                        </View>
+
+                        {/* Tier Pricing / Negotiation */}
+                        {(tierPricingApplied || (isBusinessUser && !isOutOfStock)) && (
+                            <View style={styles.businessFeaturesRow}>
+                                {tierPricingApplied && (
+                                    <Text style={styles.tierPricingText}>
+                                        Tier pricing applied
+                                    </Text>
+                                )}
+
+                                {isBusinessUser && !isOutOfStock && (
+                                    <Pressable
+                                        style={styles.negotiateButton}
+                                        onPress={() => onOpenNegotiation(item)}
+                                    >
+                                        <Text style={styles.negotiateButtonText}>Request Better Price</Text>
+                                    </Pressable>
+                                )}
+                            </View>
+                        )}
+
+                        {/* Quantity Control (Bottom Right) */}
+                        <View style={styles.quantityControlWrapper}>
+                            <View style={[styles.quantityControl, isDisabled && styles.disabledControl]}>
+                                <Pressable
+                                    style={styles.quantityButton}
+                                    onPress={() => onUpdateQuantity(item.id, item.quantity - 1, item.productId, item.variantId)}
+                                    disabled={isDisabled || item.quantity <= 1}
+                                >
+                                    <Text style={styles.controlText}>-</Text>
+                                </Pressable>
+
+                                <Text style={[styles.quantityText, isDisabled && styles.disabledText]}>
+                                    {updatingItems[item.id] ? '...' : item.quantity}
+                                </Text>
+
+                                <Pressable
+                                    style={styles.quantityButton}
+                                    onPress={() => onUpdateQuantity(item.id, item.quantity + 1, item.productId, item.variantId)}
+                                    disabled={!canIncrease || isDisabled}
+                                >
+                                    <Text style={styles.controlText}>+</Text>
+                                </Pressable>
+                            </View>
+                            {maxReached && !updatingItems[item.id] && (
+                                <Text style={styles.maxIndicatorText}>Max Quantity Reached</Text>
+                            )}
+                        </View>
+                    </View>
+                </View>
+            </View>
+        );
+    });
 
     // Load tier pricing for business users
     const loadTierPricing = async () => {
@@ -330,12 +446,25 @@ export default function CartScreen() {
     };
 
     // Auto refresh when screen comes into focus
-    useFocusEffect(useCallback(() => {
-        initializeSession();
-        loadCartData();
-        loadSelectedAddress();
-        loadWishlist();
-    }, []));
+    useFocusEffect(
+        useCallback(() => {
+
+
+            const checkAndRefresh = async () => {
+                const now = Date.now();
+                // Only refresh if it's been more than 10 seconds since last load
+                if (now - lastLoadTime.current > 10000) {
+                    await loadCartData(false, true);
+                }
+            };
+
+            checkAndRefresh();
+
+            return () => {
+                // Cleanup if needed
+            };
+        }, [])
+    );
 
     const parseUserId = (u) => u?._id || u?.id || u?.userId || null;
     const loadWishlist = async () => {
@@ -365,83 +494,203 @@ export default function CartScreen() {
         }
     };
 
-    // Load cart data - initial load only
-    const loadCartData = useCallback(async (isRefresh = false) => {
+    const lastProcessedParams = useRef(null);
+
+    useEffect(() => {
+        console.log("CartScreen params updated:", params);
+
+        // Only process params once when they change
+        if (params.action === "load_cart" && params.cartId && params.sessionId) {
+            const paramKey = `${params.cartId}-${params.sessionId}`;
+            console.log(paramKey)
+            console.log(lastProcessedParams.current)
+            console.log("hy")
+            lastProcessedParams.current = paramKey;
+            checkNotificationParams();
+        }
+    }, [params]);
+
+
+    useEffect(() => {
+        let mounted = true;
+
+        const initialize = async () => {
+            if (mounted) {
+                await initializeSession();
+                await loadCartData();
+                await loadSelectedAddress();
+                await loadWishlist();
+            }
+        };
+
+        initialize();
+
+        return () => {
+            mounted = false;
+            // Cleanup refs
+            isProcessingNotification.current = false;
+            notificationLoadingInProgress.current = false;
+        };
+    }, []); // Empty dependency array - runs once
+
+    const loadCartData = useCallback(async (isRefresh = false, force = false) => {
+        const now = Date.now();
+
+        // Throttle checks - but allow force refresh
+        if (!force && now - lastLoadTime.current < LOAD_THROTTLE_TIME) {
+            console.log("Skipping duplicate cart load (throttled)");
+            return;
+        }
+
+        // Don't load if notification is being processed, unless it's a force refresh
+        if (!force && (isProcessingNotification.current || notificationLoadingInProgress.current)) {
+            console.log("Skipping cart load - notification processing in progress");
+            return;
+        }
+
         try {
+            lastLoadTime.current = now;
+
             if (isRefresh) {
                 setRefreshing(true);
             } else {
                 setLoading(true);
             }
 
-            const res = await getCart();
-            const data = res?.data ?? res;
-            const items = Array.isArray(data?.items) ? data.items : [];
+            console.log("=== LOADING CART DATA ===");
+            console.log("Is notification cart mode:", isNotificationCartMode);
 
-            const mapped = items.map((ci) => {
-                // Extract prices correctly from your data structure
-                const basePrice = Number(ci?.variant?.price ?? ci?.unitPrice ?? 0);
-                const finalPrice = Number(ci?.finalPrice ?? ci?.unitPrice ?? 0);
-                const hasDiscount = basePrice > finalPrice;
+            // Get current session for debugging
+            const currentSessionId = await AsyncStorage.getItem('sessionId');
+            console.log("Current sessionId:", currentSessionId);
 
-                const currentStock = ci?.stockInfo?.currentStock || 0;
-                const isAvailable = ci?.stockInfo?.available || false;
-                const stockMessage = ci?.stockInfo?.message || '';
+            // Check if we should be in notification mode
+            const isActuallyNotificationCart = await checkIsNotificationCart();
+            if (isActuallyNotificationCart !== isNotificationCartMode) {
+                setIsNotificationCartMode(isActuallyNotificationCart);
+            }
 
-                return {
-                    id: ci?._id || ci?.id,
-                    productId: ci?.productId?._id || ci?.productId || ci?.product?._id,
-                    name: ci?.product?.title || ci?.product?.name || ci?.name || 'Product',
-                    description: ci?.variant?.name || ci?.variantAttributes || ci?.description || '',
-                    basePrice: basePrice,
-                    finalPrice: finalPrice,
-                    hasDiscount: hasDiscount,
-                    quantity: Number(ci?.quantity || 1),
-                    imageUrl: ci?.image || ci?.product?.thumbnail || ci?.product?.images?.[0] || ci?.variant?.images?.[0] || null,
-                    variantId: ci?.variantId || null,
-                    subtotal: Number(ci?.subtotal ?? (finalPrice * (ci?.quantity || 1))),
-                    minQty: ci?.minQty || 1,
-                    shippingCharge: ci?.shippingCharge || 0,
-                    currentStock: currentStock,
-                    isAvailable: isAvailable,
-                    stockMessage: stockMessage,
-                    maxOrderQty: ci?.product?.maxOrderQty || 9999,
-                    status: ci?.product?.status || 'active'
-                };
-            });
+            // Always use force=true to bypass API throttling
+            const res = await getCart(true);
 
-            setCartItems(mapped);
+            // Handle null response (throttled)
+            if (res === null) {
+                // Try again without throttle
+                const retryRes = await getCart(true);
+                if (retryRes === null) {
+                    throw new Error("Failed to load cart after retry");
+                }
+                processCartData(retryRes, isActuallyNotificationCart);
+                return;
+            }
 
-            // Update stock validation state
-            const stockValidationMap = {};
-            mapped.forEach(item => {
-                stockValidationMap[item.id] = {
-                    currentStock: item.currentStock,
-                    isAvailable: item.isAvailable,
-                    canIncrease: item.quantity < Math.min(item.currentStock, item.maxOrderQty),
-                    canDecrease: item.quantity > item.minQty
-                };
-            });
-            setStockValidation(stockValidationMap);
-
-            // Update cart totals
-            setCartInfo({
-                subtotal: Number(data?.totals?.subtotal ?? 0),
-                discount: Number(data?.totals?.discount ?? 0),
-                shipping: Number(data?.totals?.shipping ?? 0),
-                marketplaceFees: Number(data?.totals?.marketplaceFees ?? 0),
-                tax: Number(data?.totals?.tax ?? 0),
-                total: Number(data?.totals?.totalPayable ?? 0),
-            });
+            processCartData(res, isActuallyNotificationCart);
 
         } catch (error) {
             console.error('Cart load error:', error);
-            Alert.alert('Error', 'Failed to load cart data');
+
+            // If error in notification mode, try to restore
+            if (isNotificationCartMode) {
+
+                await restoreOriginalSession();
+                setIsNotificationCartMode(false);
+
+                // Try loading regular cart
+                try {
+                    const regularCart = await getCart(true);
+                    if (regularCart) {
+                        processCartData(regularCart, false);
+                    } else {
+                        throw new Error("Failed to load regular cart");
+                    }
+                } catch (retryError) {
+                    Alert.alert('Error', 'Failed to load cart data');
+                }
+            } else {
+                Alert.alert('Error', 'Failed to load cart data');
+            }
         } finally {
             setLoading(false);
             setRefreshing(false);
         }
-    }, []);
+    }, [isNotificationCartMode]);
+
+    const processCartData = (cartData, isActuallyNotificationCart) => {
+        const data = cartData?.data ?? cartData;
+        const items = Array.isArray(data?.items) ? data.items : [];
+
+        console.log("Cart data received:", {
+            hasData: !!data,
+            itemCount: items.length,
+            cartId: data?._id || data?.id,
+            isNotificationCart: isActuallyNotificationCart
+        });
+
+        // Handle empty notification cart
+        if (isActuallyNotificationCart && items.length === 0) {
+            console.log("⚠️ Notification cart is empty");
+            Alert.alert(
+                'Empty Cart',
+                'The negotiated cart appears to be empty or expired.',
+                [
+                    {
+                        text: 'Switch to Regular Cart',
+                        onPress: async () => {
+                            await restoreOriginalSession();
+                            setIsNotificationCartMode(false);
+                            await loadCartData(false, true);
+                        }
+                    }
+                ]
+            );
+        }
+
+        const mapped = items.map((ci) => {
+            // ... your existing mapping logic ...
+            const basePrice = Number(ci?.variant?.price ?? ci?.unitPrice ?? 0);
+            const finalPrice = Number(ci?.finalPrice ?? ci?.unitPrice ?? 0);
+            const hasDiscount = basePrice > finalPrice;
+
+            const currentStock = ci?.stockInfo?.currentStock || 0;
+            const isAvailable = ci?.stockInfo?.available || false;
+            const stockMessage = ci?.stockInfo?.message || '';
+
+            return {
+                id: ci?._id || ci?.id,
+                productId: ci?.productId?._id || ci?.productId || ci?.product?._id,
+                name: ci?.product?.title || ci?.product?.name || ci?.name || 'Product',
+                description: ci?.variant?.name || ci?.variantAttributes || ci?.description || '',
+                basePrice: basePrice,
+                finalPrice: finalPrice,
+                hasDiscount: hasDiscount,
+                quantity: Number(ci?.quantity || 1),
+                imageUrl: ci?.image || ci?.product?.thumbnail || ci?.product?.images?.[0] || ci?.variant?.images?.[0] || null,
+                variantId: ci?.variantId || null,
+                subtotal: Number(ci?.subtotal ?? (finalPrice * (ci?.quantity || 1))),
+                minQty: ci?.minQty || 1,
+                shippingCharge: ci?.shippingCharge || 0,
+                currentStock: currentStock,
+                isAvailable: isAvailable,
+                stockMessage: stockMessage,
+                maxOrderQty: ci?.product?.maxOrderQty || 9999,
+                status: ci?.product?.status || 'active',
+                hasNegotiatedPrice: ci?.hasNegotiatedPrice || false // Add this line
+            };
+        });
+
+        setCartItems(mapped);
+        console.log("Mapped items count:", mapped.length);
+
+        // Update cart totals
+        setCartInfo({
+            subtotal: Number(data?.totals?.subtotal ?? 0),
+            discount: Number(data?.totals?.discount ?? 0),
+            shipping: Number(data?.totals?.shipping ?? 0),
+            marketplaceFees: Number(data?.totals?.marketplaceFees ?? 0),
+            tax: Number(data?.totals?.tax ?? 0),
+            total: Number(data?.totals?.totalPayable ?? 0),
+        });
+    };
 
     // Optimized: Update cart totals only without reloading everything
     const updateCartTotalsOnly = useCallback(async () => {
@@ -521,16 +770,6 @@ export default function CartScreen() {
                     )
                 );
 
-                // Update stock validation for this item only
-                setStockValidation(prev => ({
-                    ...prev,
-                    [itemId]: {
-                        ...prev[itemId],
-                        canIncrease: newQuantity < Math.min(item.currentStock, item.maxOrderQty),
-                        canDecrease: newQuantity > item.minQty
-                    }
-                }));
-
                 // Update totals only
                 await updateCartTotalsOnly();
             }
@@ -538,13 +777,12 @@ export default function CartScreen() {
         } catch (error) {
             console.error('Update quantity error:', error);
             Alert.alert('Error', 'Failed to update quantity');
-            // Fallback: reload cart data if update fails
-            loadCartData(false);
+            // Force refresh cart data if update fails
+            await loadCartData(false, true);
         } finally {
             setUpdatingItems(prev => ({...prev, [itemId]: false}));
         }
-    }, [isBusinessUser, updateCartTotalsOnly, loadCartData]);
-
+    }, [isBusinessUser, updateCartTotalsOnly]);
     // Optimized item removal - updates only what's needed
     const removeItem = useCallback(async (productId, variantId = null, itemId) => {
         try {
@@ -723,8 +961,9 @@ export default function CartScreen() {
             onUpdateQuantity={updateQuantity}
             onRemoveItem={removeItem}
             onOpenNegotiation={openNegotiationModal}
+            isNotificationCart={isNotificationCartMode}
         />
-    ), [isBusinessUser, tierPricing, updatingItems, stockValidation, updateQuantity, removeItem, openNegotiationModal]);
+    ), [isBusinessUser, tierPricing, updatingItems, stockValidation, updateQuantity, removeItem, openNegotiationModal, isNotificationCartMode]);
 
     const renderWishlistItem = useCallback(({item}) => (
         <Pressable
@@ -734,49 +973,49 @@ export default function CartScreen() {
         >
             {/*<View style={styles.wishlistCard}>*/}
 
+            <Image
+                source={item.image}
+                style={styles.wishlistImage}
+                resizeMode="cover" // Ensure the image covers the area
+            />
+
+            {/* Delete Button */}
+            <Pressable
+                style={styles.wishlistRemove}
+                onPress={async () => {
+                    try {
+                        const raw = await AsyncStorage.getItem('userData');
+                        const user = raw ? JSON.parse(raw) : null;
+                        const uid = parseUserId(user);
+                        if (!uid) return;
+
+                        await removeFromWishlist(uid, item.productId);
+
+                        setWishlistItems(prev =>
+                            prev.filter(w => String(w.id) !== String(item.id))
+                        );
+                    } catch (_) {
+                    }
+                }}
+            >
                 <Image
-                    source={item.image}
-                    style={styles.wishlistImage}
-                    resizeMode="cover" // Ensure the image covers the area
+                    source={require('../../assets/icons/deleteIcon.png')}
+                    style={styles.wishlistRemoveIcon}
                 />
+            </Pressable>
 
-                {/* Delete Button */}
-                <Pressable
-                    style={styles.wishlistRemove}
-                    onPress={async () => {
-                        try {
-                            const raw = await AsyncStorage.getItem('userData');
-                            const user = raw ? JSON.parse(raw) : null;
-                            const uid = parseUserId(user);
-                            if (!uid) return;
-
-                            await removeFromWishlist(uid, item.productId);
-
-                            setWishlistItems(prev =>
-                                prev.filter(w => String(w.id) !== String(item.id))
-                            );
-                        } catch (_) {
-                        }
-                    }}
-                >
-                    <Image
-                        source={require('../../assets/icons/deleteIcon.png')}
-                        style={styles.wishlistRemoveIcon}
-                    />
-                </Pressable>
-
-                {/* Text */}
-                <View style={styles.wishlistContent}>
-                    <Text style={styles.wishlistName} numberOfLines={2}>
-                        {item.name}
-                    </Text>
-                </View>
+            {/* Text */}
+            <View style={styles.wishlistContent}>
+                <Text style={styles.wishlistName} numberOfLines={2}>
+                    {item.name}
+                </Text>
+            </View>
 
             {/*</View>*/}
         </Pressable>
     ), [handleProductPress]);
 
-    if (loading) {
+    if (loading || notificationLoading) {
         return (
             <SafeAreaView style={{flex: 1, backgroundColor: "#FFFFFF"}}>
                 <View style={[styles.header, {paddingTop: safeAreaInsets.top}]}>
@@ -791,12 +1030,21 @@ export default function CartScreen() {
                             style={styles.backIcon}
                         />
                     </Pressable>
-                    <Text style={styles.headerTitle}>Cart</Text>
+                    <Text style={styles.headerTitle}>
+                        {notificationLoading ? 'Loading...' : 'Cart'}
+                    </Text>
                     <View style={styles.headerPlaceholder}/>
                 </View>
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size={isTablet ? "large" : "large"} color="#4CAD73"/>
-                    <Text style={styles.loadingText}>Loading Your Cart...</Text>
+                    <Text style={styles.loadingText}>
+                        {notificationLoading ? 'Loading Negotiated Cart...' : 'Loading Your Cart...'}
+                    </Text>
+                    {notificationLoading && (
+                        <Text style={styles.loadingSubtext}>
+                            Loading your approved negotiation with special prices
+                        </Text>
+                    )}
                 </View>
             </SafeAreaView>
         );
@@ -857,7 +1105,8 @@ export default function CartScreen() {
                 <View style={styles.section}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>
-                            Cart Items {cartItems.length > 0 && `(${cartItems.length})`}
+                            {isNotificationCartMode ? 'Negotiated Items' : 'Cart Items'}
+                            {cartItems.length > 0 && ` (${cartItems.length})`}
                         </Text>
                     </View>
 
@@ -1627,6 +1876,7 @@ const styles = StyleSheet.create({
     wishlistContainer: {
         paddingHorizontal: RF(15),
         gap: RF(11),
+        marginBottom: RF(15),
     },
     wishlistCard: {
         width: RF(140),
@@ -2002,6 +2252,85 @@ const styles = StyleSheet.create({
         backgroundColor: '#4CAD73',
     },
     submitButtonText: {
+        color: '#FFFFFF',
+        fontSize: RF(14),
+        fontFamily: 'Poppins-SemiBold',
+    },
+    headerTitleContainer: {
+        flex: 1,
+        alignItems: 'center',
+    },
+    notificationBadge: {
+        fontSize: RF(10),
+        color: '#4CAD73',
+        fontFamily: 'Poppins-SemiBold',
+        backgroundColor: '#E6F2FF',
+        paddingHorizontal: RF(8),
+        paddingVertical: RF(2),
+        borderRadius: RF(12),
+        marginTop: RF(2),
+    },
+    exitNotificationButton: {
+        paddingHorizontal: RF(12),
+        paddingVertical: RF(6),
+        backgroundColor: '#FF6B35',
+        borderRadius: RF(8),
+    },
+    exitNotificationText: {
+        color: '#FFFFFF',
+        fontSize: RF(12),
+        fontFamily: 'Poppins-SemiBold',
+    },
+    negotiationNotice: {
+        backgroundColor: '#E8F5E9',
+        borderLeftColor: '#4CAD73',
+        paddingVertical: RF(14),
+    },
+    negotiationIdText: {
+        fontSize: RF(12),
+        color: '#2E7D32',
+        fontFamily: 'Poppins-Medium',
+        marginTop: RF(4),
+        textAlign: 'center',
+    },
+    negotiationBadge: {
+        position: 'absolute',
+        top: RF(8),
+        left: RF(8),
+        backgroundColor: '#4CAD73',
+        borderRadius: RF(4),
+        paddingHorizontal: RF(6),
+        paddingVertical: RF(2),
+        zIndex: 5,
+    },
+    negotiationBadgeText: {
+        color: '#FFFFFF',
+        fontSize: RF(10),
+        fontFamily: 'Poppins-SemiBold',
+    },
+    negotiatedOriginalPrice: {
+        fontSize: RF(12),
+        fontFamily: 'Poppins-Regular',
+        color: '#999',
+        textDecorationLine: 'line-through',
+        marginRight: RF(8),
+    },
+    loadingSubtext: {
+        fontSize: RF(12),
+        color: '#868889',
+        fontFamily: 'Poppins-Regular',
+        textAlign: 'center',
+        marginTop: RF(8),
+        lineHeight: RF(18),
+    },
+    switchToRegularButton: {
+        backgroundColor: '#4CAD73',
+        paddingHorizontal: RF(24),
+        paddingVertical: RF(12),
+        borderRadius: RF(8),
+        marginTop: RF(16),
+    },
+    switchToRegularText: {
         color: '#FFFFFF',
         fontSize: RF(14),
         fontFamily: 'Poppins-SemiBold',

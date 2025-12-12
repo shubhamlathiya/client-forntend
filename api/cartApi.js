@@ -1,7 +1,8 @@
 import apiClient from "../utils/apiClient";
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {getIdentity, getSelectedAddressId, getUserType} from "./sessionManager";
+import {getCurrentSessionId, getIdentity, getSelectedAddressId, getUserType} from "./sessionManager";
+import {isNotificationCart, restoreOriginalSession} from "./cartNotificationHelpers";
 
 
 // Helper function to get current user ID
@@ -50,34 +51,61 @@ export const createNewCart = async () => {
     }
 };
 
+const getFreshSessionId = async () => {
+    return await getCurrentSessionId();
+};
+
+let lastSessionId = null;
 // Fetch current cart
-export const getCart = async () => {
+export const getCart = async (forceRefresh = false) => {
     try {
-        const { sessionId } = await getIdentity();
+        const sessionId = await getFreshSessionId();
         const loginType = await getUserType();
         const addressId = await getSelectedAddressId();
-        const params = { sessionId, loginType ,addressId};
+
+        lastSessionId = sessionId;
+
+        const params = {
+            sessionId,
+            loginType,
+            addressId,
+            isNotificationCart: await isNotificationCart(),
+        };
+
+        // console.log("🔍 getCart REQUEST:", params);
+
         const res = await apiClient.get("/api/cart", { params });
+
+        // console.log("📦 getCart RESPONSE:", {
+        //     status: res.status,
+        //     cartId: res.data?._id,
+        //     items: res.data?.items?.length
+        // });
+
         return res.data;
+    } catch (err) {
+        console.error("getCart error:", err);
 
-    } catch (error) {
-        const status = error.response?.status;
-
-        if (status === 404) {
-            await AsyncStorage.removeItem("sessionId");
-            return await createNewCart();
+        // Handle missing notification cart
+        if (err.response?.status === 404) {
+            if (await isNotificationCart()) {
+                console.log("Notification cart missing. Restoring original session.");
+                await restoreOriginalSession();
+            }
+            return createNewCart();
         }
 
-        if (status === 401) {
+        // Token expired
+        if (err.response?.status === 401) {
             await SecureStore.deleteItemAsync("accessToken");
             await SecureStore.deleteItemAsync("refreshToken");
-            return await createNewCart();
+            return createNewCart();
         }
 
-        console.error("Get cart error:", error);
-        throw error;
+        throw err;
     }
 };
+
 
 // Add item to cart
 export const addCartItem = async ({productId, variantId = null, quantity = 1}) => {
@@ -146,7 +174,6 @@ export const clearCart = async () => {
         const res = await apiClient.delete(`/api/cart/clear`, {data: {sessionId}});
         return res.data;
     } catch (error) {
-        // If clear endpoint doesn't exist, fallback to creating new cart
         if (error.response?.status === 404) {
             console.log('Clear cart endpoint not found, creating new cart instead...');
             return await createNewCart();

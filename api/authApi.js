@@ -109,9 +109,9 @@ export const uploadProfileImage = async (userId, formData) => {
 };
 
 
-export const updateUserPhone = async (userId, phone) => {
+export const updateUserPhone = async (userId, name, phone) => {
     try {
-        const response = await apiClient.put(`/api/users/updatephone`, {phone});
+        const response = await apiClient.put(`/api/users/updatephone`, {name, phone});
 
         return response.data;
     } catch (error) {
